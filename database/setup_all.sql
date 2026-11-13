@@ -1,0 +1,930 @@
+-- ============================================================================
+-- Renta UG · full database setup (GENERATED, do not edit, run `npm run db:bundle`)
+--
+-- ⚠ Starts by DELETING all existing Renta tables and data, then recreates everything.
+-- Paste the whole file into Supabase → SQL Editor → Run.
+-- It also creates the main admin login (12_main_admin.sql); sign in at /admin2026.
+--
+-- Includes: 00_reset.sql, 01_profiles.sql, 02_properties.sql, 03_tenants.sql, 04_payments.sql, 05_notifications.sql, 07_functions.sql, 08_policies.sql, 09_realtime.sql, 11_backfill_profiles.sql, 12_main_admin.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql
+-- ============================================================================
+
+-- ────────────── 00_reset.sql ──────────────
+
+-- 00 · reset
+-- ⚠ Deletes ALL Renta tables and their data (properties, tenants, payments, notifications,
+-- alerts, profiles). Login accounts in Supabase Auth are kept.
+
+drop trigger if exists on_auth_user_created on auth.users;
+
+drop table if exists
+  public.staff_notifications,
+  public.payment_receipts,
+  public.momo_attempts,
+  public.push_subscriptions,
+  public.alerts,
+  public.notifications,
+  public.payments,
+  public.tenants,
+  public.properties,
+  public.profiles
+cascade;
+
+drop function if exists public.handle_new_user() cascade;
+drop function if exists public.link_tenant_user() cascade;
+drop function if exists public.new_connect_code(uuid) cascade;
+drop function if exists public.redeem_connect_code(text) cascade;
+drop function if exists public.complete_password_setup() cascade;
+drop function if exists public.send_lease_reminders() cascade;
+drop function if exists public.record_cash_payment(uuid, bigint, timestamptz, text) cascade;
+drop function if exists public.save_push_subscription(text, text, text) cascade;
+drop function if exists public.delete_push_subscription(text) cascade;
+drop function if exists public.readd_tenant(uuid, uuid, text, text, text, date, date) cascade;
+drop function if exists public.set_tenant_person_id() cascade;
+drop function if exists public.my_property_id() cascade;
+drop function if exists public.my_landlord_id() cascade;
+drop function if exists public.owns_property(uuid) cascade;
+drop function if exists public.owns_tenant(uuid) cascade;
+drop function if exists public.is_admin() cascade;
+drop function if exists public.is_superadmin() cascade;
+drop function if exists public.is_landlord() cascade;
+drop function if exists public.my_tenant_id() cascade;
+
+-- ────────────── 01_profiles.sql ──────────────
+
+-- 01 · profiles
+-- One row per login account (created automatically on sign-up, see 07_functions.sql).
+-- role:
+--   superadmin → the main admin from .env (ADMIN_*), signs in at /admin2026, monitors everything
+--   landlord   → registered by the main admin, manages their own properties and tenants
+--   tenant     → signs up themselves, connects to a landlord with a code
+
+create table public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  email text not null,
+  full_name text,
+  phone text,
+  role text not null default 'tenant' check (role in ('superadmin', 'landlord', 'tenant')),
+  active boolean not null default true, -- false = landlord suspended by the main admin
+  created_at timestamptz not null default now()
+);
+
+-- ────────────── 02_properties.sql ──────────────
+
+-- 02 · properties
+-- Houses/units, each owned by a landlord.
+
+create table public.properties (
+  id uuid primary key default gen_random_uuid(),
+  landlord_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  name text not null,
+  location text not null,
+  type text not null default 'Apartment',
+  bedrooms int not null default 1,
+  bathrooms int not null default 1,
+  rent bigint not null check (rent >= 0), -- monthly rent in whole UGX
+  created_at timestamptz not null default now()
+);
+
+create index properties_landlord_id_idx on public.properties (landlord_id);
+
+-- ────────────── 03_tenants.sql ──────────────
+
+-- 03 · tenants
+-- People renting a property, added by their landlord.
+-- The tenant creates their own account, then enters a connection code (valid 20 minutes)
+-- that the landlord generates; that fills in `user_id` (see 07_functions.sql).
+-- `property_id` is null for former tenants (history is kept).
+
+create table public.tenants (
+  id uuid primary key default gen_random_uuid(),
+  landlord_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  user_id uuid unique references auth.users (id) on delete set null,
+  property_id uuid references public.properties (id) on delete set null,
+  full_name text not null,
+  email text,
+  phone text,
+  lease_start date,
+  lease_end date,
+  connect_code text unique,              -- 6-character code shared with the tenant
+  connect_code_expires_at timestamptz,   -- code stops working after this
+  last_property_id uuid references public.properties (id) on delete set null, -- house before the tenancy ended
+  ended_at timestamptz,                  -- when the tenancy ended (null = current tenant)
+  created_at timestamptz not null default now()
+);
+
+create unique index tenants_landlord_email_key on public.tenants (landlord_id, lower(email));
+create index tenants_landlord_id_idx on public.tenants (landlord_id);
+create index tenants_property_id_idx on public.tenants (property_id);
+
+-- ────────────── 04_payments.sql ──────────────
+
+-- 04 · payments
+-- One rent charge per tenant per month. Starts as 'pending'; becomes 'paid' when fully paid by mobile
+-- money (verified by the server) or cash recorded by the landlord (part payments: see 17).
+-- "Overdue" is not stored: the app derives it from due_date.
+
+create table public.payments (
+  id uuid primary key default gen_random_uuid(),
+  landlord_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  property_id uuid references public.properties (id) on delete set null,
+  period text not null check (period ~ '^\d{4}-\d{2}$'), -- YYYY-MM
+  amount bigint not null check (amount > 0),             -- whole UGX
+  due_date date not null,
+  status text not null default 'pending' check (status in ('pending', 'paid')),
+  paid_at timestamptz,
+  method text,     -- MTN Mobile Money, Airtel Money, Cash
+  reference text,  -- mobile money transaction reference
+  created_at timestamptz not null default now(),
+  unique (tenant_id, period)
+);
+
+create index payments_landlord_id_idx on public.payments (landlord_id);
+create index payments_tenant_id_idx on public.payments (tenant_id);
+
+-- ────────────── 05_notifications.sql ──────────────
+
+-- 05 · notifications
+-- Messages from a landlord (or the system) to one of their tenants.
+
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  landlord_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  type text not null default 'general' check (type in ('general', 'maintenance', 'payment')),
+  title text not null,
+  body text not null,
+  read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index notifications_landlord_id_idx on public.notifications (landlord_id);
+create index notifications_tenant_id_idx on public.notifications (tenant_id);
+
+-- ────────────── 07_functions.sql ──────────────
+
+-- 07 · helper functions and triggers
+-- Requires tables 01–05. Safe to run again (replaces the functions, recreates the trigger).
+
+-- Current user's role checks (security definer so RLS policies don't recurse)
+create or replace function public.is_superadmin() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'superadmin');
+$$;
+
+create or replace function public.is_landlord() returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'landlord' and active);
+$$;
+
+-- The tenant record belonging to the current user, if any.
+create or replace function public.my_tenant_id() returns uuid
+language sql stable security definer set search_path = '' as $$
+  select id from public.tenants where user_id = auth.uid();
+$$;
+
+-- New sign-up → create a profile. Everyone starts as a tenant; landlords are promoted
+-- by the server when the main admin registers them, the main admin by 12_main_admin.sql.
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  insert into public.profiles (id, email, full_name)
+  values (new.id, new.email, coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Landlord: create a fresh 6-character connection code for one of their tenants, valid 20 minutes.
+-- Returns {"code": "...", "expires_at": "..."}.
+create or replace function public.new_connect_code(p_tenant_id uuid) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; -- no 0/O/1/I
+  c text;
+  expires timestamptz := now() + interval '20 minutes';
+begin
+  if not public.is_landlord() then
+    raise exception 'Only landlords can create connection codes.';
+  end if;
+
+  loop
+    c := '';
+    for i in 1..6 loop
+      c := c || substr(alphabet, 1 + get_byte(extensions.gen_random_bytes(1), 0) % 32, 1);
+    end loop;
+    exit when not exists (select 1 from public.tenants where connect_code = c);
+  end loop;
+
+  update public.tenants
+  set connect_code = c, connect_code_expires_at = expires
+  where id = p_tenant_id and landlord_id = auth.uid() and user_id is null;
+
+  if not found then
+    raise exception 'Tenant not found, or already connected to an account.';
+  end if;
+
+  return json_build_object('code', c, 'expires_at', expires);
+end $$;
+
+-- Tenant: enter a code to connect your account to the landlord who issued it.
+create or replace function public.redeem_connect_code(p_code text) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  t_id uuid;
+  me uuid := auth.uid();
+begin
+  if me is null then
+    raise exception 'Please sign in first.';
+  end if;
+  if not exists (select 1 from public.profiles where id = me and role = 'tenant') then
+    raise exception 'Only tenant accounts can use a connection code.';
+  end if;
+  if exists (select 1 from public.tenants where user_id = me and property_id is not null) then
+    raise exception 'Your account is already connected to a rental.';
+  end if;
+
+  select id into t_id
+  from public.tenants
+  where connect_code = upper(trim(p_code))
+    and connect_code_expires_at > now()
+    and user_id is null
+  for update;
+
+  if t_id is null then
+    raise exception 'This code is invalid or has expired. Ask your landlord for a new one.';
+  end if;
+
+  -- Detach any former-tenant record so user_id stays unique
+  update public.tenants set user_id = null where user_id = me;
+
+  update public.tenants
+  set user_id = me,
+      email = coalesce(email, (select email from auth.users where id = me)),
+      connect_code = null,
+      connect_code_expires_at = null
+  where id = t_id;
+
+  return t_id;
+end $$;
+
+revoke execute on function public.new_connect_code(uuid) from public, anon;
+revoke execute on function public.redeem_connect_code(text) from public, anon;
+grant execute on function public.new_connect_code(uuid) to authenticated;
+grant execute on function public.redeem_connect_code(text) to authenticated;
+
+-- ────────────── 08_policies.sql ──────────────
+
+-- 08 · row level security
+--   superadmin → can READ everything (monitoring); landlords are created via the server
+--   landlord   → full control of rows where landlord_id = their id
+--   tenant     → reads their own records; may only mark notifications as read
+-- Payments are marked paid by the server (service role), never by tenants.
+--
+-- Safe to run again on an existing database (drops and recreates the policies, keeps data).
+-- Requires 07_functions.sql.
+
+-- ── Helper lookups ──
+-- Policies must not query another table whose own policies query back (tenants ↔ properties,
+-- profiles → tenants), or Postgres reports "infinite recursion detected in policy".
+-- These security definer functions read the tables directly, bypassing RLS, so there's no loop.
+
+create or replace function public.my_property_id() returns uuid
+language sql stable security definer set search_path = '' as $$
+  select property_id from public.tenants where user_id = auth.uid();
+$$;
+
+create or replace function public.my_landlord_id() returns uuid
+language sql stable security definer set search_path = '' as $$
+  select landlord_id from public.tenants where user_id = auth.uid();
+$$;
+
+create or replace function public.owns_property(p_id uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.properties where id = p_id and landlord_id = auth.uid());
+$$;
+
+create or replace function public.owns_tenant(t_id uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.tenants where id = t_id and landlord_id = auth.uid());
+$$;
+
+-- ── Table access ──
+-- Newer Supabase projects don't grant this automatically. The policies below still restrict
+-- which rows each user can touch.
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all on all tables in schema public to service_role;
+grant execute on function
+  public.is_superadmin(), public.is_landlord(), public.my_tenant_id(),
+  public.my_property_id(), public.my_landlord_id(), public.owns_property(uuid), public.owns_tenant(uuid)
+to authenticated;
+
+alter table public.profiles enable row level security;
+alter table public.properties enable row level security;
+alter table public.tenants enable row level security;
+alter table public.payments enable row level security;
+alter table public.notifications enable row level security;
+
+-- ── profiles ──
+drop policy if exists "profiles read" on public.profiles;
+drop policy if exists "profiles update own" on public.profiles;
+
+create policy "profiles read" on public.profiles for select to authenticated
+  using (id = auth.uid() or public.is_superadmin() or id = public.my_landlord_id()); -- tenant sees their landlord's contact
+create policy "profiles update own" on public.profiles for update to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
+revoke insert, update, delete on public.profiles from anon, authenticated;
+grant update (full_name, phone) on public.profiles to authenticated; -- users can't change their own role
+
+-- ── properties ──
+drop policy if exists "properties landlord" on public.properties;
+drop policy if exists "properties superadmin read" on public.properties;
+drop policy if exists "properties tenant read" on public.properties;
+
+create policy "properties landlord" on public.properties for all to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid())
+  with check (public.is_landlord() and landlord_id = auth.uid());
+create policy "properties superadmin read" on public.properties for select to authenticated
+  using (public.is_superadmin());
+create policy "properties tenant read" on public.properties for select to authenticated
+  using (id = public.my_property_id());
+
+-- ── tenants ──
+drop policy if exists "tenants landlord" on public.tenants;
+drop policy if exists "tenants superadmin read" on public.tenants;
+drop policy if exists "tenants read own" on public.tenants;
+
+create policy "tenants landlord" on public.tenants for all to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid())
+  with check (
+    public.is_landlord() and landlord_id = auth.uid()
+    and (property_id is null or public.owns_property(property_id))
+    and (last_property_id is null or public.owns_property(last_property_id))
+  );
+create policy "tenants superadmin read" on public.tenants for select to authenticated
+  using (public.is_superadmin());
+create policy "tenants read own" on public.tenants for select to authenticated
+  using (user_id = auth.uid());
+
+-- ── payments ──
+drop policy if exists "payments landlord" on public.payments;
+drop policy if exists "payments superadmin read" on public.payments;
+drop policy if exists "payments read own" on public.payments;
+
+create policy "payments landlord" on public.payments for all to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid())
+  with check (public.is_landlord() and landlord_id = auth.uid() and public.owns_tenant(tenant_id));
+create policy "payments superadmin read" on public.payments for select to authenticated
+  using (public.is_superadmin());
+create policy "payments read own" on public.payments for select to authenticated
+  using (tenant_id = public.my_tenant_id());
+
+-- ── notifications (tenants may only flip `read`) ──
+drop policy if exists "notifications landlord" on public.notifications;
+drop policy if exists "notifications superadmin read" on public.notifications;
+drop policy if exists "notifications read own" on public.notifications;
+drop policy if exists "notifications mark read" on public.notifications;
+
+create policy "notifications landlord" on public.notifications for all to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid())
+  with check (public.is_landlord() and landlord_id = auth.uid() and public.owns_tenant(tenant_id));
+create policy "notifications superadmin read" on public.notifications for select to authenticated
+  using (public.is_superadmin());
+create policy "notifications read own" on public.notifications for select to authenticated
+  using (tenant_id = public.my_tenant_id());
+create policy "notifications mark read" on public.notifications for update to authenticated
+  using (tenant_id = public.my_tenant_id() or (public.is_landlord() and landlord_id = auth.uid()))
+  with check (tenant_id = public.my_tenant_id() or (public.is_landlord() and landlord_id = auth.uid()));
+revoke update on public.notifications from anon, authenticated;
+grant update (read) on public.notifications to authenticated;
+
+-- ────────────── 09_realtime.sql ──────────────
+
+-- 09 · realtime
+-- Lets the app receive live updates: notifications, payments, and tenants
+-- (so the landlord sees the moment a tenant connects with their code).
+-- Safe to run again (skips tables that are already added).
+
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['notifications', 'payments', 'tenants'] loop
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then
+      null; -- already added
+    end;
+  end loop;
+end $$;
+
+-- ────────────── 11_backfill_profiles.sql ──────────────
+
+-- 11 · backfill profiles
+-- Gives a profile to any login account that existed before the tables were (re)created,
+-- so people who already signed up can still sign in. Safe to run any time.
+
+insert into public.profiles (id, email, full_name)
+select u.id, u.email, coalesce(u.raw_user_meta_data ->> 'full_name', split_part(u.email, '@', 1))
+from auth.users u
+on conflict (id) do nothing;
+
+-- ────────────── 12_main_admin.sql ──────────────
+
+-- 12 · main admin (superadmin)
+-- Creates the main admin login directly in the database, or resets it if it already exists.
+-- The main admin signs in at /admin2026.
+--
+-- To change any detail: edit the values below and run this file again
+-- (it is also included in setup_all.sql). Safe to run any time.
+
+do $$
+declare
+  v_email    text := 'shofascompany@gmail.com';
+  v_password text := '1234man.';
+  v_name     text := 'Abraham';
+  v_phone    text := '0703089488';
+  v_id       uuid;
+begin
+  v_email := lower(trim(v_email));
+  select id into v_id from auth.users where lower(email) = v_email;
+
+  if v_id is null then
+    -- New login account, already email-confirmed
+    v_id := gen_random_uuid();
+    insert into auth.users (
+      instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+      confirmation_token, recovery_token, email_change, email_change_token_new,
+      email_change_token_current, phone_change, phone_change_token, reauthentication_token
+    ) values (
+      '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated', v_email,
+      extensions.crypt(v_password, extensions.gen_salt('bf')), now(),
+      '{"provider":"email","providers":["email"]}', jsonb_build_object('full_name', v_name), now(), now(),
+      '', '', '', '', '', '', '', ''
+    );
+  else
+    -- Existing account: force the password, confirm the email, lift any suspension
+    update auth.users
+    set encrypted_password = extensions.crypt(v_password, extensions.gen_salt('bf')),
+        email_confirmed_at = coalesce(email_confirmed_at, now()),
+        banned_until = null,
+        raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_name),
+        updated_at = now()
+    where id = v_id;
+  end if;
+
+  -- Email/password identity (needed for sign-in)
+  insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (
+    gen_random_uuid(), v_id, v_id::text,
+    jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true),
+    'email', now(), now(), now()
+  )
+  on conflict (provider_id, provider) do nothing;
+
+  -- Make it the one and only main admin
+  insert into public.profiles (id, email, full_name, phone, role, active)
+  values (v_id, v_email, v_name, v_phone, 'superadmin', true)
+  on conflict (id) do update
+    set email = excluded.email, full_name = excluded.full_name, phone = excluded.phone,
+        role = 'superadmin', active = true;
+
+  update public.profiles set role = 'tenant' where role = 'superadmin' and id <> v_id;
+end $$;
+
+-- ────────────── 13_first_login_password.sql ──────────────
+
+-- 13 · first-login password
+-- Landlords get a temporary password from the main admin. On their first sign-in they must
+-- choose their own password; after that they go straight to their dashboard.
+-- Safe to run on its own on an existing database (no data is deleted).
+
+alter table public.profiles
+  add column if not exists must_change_password boolean not null default false;
+
+-- Called by the app right after the user has set their new password.
+create or replace function public.complete_password_setup() returns void
+language sql volatile security definer set search_path = '' as $$
+  update public.profiles set must_change_password = false where id = auth.uid();
+$$;
+
+revoke execute on function public.complete_password_setup() from public, anon;
+grant execute on function public.complete_password_setup() to authenticated;
+
+-- ────────────── 14_tenant_records.sql ──────────────
+
+-- 14 · tenant records
+-- When a landlord ends a tenancy, the tenant moves to "Records": property_id becomes null,
+-- and we remember which house they were in and when they left. All their payments,
+-- notifications and alerts are kept. They can be added back later with history intact.
+-- Safe to run on its own on an existing database (no data is deleted).
+
+alter table public.tenants
+  add column if not exists last_property_id uuid references public.properties (id) on delete set null,
+  add column if not exists ended_at timestamptz;
+
+-- Existing former tenants: work out their last house from their latest rent charge.
+update public.tenants t
+set last_property_id = (
+  select p.property_id from public.payments p
+  where p.tenant_id = t.id and p.property_id is not null
+  order by p.period desc
+  limit 1
+)
+where t.property_id is null and t.last_property_id is null;
+
+-- ────────────── 15_tenant_stays.sql ──────────────
+
+-- 15 · tenant stays
+-- Each row in `tenants` is one STAY: one person in one house for one period, with its own
+-- payments, notifications and alerts. When a landlord adds a former tenant back, a NEW stay
+-- is created (fresh history) and linked to the same person via `person_id`. Old stays stay in
+-- Records, separated per house and period.
+-- Safe to run on its own on an existing database (no data is deleted).
+
+alter table public.tenants add column if not exists person_id uuid;
+update public.tenants set person_id = id where person_id is null;
+alter table public.tenants alter column person_id set not null;
+create index if not exists tenants_person_id_idx on public.tenants (person_id);
+
+-- A new person's first stay: person_id = its own id
+create or replace function public.set_tenant_person_id() returns trigger
+language plpgsql as $$
+begin
+  new.person_id := coalesce(new.person_id, new.id);
+  return new;
+end $$;
+
+drop trigger if exists tenants_person_id on public.tenants;
+create trigger tenants_person_id
+  before insert on public.tenants
+  for each row execute function public.set_tenant_person_id();
+
+-- The same email may now appear on several (past) stays; only CURRENT tenants must be unique.
+drop index if exists public.tenants_landlord_email_key;
+create unique index if not exists tenants_current_email_key
+  on public.tenants (landlord_id, lower(email))
+  where property_id is not null;
+
+-- Landlord: add a former tenant back into a house as a NEW stay.
+-- Their app account (if any) moves to the new stay, so their dashboard starts fresh.
+create or replace function public.readd_tenant(
+  p_former_id uuid,
+  p_property_id uuid,
+  p_full_name text,
+  p_email text,
+  p_phone text,
+  p_lease_start date,
+  p_lease_end date
+) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_person uuid;
+  v_email text;
+  v_user uuid;
+  v_new uuid;
+begin
+  if not public.is_landlord() then
+    raise exception 'Only landlords can add tenants.';
+  end if;
+
+  select person_id, email into v_person, v_email
+  from public.tenants
+  where id = p_former_id and landlord_id = auth.uid();
+  if v_person is null then
+    raise exception 'Former tenant not found.';
+  end if;
+
+  if exists (select 1 from public.tenants where person_id = v_person and property_id is not null) then
+    raise exception 'This tenant is already renting one of your houses.';
+  end if;
+  if not public.owns_property(p_property_id) then
+    raise exception 'House not found.';
+  end if;
+  if exists (select 1 from public.tenants where property_id = p_property_id) then
+    raise exception 'That house already has a tenant.';
+  end if;
+
+  -- Move the app account link from the old stay(s) to the new one
+  select user_id into v_user from public.tenants where person_id = v_person and user_id is not null limit 1;
+  update public.tenants set user_id = null where person_id = v_person and user_id is not null;
+
+  insert into public.tenants (landlord_id, person_id, user_id, property_id, full_name, email, phone, lease_start, lease_end)
+  values (
+    auth.uid(), v_person, v_user, p_property_id,
+    p_full_name, coalesce(nullif(lower(trim(p_email)), ''), v_email), nullif(trim(p_phone), ''),
+    p_lease_start, p_lease_end
+  )
+  returning id into v_new;
+
+  return v_new;
+end $$;
+
+revoke execute on function public.readd_tenant(uuid, uuid, text, text, text, date, date) from public, anon;
+grant execute on function public.readd_tenant(uuid, uuid, text, text, text, date, date) to authenticated;
+
+-- ────────────── 16_reminders_push_momo.sql ──────────────
+
+-- 16 · reminders, phone notifications and mobile money
+--   • removes the old "alerts" feature (the app now uses notifications only)
+--   • automatic end-of-stay reminders: every day in the last 7 days of a lease (pg_cron)
+--   • push subscriptions: which phones get notifications in their notification panel
+--   • mobile money attempts: MTN / Airtel payments, verified automatically by the server
+-- Safe to run more than once. ⚠ Deletes the alerts table and its data.
+
+-- ── Remove alerts ──
+drop table if exists public.alerts cascade;
+
+-- ── Notifications: reminder type, de-duplication, push tracking ──
+alter table public.notifications drop constraint if exists notifications_type_check;
+alter table public.notifications
+  add constraint notifications_type_check check (type in ('general', 'maintenance', 'payment', 'reminder'));
+alter table public.notifications add column if not exists dedupe_key text;
+alter table public.notifications add column if not exists pushed_at timestamptz;
+create unique index if not exists notifications_dedupe_key on public.notifications (dedupe_key);
+-- Don't push old notifications when phone notifications are first switched on
+update public.notifications set pushed_at = coalesce(pushed_at, created_at) where pushed_at is null and created_at < now() - interval '10 minutes';
+
+-- ── End-of-stay reminders ──
+-- One notification per tenant per day while 0–7 days remain on the lease (Uganda time).
+create or replace function public.send_lease_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := (now() at time zone 'Africa/Kampala')::date;
+  n integer;
+begin
+  insert into public.notifications (landlord_id, tenant_id, type, title, body, dedupe_key)
+  select
+    t.landlord_id,
+    t.id,
+    'reminder',
+    case
+      when d.days_left = 0 then 'Your stay ends today'
+      when d.days_left = 1 then 'Your stay ends tomorrow'
+      else format('%s days left in your stay', d.days_left)
+    end,
+    case
+      when d.days_left = 0 then format(
+        'Your stay at %s ends today. Please clear any rent due today and speak to your landlord about renewing or moving out.', p.name)
+      when d.days_left = 1 then format(
+        'Your stay at %s ends tomorrow (%s). Please have your payment ready and confirm your plans with your landlord.',
+        p.name, to_char(t.lease_end, 'FMDD Mon YYYY'))
+      else format(
+        'Your stay at %s ends in %s days, on %s. Start preparing your payment to renew, or let your landlord know your plans.',
+        p.name, d.days_left, to_char(t.lease_end, 'FMDD Mon YYYY'))
+    end,
+    format('lease_end:%s:%s', t.id, today)
+  from public.tenants t
+  join public.properties p on p.id = t.property_id
+  cross join lateral (select (t.lease_end - today) as days_left) d
+  where t.property_id is not null
+    and t.lease_end is not null
+    and d.days_left between 0 and 7
+  on conflict (dedupe_key) do nothing;
+
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+revoke execute on function public.send_lease_reminders() from public, anon, authenticated;
+
+-- Run every day at 06:00 UTC = 09:00 in Kampala
+create extension if not exists pg_cron;
+select cron.schedule('renta-lease-reminders', '0 6 * * *', 'select public.send_lease_reminders()');
+-- …and once now, so anyone already in their last week is reminded today
+select public.send_lease_reminders();
+
+-- ── Phones registered for notifications ──
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_id_idx on public.push_subscriptions (user_id);
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists "push read own" on public.push_subscriptions;
+create policy "push read own" on public.push_subscriptions for select to authenticated using (user_id = auth.uid());
+
+-- Save / remove this device for the signed-in user (a phone may change hands between accounts)
+create or replace function public.save_push_subscription(p_endpoint text, p_p256dh text, p_auth text) returns void
+language sql volatile security definer set search_path = '' as $$
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth)
+  values (auth.uid(), p_endpoint, p_p256dh, p_auth)
+  on conflict (endpoint) do update set user_id = auth.uid(), p256dh = excluded.p256dh, auth = excluded.auth;
+$$;
+
+create or replace function public.delete_push_subscription(p_endpoint text) returns void
+language sql volatile security definer set search_path = '' as $$
+  delete from public.push_subscriptions where endpoint = p_endpoint and user_id = auth.uid();
+$$;
+
+revoke execute on function public.save_push_subscription(text, text, text) from public, anon;
+revoke execute on function public.delete_push_subscription(text) from public, anon;
+grant execute on function public.save_push_subscription(text, text, text) to authenticated;
+grant execute on function public.delete_push_subscription(text) to authenticated;
+
+-- ── Mobile money payment attempts (written only by the server) ──
+create table if not exists public.momo_attempts (
+  id uuid primary key default gen_random_uuid(),
+  payment_id uuid not null references public.payments (id) on delete cascade,
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  landlord_id uuid not null references auth.users (id) on delete cascade,
+  network text not null check (network in ('MTN', 'AIRTEL')),
+  phone text not null,
+  amount bigint not null,
+  tx_ref text not null unique,
+  provider text not null,              -- 'flutterwave' or 'test'
+  provider_ref text,
+  status text not null default 'pending' check (status in ('pending', 'successful', 'failed')),
+  failure_reason text,
+  redirect_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists momo_attempts_payment_id_idx on public.momo_attempts (payment_id);
+create index if not exists momo_attempts_pending_idx on public.momo_attempts (status) where status = 'pending';
+alter table public.momo_attempts enable row level security;
+
+-- Table access: read only for signed-in users (writes go through the functions / the server)
+revoke all on public.push_subscriptions, public.momo_attempts from anon, authenticated;
+grant select on public.push_subscriptions, public.momo_attempts to authenticated;
+grant all on public.push_subscriptions, public.momo_attempts to service_role;
+
+drop policy if exists "momo tenant read" on public.momo_attempts;
+drop policy if exists "momo landlord read" on public.momo_attempts;
+create policy "momo tenant read" on public.momo_attempts for select to authenticated using (tenant_id = public.my_tenant_id());
+create policy "momo landlord read" on public.momo_attempts for select to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid());
+
+-- ────────────── 17_cash_receipts_inbox.sql ──────────────
+
+-- 17 · cash payments, receipts and staff inbox
+--   • payments can be paid in parts: amount_paid tracks how much of each rent charge is paid
+--   • payment_receipts: every amount received (cash or mobile money), kept for the records
+--   • record_cash_payment(): landlord records cash; it's applied to the oldest unpaid rent first.
+--     The tenant gets a confirmation only when a month's rent is fully paid
+--   • staff_notifications: inbox for landlords and the main admin (e.g. "payment received")
+-- Safe to run more than once. No data is deleted.
+
+-- ── Part payments ──
+alter table public.payments add column if not exists amount_paid bigint not null default 0;
+update public.payments set amount_paid = amount where status = 'paid' and amount_paid = 0;
+
+-- ── Receipts ──
+create table if not exists public.payment_receipts (
+  id uuid primary key default gen_random_uuid(),
+  payment_id uuid not null references public.payments (id) on delete cascade,
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  landlord_id uuid not null references auth.users (id) on delete cascade,
+  amount bigint not null check (amount > 0),
+  method text not null,             -- Cash, MTN Mobile Money, Airtel Money, Bank transfer
+  reference text,
+  note text,
+  received_at timestamptz not null default now(),
+  recorded_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists payment_receipts_payment_id_idx on public.payment_receipts (payment_id);
+create index if not exists payment_receipts_landlord_id_idx on public.payment_receipts (landlord_id);
+alter table public.payment_receipts enable row level security;
+
+drop policy if exists "receipts landlord read" on public.payment_receipts;
+drop policy if exists "receipts tenant read" on public.payment_receipts;
+drop policy if exists "receipts superadmin read" on public.payment_receipts;
+create policy "receipts landlord read" on public.payment_receipts for select to authenticated
+  using (public.is_landlord() and landlord_id = auth.uid());
+create policy "receipts tenant read" on public.payment_receipts for select to authenticated
+  using (tenant_id = public.my_tenant_id());
+create policy "receipts superadmin read" on public.payment_receipts for select to authenticated
+  using (public.is_superadmin());
+
+-- ── Staff inbox (landlords + main admin) ──
+create table if not exists public.staff_notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  type text not null default 'payment',
+  title text not null,
+  body text not null,
+  url text,
+  read boolean not null default false,
+  pushed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists staff_notifications_user_id_idx on public.staff_notifications (user_id);
+alter table public.staff_notifications enable row level security;
+
+drop policy if exists "staff inbox read own" on public.staff_notifications;
+drop policy if exists "staff inbox mark read" on public.staff_notifications;
+create policy "staff inbox read own" on public.staff_notifications for select to authenticated using (user_id = auth.uid());
+create policy "staff inbox mark read" on public.staff_notifications for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Table access: read only for signed-in users (writes go through the functions / the server)
+revoke all on public.payment_receipts, public.staff_notifications from anon, authenticated;
+grant select on public.payment_receipts, public.staff_notifications to authenticated;
+grant update (read) on public.staff_notifications to authenticated;
+grant all on public.payment_receipts, public.staff_notifications to service_role;
+
+do $$ begin
+  alter publication supabase_realtime add table public.staff_notifications;
+exception when duplicate_object then null; end $$;
+
+-- ── Record a cash payment ──
+-- Applies the amount to the tenant's unpaid rent, oldest first. Returns what happened.
+create or replace function public.record_cash_payment(
+  p_tenant_id uuid,
+  p_amount bigint,
+  p_received_at timestamptz default now(),
+  p_note text default null
+) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_landlord uuid := auth.uid();
+  v_outstanding bigint;
+  v_left bigint := p_amount;
+  v_take bigint;
+  v_completed text[] := '{}';
+  v_parts json[] := '{}';
+  v_balance_after bigint;
+  v_house text;
+  c record;
+begin
+  if not public.is_landlord() then
+    raise exception 'Only landlords can record payments.';
+  end if;
+  if not exists (select 1 from public.tenants where id = p_tenant_id and landlord_id = v_landlord) then
+    raise exception 'Tenant not found.';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Enter an amount greater than zero.';
+  end if;
+
+  select coalesce(sum(amount - amount_paid), 0) into v_outstanding
+  from public.payments where tenant_id = p_tenant_id and status = 'pending';
+
+  if v_outstanding = 0 then
+    raise exception 'This tenant has no unpaid rent. Create a rent charge first.';
+  end if;
+  if p_amount > v_outstanding then
+    raise exception 'That is more than the balance of UGX %.', to_char(v_outstanding, 'FM999,999,999,999');
+  end if;
+
+  for c in
+    select * from public.payments
+    where tenant_id = p_tenant_id and status = 'pending'
+    order by due_date, period
+    for update
+  loop
+    exit when v_left <= 0;
+    v_take := least(v_left, c.amount - c.amount_paid);
+    v_left := v_left - v_take;
+
+    insert into public.payment_receipts (payment_id, tenant_id, landlord_id, amount, method, note, received_at, recorded_by)
+    values (c.id, p_tenant_id, v_landlord, v_take, 'Cash', nullif(trim(p_note), ''), coalesce(p_received_at, now()), v_landlord);
+
+    update public.payments
+    set amount_paid = amount_paid + v_take,
+        status = case when amount_paid + v_take >= amount then 'paid' else 'pending' end,
+        paid_at = case when amount_paid + v_take >= amount then coalesce(p_received_at, now()) else paid_at end,
+        method = 'Cash'
+    where id = c.id;
+
+    if c.amount_paid + v_take >= c.amount then
+      v_completed := v_completed || to_char(to_date(c.period || '-01', 'YYYY-MM-DD'), 'FMMonth YYYY');
+    end if;
+    v_parts := v_parts || json_build_object('period', c.period, 'applied', v_take, 'paid_in_full', c.amount_paid + v_take >= c.amount);
+  end loop;
+
+  select coalesce(sum(amount - amount_paid), 0) into v_balance_after
+  from public.payments where tenant_id = p_tenant_id and status = 'pending';
+
+  -- Confirmation only for rent that is now fully paid
+  if array_length(v_completed, 1) > 0 then
+    select p.name into v_house from public.tenants t left join public.properties p on p.id = t.property_id where t.id = p_tenant_id;
+    insert into public.notifications (landlord_id, tenant_id, type, title, body)
+    values (
+      v_landlord, p_tenant_id, 'payment',
+      case when v_balance_after = 0 then 'All your rent is paid' else 'Rent payment confirmed' end,
+      format('Your cash payment for %s%s has been received and your rent is paid in full. %s',
+        array_to_string(v_completed, ', '),
+        coalesce(' at ' || v_house, ''),
+        case when v_balance_after = 0 then 'You have no outstanding balance. Thank you!'
+             else format('Remaining balance: UGX %s.', to_char(v_balance_after, 'FM999,999,999,999')) end)
+    );
+  end if;
+
+  return json_build_object('applied', p_amount, 'balance_after', v_balance_after, 'parts', array_to_json(v_parts));
+end $$;
+
+revoke execute on function public.record_cash_payment(uuid, bigint, timestamptz, text) from public, anon;
+grant execute on function public.record_cash_payment(uuid, bigint, timestamptz, text) to authenticated;
