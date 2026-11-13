@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Vue Router uses history mode: send every unknown path to index.html
+# so refreshing or opening a deep link (e.g. /login) doesn't 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
