@@ -2,6 +2,17 @@ import { defineStore } from 'pinia'
 import { supabase, must } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { refreshPushSubscription, disablePushForThisDevice } from '@/lib/push'
+import { deviceName } from '@/lib/device'
+
+// "New sign-in on <device> at <time>" (+ rent status for tenants). Never blocks signing in.
+async function notifySignIn() {
+  try {
+    const { error } = await supabase.rpc('notify_sign_in', { p_device: await deviceName() })
+    if (error) console.warn('[renta] sign-in notification skipped:', error.message)
+  } catch {
+    /* offline: skip */
+  }
+}
 
 let initPromise = null
 
@@ -78,6 +89,7 @@ export const useAuthStore = defineStore('auth', {
         await this.signOut()
         throw new Error('This account has been suspended. Please contact Renta UG.')
       }
+      await notifySignIn()
     },
 
     // Returns true if the user is signed in immediately, false if they must confirm their email first.
@@ -99,14 +111,20 @@ export const useAuthStore = defineStore('auth', {
       const data = must(await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' }))
       this.profile = null
       await this.setSession(data.session)
+      await notifySignIn()
     },
 
-    // Is this a landlord who hasn't set a password yet? Fails quietly (→ normal login).
-    async isFirstLogin(email) {
+    // Sign-in page: what kind of account is this email?
+    // 'first_login' | 'landlord' | 'tenant' | 'suspended' | 'not_found' | 'unknown' (couldn't check → normal sign-in)
+    async emailStatus(email) {
+      const { data, error } = await supabase.rpc('login_email_status', { p_email: email })
+      if (!error && typeof data === 'string') return data
+      if (error && !/login_email_status|function|schema cache/i.test(error.message)) return 'unknown' // e.g. offline
+      // Database update not run yet: fall back to the Express server (local development)
       try {
-        return (await api('/api/auth/status', { email })).firstLogin === true
+        return (await api('/api/auth/status', { email })).firstLogin === true ? 'first_login' : 'unknown'
       } catch {
-        return false
+        return 'unknown'
       }
     },
 
@@ -122,6 +140,27 @@ export const useAuthStore = defineStore('auth', {
       }
       must(await supabase.rpc('complete_password_setup'))
       this.profile = { ...this.profile, must_change_password: false }
+    },
+
+    // Settings → Account: users may change only their own name and phone (enforced by the database).
+    async updateProfile({ name, phone }) {
+      const changes = { full_name: name.trim(), phone: phone.trim() || null }
+      must(await supabase.from('profiles').update(changes).eq('id', this.session.user.id))
+      this.profile = { ...this.profile, ...changes }
+    },
+
+    // Settings → Change password: confirm the current password first, then set the new one.
+    async changePassword(current, next) {
+      const check = await supabase.auth.signInWithPassword({ email: this.session.user.email, password: current })
+      if (check.error) {
+        throw new Error(/invalid login/i.test(check.error.message) ? 'Your current password is not correct.' : check.error.message)
+      }
+      const { error } = await supabase.auth.updateUser({ password: next })
+      if (error) {
+        throw new Error(
+          /different from the old/i.test(error.message) ? 'Your new password must be different from the current one.' : error.message,
+        )
+      }
     },
 
     async resetPassword(email) {

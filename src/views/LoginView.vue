@@ -1,6 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { CheckCircle2, XCircle, Loader2, KeyRound } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { isConfigured } from '@/lib/supabase'
 import Logo from '@/components/Logo.vue'
@@ -15,39 +16,65 @@ const error = ref('')
 const info = ref('')
 const busy = ref(false)
 
-// In the background: is this a landlord signing in for the first time? If so, hide the password.
-const firstLogin = ref(false)
-let checkTimer = null
-let checkSeq = 0
+// ── Live email check ──
+// As soon as the email is complete (e.g. ends in @gmail.com) we look it up:
+// ✓ tenant / landlord, ✗ no account, or a first-time landlord (no password needed yet).
+const status = ref('idle') // idle | checking | first_login | landlord | tenant | suspended | not_found | unknown
+let timer = null
+let seq = 0
+const complete = (v) => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v)
+
 watch(email, (value) => {
-  clearTimeout(checkTimer)
-  firstLogin.value = false
+  clearTimeout(timer)
+  error.value = ''
   const addr = value.trim().toLowerCase()
-  if (!/^\S+@\S+\.\S+$/.test(addr)) return
-  const seq = ++checkSeq
-  checkTimer = setTimeout(async () => {
-    const result = await auth.isFirstLogin(addr)
-    if (seq === checkSeq) firstLogin.value = result
-  }, 400)
+  if (!complete(addr)) {
+    status.value = 'idle'
+    return
+  }
+  status.value = 'checking'
+  const mine = ++seq
+  timer = setTimeout(async () => {
+    const result = await auth.emailStatus(addr)
+    if (mine === seq) status.value = result
+  }, 350)
 })
+
+const firstLogin = computed(() => status.value === 'first_login')
+const blocked = computed(() => status.value === 'not_found' || status.value === 'suspended')
+const found = computed(() => ['first_login', 'landlord', 'tenant'].includes(status.value))
+
+const hint = computed(
+  () =>
+    ({
+      first_login: { ok: true, text: 'Landlord account found: first sign-in' },
+      landlord: { ok: true, text: 'Landlord account found' },
+      tenant: { ok: true, text: 'Tenant account found' },
+      suspended: { ok: false, text: 'This account has been suspended. Please contact Renta UG.' },
+      not_found: { ok: false, text: 'No account uses this email. Check it for typos, or create an account.' },
+    })[status.value],
+)
 
 async function signIn() {
   error.value = ''
   info.value = ''
+  if (blocked.value) {
+    error.value = hint.value.text
+    return
+  }
   busy.value = true
   try {
-    const addr = email.value.trim()
-    // Re-check on submit in case the background check hadn't finished yet
-    if (firstLogin.value || (!password.value && (await auth.isFirstLogin(addr)))) {
+    const addr = email.value.trim().toLowerCase()
+    if (firstLogin.value) {
       await auth.firstLoginSignIn(addr)
-      router.push(auth.home) // the router sends them to "set your password"
+      router.push(auth.home) // the router sends them to "Create your password"
       return
     }
     await auth.signIn(addr, password.value)
     const redirect = route.query.redirect
     router.push(typeof redirect === 'string' && redirect.startsWith('/') ? redirect : auth.home)
   } catch (e) {
-    error.value = e.message
+    error.value = /invalid login/i.test(e.message) && found.value ? 'Incorrect password. Please try again.' : e.message
   } finally {
     busy.value = false
   }
@@ -81,21 +108,78 @@ async function forgot() {
       </p>
 
       <form class="mt-8 space-y-4" @submit.prevent="signIn">
+        <!-- Email with live ✓ / ✗ -->
         <div>
           <label class="label" for="email">Email</label>
-          <input id="email" v-model="email" type="email" class="input" placeholder="you@example.com" required autocomplete="email" />
-        </div>
-        <!-- Hidden for a landlord's first sign-in (they set their password on the next page) -->
-        <div v-if="!firstLogin">
-          <div class="flex items-center justify-between">
-            <label class="label" for="password">Password</label>
-            <button type="button" class="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700" @click="forgot">Forgot password?</button>
+          <div class="relative">
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              class="input pr-10"
+              :class="{
+                'border-emerald-500 focus:border-emerald-500': found,
+                'border-red-500 focus:border-red-500': blocked,
+              }"
+              placeholder="you@gmail.com"
+              required
+              autocomplete="email"
+              inputmode="email"
+              aria-describedby="email-hint"
+            />
+            <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <Loader2 v-if="status === 'checking'" class="size-4.5 animate-spin text-slate-400" />
+              <CheckCircle2 v-else-if="found" class="size-5 text-emerald-600" aria-label="Account found" />
+              <XCircle v-else-if="blocked" class="size-5 text-red-600" aria-label="No account" />
+            </span>
           </div>
-          <input id="password" v-model="password" type="password" class="input" placeholder="••••••••" required autocomplete="current-password" />
+          <p v-if="status === 'checking'" id="email-hint" class="mt-1.5 text-xs text-slate-500">Checking…</p>
+          <p
+            v-else-if="hint"
+            id="email-hint"
+            class="mt-1.5 flex items-center gap-1.5 text-xs font-medium"
+            :class="hint.ok ? 'text-emerald-700' : 'text-red-600'"
+          >
+            {{ hint.text }}
+            <RouterLink v-if="status === 'not_found'" to="/signup" class="underline">Create account</RouterLink>
+          </p>
         </div>
+
+        <!-- Password: blurred and not needed for a landlord's first sign-in -->
+        <div class="relative">
+          <div :class="firstLogin && 'pointer-events-none blur-[3px] select-none'" :aria-hidden="firstLogin">
+            <div class="flex items-center justify-between">
+              <label class="label" for="password">Password</label>
+              <button type="button" class="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700" :tabindex="firstLogin ? -1 : 0" @click="forgot">
+                Forgot password?
+              </button>
+            </div>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              class="input"
+              placeholder="••••••••"
+              :required="!firstLogin"
+              :disabled="firstLogin"
+              autocomplete="current-password"
+            />
+          </div>
+          <div v-if="firstLogin" class="absolute inset-0 flex items-center justify-center">
+            <p class="flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-medium text-brand-700 shadow-sm">
+              <KeyRound class="size-4 shrink-0" /> No password yet. Just tap Continue below.
+            </p>
+          </div>
+        </div>
+
+        <p v-if="firstLogin" class="text-sm text-slate-600">
+          Welcome to Renta! As this is your first sign-in, you'll create your own password on the next page.
+        </p>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         <p v-if="info" class="text-sm text-emerald-700">{{ info }}</p>
-        <button type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Signing in…' : 'Sign in' }}</button>
+        <button type="submit" class="btn-primary w-full" :disabled="busy || blocked || status === 'checking'">
+          {{ busy ? (firstLogin ? 'Opening…' : 'Signing in…') : firstLogin ? 'Continue: create my password' : 'Sign in' }}
+        </button>
       </form>
 
       <p class="mt-8 text-center text-sm text-slate-500">

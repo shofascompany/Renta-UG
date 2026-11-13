@@ -144,12 +144,12 @@ begin
     insert into public.notifications (landlord_id, tenant_id, type, title, body)
     values (
       v_landlord, p_tenant_id, 'payment',
-      case when v_balance_after = 0 then 'All your rent is paid' else 'Rent payment confirmed' end,
-      format('Your cash payment for %s%s has been received and your rent is paid in full. %s',
+      'Payment confirmation', -- sender line; the notification title is always "Renta UG"
+      format('Your cash payment for %s%s has been received and recorded. Rent for this period is paid in full. %s',
         array_to_string(v_completed, ', '),
         coalesce(' at ' || v_house, ''),
-        case when v_balance_after = 0 then 'You have no outstanding balance. Thank you!'
-             else format('Remaining balance: UGX %s.', to_char(v_balance_after, 'FM999,999,999,999')) end)
+        case when v_balance_after = 0 then 'You have no outstanding balance. Thank you.'
+             else format('Outstanding balance: UGX %s.', to_char(v_balance_after, 'FM999,999,999,999')) end)
     );
   end if;
 

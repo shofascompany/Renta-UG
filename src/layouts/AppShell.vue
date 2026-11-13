@@ -1,26 +1,33 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   LayoutDashboard, Home, CreditCard, Bell, Building2, Users, Wallet, Send, LogOut, Menu, X, Briefcase, Archive, Inbox,
+  Settings,
 } from '@lucide/vue'
 import PageSkeleton from '@/components/PageSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRentalStore } from '@/stores/rental'
+import { useSignOut } from '@/composables/useSignOut'
 import Logo from '@/components/Logo.vue'
 import ConnectLandlord from '@/components/ConnectLandlord.vue'
 
 const auth = useAuthStore()
 const rental = useRentalStore()
 const route = useRoute()
-const router = useRouter()
 const mobileOpen = ref(false)
+
+// Settings exist for landlords and tenants
+const settingsPath = computed(() => (auth.isSuperadmin ? null : `${auth.home}/settings`))
+const onSettings = computed(() => Boolean(settingsPath.value) && route.path.startsWith(settingsPath.value))
 
 watch(() => route.fullPath, () => (mobileOpen.value = false))
 
-onMounted(() => {
-  rental.load()
+onMounted(async () => {
   rental.subscribe()
+  await rental.load()
+  // Tenant opened the app: today's rent status (at most once a day; sign-in sends its own)
+  if (auth.isTenant && !rental.error) rental.checkRentStatus()
 })
 
 const myTenant = computed(() => (auth.isTenant ? rental.tenantForUser(auth.user?.id) : null))
@@ -67,12 +74,7 @@ const initials = computed(() =>
   (auth.user?.name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase(),
 )
 
-async function logout() {
-  const back = auth.isSuperadmin ? '/admin2026' : '/login'
-  rental.clear()
-  await auth.signOut()
-  router.push(back)
-}
+const logout = useSignOut()
 </script>
 
 <template>
@@ -121,15 +123,34 @@ async function logout() {
         </RouterLink>
       </nav>
 
+      <!-- Settings -->
+      <div v-if="settingsPath" class="px-3 pb-3">
+        <RouterLink
+          :to="settingsPath"
+          class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+          :class="onSettings ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'"
+        >
+          <Settings class="size-4.5" />
+          <span class="flex-1">Settings</span>
+        </RouterLink>
+      </div>
+
       <div class="border-t border-slate-200 p-3">
         <div class="flex items-center gap-3 rounded-lg px-2 py-2">
-          <div class="flex size-9 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700">
-            {{ initials }}
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-slate-900">{{ auth.user?.name }}</p>
-            <p class="truncate text-xs text-slate-500">{{ auth.user?.email }}</p>
-          </div>
+          <component
+            :is="settingsPath ? 'RouterLink' : 'div'"
+            :to="settingsPath ? `${settingsPath}/account` : undefined"
+            class="flex min-w-0 flex-1 items-center gap-3 rounded-lg"
+            :title="settingsPath ? 'Account details' : undefined"
+          >
+            <div class="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-semibold text-brand-700">
+              {{ initials }}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-slate-900">{{ auth.user?.name }}</p>
+              <p class="truncate text-xs text-slate-500">{{ auth.user?.email }}</p>
+            </div>
+          </component>
           <button class="btn-ghost px-2" title="Sign out" aria-label="Sign out" @click="logout">
             <LogOut class="size-4" />
           </button>
@@ -144,7 +165,7 @@ async function logout() {
           <button class="ml-2 font-medium underline" @click="rental.load()">Retry</button>
         </div>
         <PageSkeleton v-else-if="!rental.loaded" />
-        <ConnectLandlord v-else-if="unlinked" />
+        <ConnectLandlord v-else-if="unlinked && !onSettings" />
         <RouterView v-else />
       </div>
     </main>

@@ -3,6 +3,13 @@ import { supabase, must } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { useAuthStore } from './auth'
 
+// Sender line for a landlord's message, shown under the "Renta UG" title
+export function landlordSenderLine() {
+  const auth = useAuthStore()
+  const name = auth.profile?.full_name?.trim()
+  return name ? `From ${name} (Landlord)` : 'From your landlord'
+}
+
 // All app data, loaded from Supabase. Row level security decides what each user sees:
 // the owner gets everything, a tenant only gets their own records.
 
@@ -271,6 +278,17 @@ export const useRentalStore = defineStore('rental', {
       if (n) n.read = true
     },
 
+    // Tenant opened the app: rent status notification (the database sends at most one a day).
+    async checkRentStatus() {
+      try {
+        const { error } = await supabase.rpc('check_rent_status')
+        if (error) throw error
+        await this.reload('notifications')
+      } catch (e) {
+        console.warn('[renta] rent status check skipped:', e.message)
+      }
+    },
+
     async markAllRead(tenantId) {
       must(await supabase.from('notifications').update({ read: true }).eq('tenant_id', tenantId).eq('read', false))
       this.notifications.filter((n) => n.tenantId === tenantId).forEach((n) => (n.read = true))
@@ -318,8 +336,9 @@ export const useRentalStore = defineStore('rental', {
 
     // Tenant: connect this account to the landlord's tenant record.
     async redeemConnectCode(code) {
-      must(await supabase.rpc('redeem_connect_code', { p_code: code }))
+      must(await supabase.rpc('redeem_connect_code', { p_code: code })) // the database also sends a welcome
       await this.load()
+      await this.checkRentStatus()
     },
 
     // Moves the tenant to Records: frees the house, remembers it, keeps all their history.
@@ -353,10 +372,14 @@ export const useRentalStore = defineStore('rental', {
       return this.tenantById(newId)
     },
 
-    // tenantIds: array of tenant ids, or 'all'
-    async sendNotification({ tenantIds, type, title, body }) {
+    // tenantIds: array of tenant ids, or 'all'. Every notification is titled "Renta UG";
+    // the stored title is the sender line, e.g. "From John Mukasa (Landlord)".
+    async sendNotification({ tenantIds, body }) {
       const ids = tenantIds === 'all' ? this.tenants.filter((t) => t.propertyId).map((t) => t.id) : tenantIds
       if (!ids.length) throw new Error('No tenants to notify.')
+      if (!body?.trim()) throw new Error('Write a message first.')
+      const title = landlordSenderLine()
+      const type = 'general'
       must(await supabase.from('notifications').insert(ids.map((tenant_id) => ({ tenant_id, type, title, body }))))
       await this.reload('notifications')
     },
@@ -385,8 +408,8 @@ export const useRentalStore = defineStore('rental', {
             created.map((p) => ({
               tenant_id: p.tenant_id,
               type: 'payment',
-              title: `${label} rent is ready to pay`,
-              body: `UGX ${Number(p.amount).toLocaleString()} is due on ${new Date(p.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}.`,
+              title: 'Rent charge',
+              body: `Your rent of UGX ${Number(p.amount).toLocaleString()} for ${label} is now available for payment and is due on ${new Date(p.due_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}. You can pay via MTN Mobile Money or Airtel Money on the Payments page.`,
             })),
           ),
         )

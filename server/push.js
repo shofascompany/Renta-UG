@@ -6,6 +6,12 @@
 import * as webpush from 'web-push'
 
 const EVERY_MS = 10_000
+const TAGS = { reminder: 'lease-reminder', rent_due: 'rent-due', status: 'rent-status' }
+const TO_PAYMENTS = new Set(['payment', 'rent_due', 'status'])
+
+// Every phone notification is titled "Renta UG"; the stored title is the sender line
+// ("From John Mukasa (Landlord)", "Rent reminder", …) and leads the message.
+const brand = (n) => ({ title: 'Renta UG', body: `${n.title}: ${n.body}` })
 const CATCH_UP = 24 * 60 * 60 * 1000 // also deliver anything from the last day after a restart
 
 export function startPushSender(db, env = process.env) {
@@ -27,14 +33,13 @@ export function startPushSender(db, env = process.env) {
         const { data: t } = await db.from('tenants').select('user_id').eq('id', n.tenant_id).maybeSingle()
         if (!t?.user_id) continue // tenant hasn't connected an account
         await deliver(db, t.user_id, {
-          title: n.title,
-          body: n.body,
-          tag: n.type === 'reminder' ? 'lease-reminder' : n.id,
-          url: n.type === 'payment' ? '/tenant/payments' : '/tenant/notifications',
+          ...brand(n),
+          tag: TAGS[n.type] ?? n.id, // repeat reminders replace the older one instead of stacking
+          url: TO_PAYMENTS.has(n.type) ? '/tenant/payments' : n.type === 'security' ? '/tenant/settings/password' : '/tenant/notifications',
         })
       }
       for (const n of await claim(db, 'staff_notifications', 'id, user_id, title, body, url')) {
-        await deliver(db, n.user_id, { title: n.title, body: n.body, tag: n.id, url: n.url || '/' })
+        await deliver(db, n.user_id, { ...brand(n), tag: n.id, url: n.url || '/' })
       }
     } catch (e) {
       console.warn(`[push] ${e.message}`)

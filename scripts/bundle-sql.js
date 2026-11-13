@@ -42,6 +42,8 @@ const UPDATE = [
   '09_realtime.sql',
   '16_reminders_push_momo.sql',
   '17_cash_receipts_inbox.sql',
+  '18_smart_notifications.sql',
+  '19_login_email_check.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

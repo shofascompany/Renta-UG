@@ -31,19 +31,15 @@ begin
     t.landlord_id,
     t.id,
     'reminder',
-    case
-      when d.days_left = 0 then 'Your stay ends today'
-      when d.days_left = 1 then 'Your stay ends tomorrow'
-      else format('%s days left in your stay', d.days_left)
-    end,
+    'Tenancy reminder', -- sender line; the notification title is always "Renta UG"
     case
       when d.days_left = 0 then format(
-        'Your stay at %s ends today. Please clear any rent due today and speak to your landlord about renewing or moving out.', p.name)
+        'Your current rental period for %s ends today. Please settle any outstanding rent and confirm your plans with your landlord.', p.name)
       when d.days_left = 1 then format(
-        'Your stay at %s ends tomorrow (%s). Please have your payment ready and confirm your plans with your landlord.',
+        'Your current rental period for %s ends tomorrow, %s. Please arrange your next payment or inform your landlord of your plans.',
         p.name, to_char(t.lease_end, 'FMDD Mon YYYY'))
       else format(
-        'Your stay at %s ends in %s days, on %s. Start preparing your payment to renew, or let your landlord know your plans.',
+        'Your current rental period for %s ends in %s days, on %s. Please arrange your next payment or inform your landlord of your plans.',
         p.name, d.days_left, to_char(t.lease_end, 'FMDD Mon YYYY'))
     end,
     format('lease_end:%s:%s', t.id, today)

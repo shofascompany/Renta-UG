@@ -12,10 +12,12 @@ self.addEventListener('push', (event) => {
     data = { body: event.data?.text() }
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Renta UG', {
+    self.registration.showNotification('Renta UG', {
       body: data.body || '',
-      icon: '/icon-192.png',
-      badge: '/badge-96.png',
+      icon: '/icon-192.png', // full-colour Renta logo
+      badge: '/badge-96.png', // small status-bar icon (Android always shows this one in a single colour)
+      timestamp: Date.now(),
+      vibrate: [120, 60, 120],
       tag: data.tag, // same tag replaces an older notification instead of stacking
       renotify: Boolean(data.tag),
       data: { url: data.url || '/tenant/notifications' },

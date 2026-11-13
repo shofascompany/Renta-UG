@@ -142,20 +142,20 @@ async function markPaid(paymentId, reference, method, phone) {
     landlord_id: before.landlord_id,
     tenant_id: before.tenant_id,
     type: 'payment',
-    title: balance === 0 ? 'Payment received: all rent paid' : 'Payment received',
+    title: 'Payment confirmation', // sender line; the notification title is always "Renta UG"
     body:
-      `Your ${method} payment of ${ugx(received)} for ${month} rent was received and verified. ` +
-      (balance === 0 ? 'You have no outstanding balance. Thank you!' : `Remaining balance: ${ugx(balance)}.`),
+      `Your ${method} payment of ${ugx(received)} for ${month} rent has been received and verified. ` +
+      (balance === 0 ? 'You have no outstanding balance. Thank you.' : `Outstanding balance: ${ugx(balance)}.`),
   })
 
   // Company confirmation: the landlord + the main admin
   const { data: admins } = await db.from('profiles').select('id').eq('role', 'superadmin')
   const body =
-    `${tenant?.full_name ?? 'A tenant'} paid ${month} rent${house?.name ? ` for ${house.name}` : ''} with ${method}` +
-    `${phone ? ` (${String(phone).replace(/^256/, '0')})` : ''}. Verified automatically. Ref: ${reference}.`
+    `${tenant?.full_name ?? 'A tenant'} has paid ${ugx(received)} for ${month} rent${house?.name ? ` at ${house.name}` : ''} via ${method}` +
+    `${phone ? ` (${String(phone).replace(/^256/, '0')})` : ''}. The payment was verified automatically. Reference: ${reference}.`
   await db.from('staff_notifications').insert([
-    { user_id: before.landlord_id, type: 'payment', title: `Payment received · ${ugx(received)}`, body, url: '/landlord/inbox' },
-    ...(admins ?? []).map((a) => ({ user_id: a.id, type: 'payment', title: `Payment received · ${ugx(received)}`, body, url: '/admin2026/inbox' })),
+    { user_id: before.landlord_id, type: 'payment', title: 'Payment received', body, url: '/landlord/inbox' },
+    ...(admins ?? []).map((a) => ({ user_id: a.id, type: 'payment', title: 'Payment received', body, url: '/admin2026/inbox' })),
   ])
 }
 

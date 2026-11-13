@@ -2,6 +2,17 @@
   command = "npm run build"
   publish = "dist"
 
+[functions]
+  directory = "netlify/functions"
+
+# Landlord's first sign-in runs as a Netlify Function (no Express server needed on the live site).
+# Must come BEFORE the catch-all below.
+[[redirects]]
+  from = "/api/auth/first-login"
+  to = "/.netlify/functions/first-login"
+  status = 200
+  force = true
+
 # Vue Router uses history mode: send every unknown path to index.html
 # so refreshing or opening a deep link (e.g. /login) doesn't 404.
 [[redirects]]

@@ -65,6 +65,14 @@ export async function refreshPushSubscription() {
   }
 }
 
+// Settings → Notifications: turn phone notifications off for this device.
+export async function disablePush() {
+  const sub = await currentSubscription()
+  if (!sub) return
+  must(await supabase.rpc('delete_push_subscription', { p_endpoint: sub.endpoint }))
+  await sub.unsubscribe()
+}
+
 // On sign-out: stop sending this account's notifications to this device.
 export async function disablePushForThisDevice() {
   try {

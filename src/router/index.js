@@ -2,6 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppShell from '@/layouts/AppShell.vue'
 
+// Settings: same screens for landlords and tenants; each option is its own page.
+const settingsRoutes = (role) => [
+  { path: 'settings', name: `${role}-settings`, component: () => import('@/views/settings/SettingsView.vue') },
+  { path: 'settings/account', name: `${role}-settings-account`, component: () => import('@/views/settings/AccountView.vue') },
+  { path: 'settings/password', name: `${role}-settings-password`, component: () => import('@/views/settings/PasswordView.vue') },
+  { path: 'settings/notifications', name: `${role}-settings-notifications`, component: () => import('@/views/settings/NotificationsSettingsView.vue') },
+  { path: 'settings/about', name: `${role}-settings-about`, component: () => import('@/views/settings/AboutView.vue') },
+]
+
 const routes = [
   { path: '/', redirect: () => useAuthStore().home },
 
@@ -24,6 +33,7 @@ const routes = [
       { path: 'home', name: 'tenant-home', component: () => import('@/views/tenant/MyHomeView.vue') },
       { path: 'payments', name: 'tenant-payments', component: () => import('@/views/tenant/PaymentsView.vue') },
       { path: 'notifications', name: 'tenant-notifications', component: () => import('@/views/tenant/NotificationsView.vue') },
+      ...settingsRoutes('tenant'),
     ],
   },
 
@@ -41,6 +51,7 @@ const routes = [
       { path: 'notifications', name: 'landlord-notifications', component: () => import('@/views/landlord/NotificationsView.vue') },
       { path: 'inbox', name: 'landlord-inbox', component: () => import('@/views/InboxView.vue') },
       { path: 'messages', redirect: '/landlord/notifications' },
+      ...settingsRoutes('landlord'),
     ],
   },
 

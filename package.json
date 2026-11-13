@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node --env-file-if-exists=.env server/index.js",
+    "server": "node --env-file-if-exists=.env.production --env-file-if-exists=.env server/index.js",
     "build": "vite build",
     "preview": "vite preview",
     "db:bundle": "node scripts/bundle-sql.js",
-    "share": "vite build && node --env-file-if-exists=.env server/index.js"
+    "share": "vite build && node --env-file-if-exists=.env.production --env-file-if-exists=.env server/index.js"
   },
   "dependencies": {
     "@lucide/vue": "^1.72.0",

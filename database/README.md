@@ -26,6 +26,9 @@ Paste **`setup_all.sql`** into Supabase **SQL Editor** and click **Run**. It del
 | `14_tenant_records.sql` | Records: last house and end date of a tenancy |
 | `15_tenant_stays.sql` | Separate stays per person; add former tenants back with a fresh history |
 | `16_reminders_push_momo.sql` | Removes alerts; daily end-of-stay reminders; phone notifications; MTN/Airtel payments |
+| `17_cash_receipts_inbox.sql` | Cash and part payments, receipts, and the landlord/admin inbox |
+| `18_smart_notifications.sql` | Sign-in alerts, welcome on connecting, rent status on opening the app, overdue reminders every 5 hours |
+| `19_login_email_check.sql` | Sign-in page: checks the email as it's typed (✓/✗, tenant or landlord, first-time landlord) |
 | `12_main_admin.sql` | Creates or resets the main admin login. **Edit the email, password, name and phone at the top** and run it again to change them |
 
 ## Other files
