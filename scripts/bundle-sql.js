@@ -59,6 +59,7 @@ const UPDATE = [
   '32_admin_console.sql',
   '33_landlord_owns_issues.sql',
   '34_archive_and_clear.sql',
+  '35_consistency.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

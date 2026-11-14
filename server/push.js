@@ -14,33 +14,49 @@ const TO_PAYMENTS = new Set(['payment', 'rent_due', 'status'])
 const brand = (n) => ({ title: 'Renta UG', body: `${n.title}: ${n.body}` })
 const CATCH_UP = 24 * 60 * 60 * 1000 // also deliver anything from the last day after a restart
 
-export function startPushSender(db, env = process.env) {
+// Sets the keys once. Returns false when phone notifications aren't set up.
+function configure(env) {
   const publicKey = env.VITE_VAPID_PUBLIC_KEY
   const privateKey = env.VAPID_PRIVATE_KEY
-  if (!db || !publicKey || !privateKey) {
+  if (!publicKey || !privateKey) return false
+  webpush.setVapidDetails(env.VAPID_SUBJECT || 'mailto:admin@example.com', publicKey, privateKey)
+  return true
+}
+
+// One round: send every new notification and inbox message to the person's phones.
+// Used every 10 s by the local server, and every minute by the Netlify scheduled function.
+export async function sendPendingPush(db, env = process.env) {
+  if (!db || !configure(env)) return 0
+  let sent = 0
+  for (const n of await claim(db, 'notifications', 'id, tenant_id, title, body, type')) {
+    const { data: t } = await db.from('tenants').select('user_id').eq('id', n.tenant_id).maybeSingle()
+    if (!t?.user_id) continue // tenant hasn't connected an account
+    await deliver(db, t.user_id, {
+      ...brand(n),
+      tag: TAGS[n.type] ?? n.id, // repeat reminders replace the older one instead of stacking
+      url: TO_PAYMENTS.has(n.type) ? '/tenant/payments' : n.type === 'security' ? '/tenant/settings/password' : '/tenant/notifications',
+    })
+    sent++
+  }
+  for (const n of await claim(db, 'staff_notifications', 'id, user_id, title, body, url')) {
+    await deliver(db, n.user_id, { ...brand(n), tag: n.id, url: n.url || '/' })
+    sent++
+  }
+  return sent
+}
+
+export function startPushSender(db, env = process.env) {
+  if (!db || !configure(env)) {
     console.log('  push:     disabled (VAPID keys missing)')
     return
   }
-  webpush.setVapidDetails(env.VAPID_SUBJECT || 'mailto:admin@example.com', publicKey, privateKey)
   console.log('  push:     enabled')
-
   let running = false
   async function tick() {
     if (running) return
     running = true
     try {
-      for (const n of await claim(db, 'notifications', 'id, tenant_id, title, body, type')) {
-        const { data: t } = await db.from('tenants').select('user_id').eq('id', n.tenant_id).maybeSingle()
-        if (!t?.user_id) continue // tenant hasn't connected an account
-        await deliver(db, t.user_id, {
-          ...brand(n),
-          tag: TAGS[n.type] ?? n.id, // repeat reminders replace the older one instead of stacking
-          url: TO_PAYMENTS.has(n.type) ? '/tenant/payments' : n.type === 'security' ? '/tenant/settings/password' : '/tenant/notifications',
-        })
-      }
-      for (const n of await claim(db, 'staff_notifications', 'id, user_id, title, body, url')) {
-        await deliver(db, n.user_id, { ...brand(n), tag: n.id, url: n.url || '/' })
-      }
+      await sendPendingPush(db, env)
     } catch (e) {
       console.warn(`[push] ${e.message}`)
     } finally {

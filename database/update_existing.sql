@@ -4,7 +4,7 @@
 -- Keeps all data. Re-applies the security policies and newer additions.
 -- Paste the whole file into Supabase → SQL Editor → Run. Safe to run more than once.
 --
--- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql
+-- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql
 -- ============================================================================
 
 -- Safety check: stop right away if this isn't the Renta database
@@ -2776,3 +2776,23 @@ end $$;
 
 revoke execute on function public.admin_archive_and_clear(uuid, text) from public, anon, authenticated;
 grant execute on function public.admin_archive_and_clear(uuid, text) to service_role;
+
+-- ────────────── 35_consistency.sql ──────────────
+
+-- 35 · keep the numbers in agreement
+-- Every amount paid on a rent month must have a matching payment record (payment_receipts), because
+-- Transactions, the admin statistics and the landlord reports add up the records. Older payments made
+-- before payment records existed are filled in here with the method, reference and date the rent month
+-- already has. Only the missing difference is added, so running this again changes nothing.
+-- Safe to run more than once. No data is deleted.
+
+insert into public.payment_receipts (payment_id, tenant_id, landlord_id, amount, method, reference, note, received_at)
+select p.id, p.tenant_id, p.landlord_id,
+       p.amount_paid - coalesce(r.total, 0),
+       coalesce(nullif(p.method, ''), 'Payment'),
+       p.reference,
+       'Recorded before payment records existed',
+       coalesce(p.paid_at, p.created_at, now())
+from public.payments p
+left join (select payment_id, sum(amount) as total from public.payment_receipts group by payment_id) r on r.payment_id = p.id
+where p.amount_paid > coalesce(r.total, 0);

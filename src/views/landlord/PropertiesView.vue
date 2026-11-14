@@ -64,15 +64,16 @@ const step = ref(null) // null | 'choose' | 'house' | 'rental'
 const saving = ref(false)
 const error = ref('')
 
-const blankHouse = () => ({ name: '', location: '', type: 'House', bedrooms: 1, bathrooms: 1, rent: null })
+// Nothing is pre-filled: the landlord enters every detail themselves
+const blankHouse = () => ({ name: '', location: '', type: '', bedrooms: '', bathrooms: '', rent: null })
 const house = reactive(blankHouse())
 
-const blankRental = () => ({ name: '', location: '', type: 'Rooms', count: 4, prefix: 'Room', sameRent: true, rent: null, rooms: [] })
+const blankRental = () => ({ name: '', location: '', type: 'Rooms', count: '', prefix: '', sameRent: true, rent: null, rooms: [] })
 const biz = reactive(blankRental())
 
 // Rebuild the room list when the count / prefix / shared rent changes; keeps names already typed
 function syncRooms() {
-  const n = Math.max(1, Math.min(200, Number(biz.count) || 1))
+  const n = Math.max(0, Math.min(200, Math.floor(Number(biz.count) || 0))) // no rooms until they say how many
   const next = Array.from({ length: n }, (_, i) => {
     const old = biz.rooms[i]
     const auto = `${biz.prefix.trim() || 'Room'} ${i + 1}`
@@ -109,6 +110,7 @@ async function saveHouse() {
 }
 
 async function saveRental() {
+  if (!biz.rooms.length) return (error.value = 'Enter how many rooms it has.')
   if (biz.rooms.some((r) => !r.name.trim())) return (error.value = 'Give every room a name.')
   if (biz.rooms.some((r) => !(Number(r.rent) >= 0) || r.rent === null || r.rent === '')) return (error.value = 'Enter the rent for every room.')
   saving.value = true
@@ -257,7 +259,8 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="label" for="ptype">Type</label>
-            <select id="ptype" v-model="house.type" class="input">
+            <select id="ptype" v-model="house.type" class="input" required>
+              <option value="" disabled>Choose</option>
               <option v-for="t in ['House', 'Apartment', 'Studio', 'Villa', 'Cottage', 'Commercial']" :key="t">{{ t }}</option>
             </select>
           </div>
@@ -267,11 +270,11 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
           </div>
           <div>
             <label class="label" for="pbed">Bedrooms</label>
-            <input id="pbed" v-model="house.bedrooms" type="number" min="0" class="input" />
+            <input id="pbed" v-model="house.bedrooms" type="number" min="0" inputmode="numeric" class="input" required />
           </div>
           <div>
             <label class="label" for="pbath">Bathrooms</label>
-            <input id="pbath" v-model="house.bathrooms" type="number" min="0" class="input" />
+            <input id="pbath" v-model="house.bathrooms" type="number" min="0" inputmode="numeric" class="input" required />
           </div>
         </div>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
@@ -306,7 +309,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
             <label class="label" for="rcount">How many?</label>
             <div class="flex h-11 items-center rounded-xl border border-slate-300 bg-white">
               <button type="button" class="flex h-full w-11 items-center justify-center text-slate-500 hover:text-slate-900" aria-label="Fewer" @click="stepCount(-1)"><Minus class="size-4" /></button>
-              <input id="rcount" v-model.number="biz.count" type="number" min="1" max="200" class="h-full min-w-0 flex-1 bg-transparent text-center font-semibold text-slate-900 outline-none" />
+              <input id="rcount" v-model.number="biz.count" type="number" min="1" max="200" inputmode="numeric" placeholder="0" required class="h-full min-w-0 flex-1 bg-transparent text-center font-semibold text-slate-900 outline-none" />
               <button type="button" class="flex h-full w-11 items-center justify-center text-slate-500 hover:text-slate-900" aria-label="More" @click="stepCount(1)"><Plus class="size-4" /></button>
             </div>
           </div>
