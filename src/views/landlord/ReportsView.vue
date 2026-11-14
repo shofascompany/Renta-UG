@@ -106,7 +106,21 @@ function exportHouses() {
         </div>
       </template>
       <ColumnChart v-if="view === 'chart'" :data="chart" value-label="Collected" ghost-label="Billed" :format="formatUGX" :tick="compactUGX" :height="260" />
-      <div v-else class="-mx-5 -my-5 overflow-x-auto">
+      <!-- Phones: one card per month, no sideways scrolling -->
+      <ul v-if="view === 'table'" class="-mx-5 -my-5 divide-y divide-slate-100 sm:hidden">
+        <li v-for="m in [...months].reverse()" :key="m.period" class="px-5 py-3.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <p class="font-medium text-slate-900">{{ longMonth(m.period) }}</p>
+            <p class="text-sm font-semibold" :class="m.rate >= 90 ? 'text-emerald-700' : m.rate >= 60 ? 'text-slate-900' : 'text-red-600'">{{ m.billed ? `${m.rate}%` : '—' }}</p>
+          </div>
+          <dl class="mt-1.5 grid grid-cols-3 gap-2 text-xs tabular-nums">
+            <div><dt class="text-slate-500">Billed</dt><dd class="font-medium text-slate-700">{{ formatUGX(m.billed) }}</dd></div>
+            <div><dt class="text-slate-500">Collected</dt><dd class="font-semibold text-slate-900">{{ formatUGX(m.collected) }}</dd></div>
+            <div><dt class="text-slate-500">Unpaid</dt><dd class="font-medium text-slate-700">{{ formatUGX(m.billed - m.collected) }}</dd></div>
+          </dl>
+        </li>
+      </ul>
+      <div v-if="view === 'table'" class="-mx-5 -my-5 hidden overflow-x-auto sm:block">
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
             <tr><th class="px-5 py-3">Month</th><th class="px-5 py-3 text-right">Billed</th><th class="px-5 py-3 text-right">Collected</th><th class="px-5 py-3 text-right">Unpaid</th><th class="px-5 py-3 text-right">Rate</th></tr>

@@ -27,7 +27,7 @@ defineProps({
       <ArrowUpRight v-if="to" class="arrow size-4.5 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
     </div>
     <p class="label mt-3 text-xs font-semibold tracking-wide uppercase">{{ label }}</p>
-    <p class="value mt-0.5 truncate text-[1.45rem] leading-tight font-bold tracking-tight tabular-nums">{{ value }}</p>
+    <p class="value mt-0.5 truncate text-[clamp(1.05rem,4.4vw,1.45rem)] leading-tight font-bold tracking-tight tabular-nums">{{ value }}</p>
     <p v-if="hint" class="hint mt-0.5 truncate text-xs">{{ hint }}</p>
   </component>
 </template>

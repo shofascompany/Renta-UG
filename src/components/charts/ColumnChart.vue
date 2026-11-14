@@ -16,7 +16,8 @@ const el = ref(null)
 const width = ref(600)
 let ro = null
 onMounted(() => {
-  ro = new ResizeObserver(([e]) => (width.value = Math.max(280, e.contentRect.width)))
+  // Always exactly as wide as its card, on any phone (never wider, so the page never scrolls sideways)
+  ro = new ResizeObserver(([e]) => (width.value = Math.max(160, Math.floor(e.contentRect.width))))
   ro.observe(el.value)
 })
 onBeforeUnmount(() => ro?.disconnect())
@@ -56,7 +57,8 @@ const hover = ref(null)
 const tip = computed(() => {
   if (hover.value == null) return null
   const d = props.data[hover.value]
-  const left = Math.min(Math.max(x(hover.value), 90), width.value - 90)
+  const edge = Math.min(90, width.value / 2)
+  const left = Math.min(Math.max(x(hover.value), edge), width.value - edge)
   return { d, left }
 })
 const lastIndex = computed(() => props.data.length - 1)
@@ -70,7 +72,7 @@ const lastIndex = computed(() => props.data.length - 1)
       <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-sm" style="background: var(--series-track)" /> {{ ghostLabel }}</span>
     </div>
 
-    <svg :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${valueLabel} by month`" @mouseleave="hover = null">
+    <svg class="block max-w-full" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${valueLabel} by month`" @mouseleave="hover = null">
       <!-- grid + ticks -->
       <g>
         <line
@@ -109,7 +111,7 @@ const lastIndex = computed(() => props.data.length - 1)
     <!-- tooltip -->
     <div
       v-if="tip"
-      class="pointer-events-none absolute top-6 z-10 w-44 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs shadow-lg"
+      class="pointer-events-none absolute top-6 z-10 w-44 max-w-[calc(100%-0.5rem)] -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs shadow-lg"
       :style="{ left: `${tip.left}px` }"
     >
       <p class="font-semibold text-slate-900">{{ tip.d.full ?? tip.d.label }}</p>

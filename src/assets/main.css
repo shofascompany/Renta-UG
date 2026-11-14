@@ -24,14 +24,51 @@ body {
   @apply text-slate-800 antialiased;
 }
 
-/* ── Touch friendliness ── */
+/* ── Fit every phone: pages scroll up/down only, never sideways, and never zoom ── */
 html {
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden; /* fallback for older browsers */
+  overflow-x: clip;
+  touch-action: pan-y; /* vertical scrolling only: no sideways panning, no pinch zoom */
 }
-a, button, [role='button'], label, select, summary {
-  touch-action: manipulation; /* no double-tap zoom delay */
+body {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-x: clip;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
 }
+#app { max-width: 100vw; overflow-x: clip; }
+a, button, [role='button'], label, select, summary, input, textarea {
+  touch-action: manipulation; /* no double-tap zoom */
+}
+/* Nothing may be wider than the screen */
+img, video, canvas, iframe { max-width: 100%; height: auto; }
+/* Grid and flex children may shrink below their content (stops long numbers/words pushing the page wider) */
+.grid > *, .flex > .flex-1 { min-width: 0; }
+/* Long words, emails, references and amounts wrap instead of overflowing */
+h1, h2, h3, h4, p, dd, dt, li, td, th, label, blockquote { overflow-wrap: anywhere; }
+.truncate { overflow-wrap: normal; }
+/* Small phones: the whole interface scales smoothly with the screen width (everything is sized in
+   rem), so a 320px phone shows the same design as a 430px one, just a little more compact. */
+@media (max-width: 420px) {
+  html { font-size: clamp(13.5px, calc(3.6vw + 1.2px), 16px); }
+}
+@media (max-width: 359.98px) {
+  /* Very narrow phones: slightly tighter page edges and smaller tab labels */
+  main > div { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+  .kpi-row { margin-inline: -0.75rem; padding-inline: 0.75rem; }
+  .kpi-row > * { flex-basis: 88%; }
+  .tabbar a { font-size: 10px; }
+}
+/* Keep fixed bars inside the screen, including phones with a notch */
+.tabbar { max-width: min(28rem, calc(100vw - 1.5rem)); }
+/* Rows of chips / tabs that scroll sideways keep that scroll inside themselves */
+.overflow-x-auto { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.overflow-x-auto::-webkit-scrollbar { display: none; }
 /* Phones: 16px text in fields (stops iOS zooming in) and finger-sized controls */
 @media (max-width: 639.98px) {
   input:not([type='checkbox']):not([type='radio']), select, textarea {
