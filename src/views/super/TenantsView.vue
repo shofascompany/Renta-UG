@@ -1,23 +1,44 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { Search, Trash2 } from '@lucide/vue'
+import { useRoute } from 'vue-router'
+import { Search, Trash2, Users, Smartphone, UserCog, TriangleAlert, UserX } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
-import { useLandlordStats } from '@/composables/useLandlordStats'
+import { usePlatformStats } from '@/composables/usePlatformStats'
 import { formatUGX, formatDate } from '@/utils/format'
-import PageHeader from '@/components/PageHeader.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
+import SuperHero from '@/components/super/SuperHero.vue'
+import StatTile from '@/components/super/StatTile.vue'
+import ListRow from '@/components/admin/ListRow.vue'
+import BaseModal from '@/components/BaseModal.vue'
 
-// Main admin: every current tenant across all landlords.
+// Main admin: every tenant on the platform, plus app accounts that aren't renting anything.
 const rental = useRentalStore()
-const { landlordName } = useLandlordStats()
+const route = useRoute()
+const p = usePlatformStats()
 const query = ref('')
 const landlordFilter = ref('')
+const show = ref(route.query.show === 'overdue' ? 'overdue' : 'current') // current | overdue | former | accounts
 
-// ── Inactive tenant accounts (signed up, but not renting anything now) ──
+const owed = (id) => rental.duesForTenant(id).reduce((s, x) => s + x.balance, 0)
+const isOverdue = (id) => rental.duesForTenant(id).some((x) => x.status === 'overdue')
+
+const current = computed(() => rental.tenants.filter((t) => t.propertyId))
+const rows = computed(() => {
+  const base =
+    show.value === 'former' ? rental.tenants.filter((t) => !t.propertyId)
+    : show.value === 'overdue' ? current.value.filter((t) => isOverdue(t.id))
+    : current.value
+  const q = query.value.trim().toLowerCase()
+  return base
+    .filter((t) => !landlordFilter.value || t.landlordId === landlordFilter.value)
+    .filter((t) => !q || `${t.name} ${t.email ?? ''} ${t.phone ?? ''} ${p.landlordName(t.landlordId)}`.toLowerCase().includes(q))
+    .sort((a, b) => owed(b.id) - owed(a.id) || a.name.localeCompare(b.name))
+})
+const place = (t) => rental.placeName(t.propertyId ?? t.lastPropertyId)
+
+// ── App accounts not renting anything right now ──
 const inactive = ref([])
 const inactiveLoading = ref(true)
 const inactiveError = ref('')
-
 async function loadInactive() {
   inactiveError.value = ''
   try {
@@ -30,112 +51,97 @@ async function loadInactive() {
 }
 onMounted(loadInactive)
 watch(() => rental.tenants, loadInactive)
-
-async function removeAccount(a) {
-  if (!confirm(`Permanently delete the account ${a.email}? They will no longer be able to sign in. This cannot be undone.`)) return
+const deleting = ref(null)
+const busy = ref(false)
+const error = ref('')
+async function removeAccount() {
+  busy.value = true
+  error.value = ''
   try {
+    const a = deleting.value
     await rental.deleteUser(a.id)
+    rental.adminNote('account.delete', 'account', null, `Deleted tenant app account ${a.email}`)
+    deleting.value = null
     await loadInactive()
   } catch (e) {
-    alert(e.message)
+    error.value = e.message
+  } finally {
+    busy.value = false
   }
 }
-
-const rows = computed(() =>
-  rental.tenants
-    .filter((t) => t.propertyId)
-    .map((t) => {
-      const dues = rental.duesForTenant(t.id)
-      return {
-        ...t,
-        landlord: landlordName(t.landlordId),
-        property: rental.propertyById(t.propertyId),
-        balance: dues.reduce((s, p) => s + p.balance, 0),
-        status: dues.some((p) => p.status === 'overdue') ? 'overdue' : dues.length ? 'pending' : 'paid',
-      }
-    })
-    .filter((t) => {
-      if (landlordFilter.value && t.landlordId !== landlordFilter.value) return false
-      const q = query.value.trim().toLowerCase()
-      return !q || `${t.name} ${t.email ?? ''} ${t.landlord} ${t.property?.name ?? ''}`.toLowerCase().includes(q)
-    }),
-)
 </script>
 
 <template>
-  <PageHeader title="All tenants" :subtitle="`${rows.length} current tenants`" />
-
-  <div class="mb-5 flex flex-col gap-3 sm:flex-row">
-    <div class="relative flex-1 sm:max-w-sm">
-      <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-      <input v-model="query" class="input pl-9" placeholder="Search tenants, landlords, properties" />
-    </div>
-    <select v-model="landlordFilter" class="input sm:w-56">
-      <option value="">All landlords</option>
-      <option v-for="l in rental.landlords" :key="l.id" :value="l.id">{{ l.name }}</option>
-    </select>
-  </div>
-
-  <section class="card overflow-hidden">
-    <div class="overflow-x-auto">
-      <table v-if="rows.length" class="min-w-full divide-y divide-slate-100">
-        <thead>
-          <tr>
-            <th class="table-head">Tenant</th>
-            <th class="table-head">Landlord</th>
-            <th class="table-head">Property</th>
-            <th class="table-head">Lease ends</th>
-            <th class="table-head">Balance</th>
-            <th class="table-head">Rent status</th>
-            <th class="table-head">Account</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="t in rows" :key="t.id">
-            <td class="table-cell">
-              <p class="font-medium text-slate-900">{{ t.name }}</p>
-              <p class="text-xs text-slate-500">{{ t.email ?? '—' }}</p>
-            </td>
-            <td class="table-cell">
-              <RouterLink :to="`/admin2026/landlords/${t.landlordId}`" class="hover:text-brand-600">{{ t.landlord }}</RouterLink>
-            </td>
-            <td class="table-cell">{{ t.property?.name }}</td>
-            <td class="table-cell">{{ formatDate(t.leaseEnd) }}</td>
-            <td class="table-cell">{{ formatUGX(t.balance) }}</td>
-            <td class="table-cell"><StatusBadge :status="t.status" /></td>
-            <td class="table-cell text-xs" :class="t.userId ? 'text-emerald-700' : 'text-slate-400'">{{ t.userId ? 'Connected' : 'Not connected' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No tenants found.</p>
-    </div>
-  </section>
-
-  <section class="card mt-6 overflow-hidden">
-    <div class="border-b border-slate-100 px-5 py-4">
-      <h2 class="text-sm font-semibold text-slate-900">Inactive tenant accounts</h2>
-      <p class="mt-0.5 text-xs text-slate-500">Accounts not renting anything right now: never connected to a landlord, or their tenancy ended.</p>
-    </div>
-    <div v-if="inactiveLoading" class="divide-y divide-slate-100">
-      <div v-for="i in 3" :key="i" class="flex items-center gap-4 px-5 py-4">
-        <div class="skeleton h-4 w-40" />
-        <div class="skeleton h-3 w-24" />
-      </div>
-    </div>
-    <p v-else-if="inactiveError" class="px-5 py-6 text-sm text-red-600">{{ inactiveError }}</p>
-    <ul v-else-if="inactive.length" class="divide-y divide-slate-100">
-      <li v-for="a in inactive" :key="a.id" class="flex items-center justify-between gap-4 px-5 py-3">
-        <div class="min-w-0">
-          <p class="truncate text-sm font-medium text-slate-900">{{ a.name || a.email }}</p>
-          <p class="truncate text-xs text-slate-500">
-            {{ a.email }} · joined {{ formatDate(a.createdAt) }} · {{ a.formerTenant ? 'former tenant' : 'never connected' }}
-          </p>
+  <div>
+    <SuperHero eyebrow="People" title="Tenants" :subtitle="`${current.length} renting now across ${rental.landlords.length} landlords`" tone="violet">
+      <template #stats>
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile glass label="Renting now" :value="current.length" :hint="`${rental.tenants.length - current.length} former`" :icon="Users" />
+          <StatTile glass label="Use the app" :value="current.filter((t) => t.userId).length" hint="Connected accounts" :icon="Smartphone" tile="tile-sky" />
+          <StatTile glass label="No smartphone" :value="current.filter((t) => t.managedByLandlord).length" hint="Managed by landlord" :icon="UserCog" tile="tile-violet" />
+          <StatTile glass label="Overdue" :value="p.overdueTenants.value" :hint="formatUGX(p.outstanding.value)" :icon="TriangleAlert" tile="tile-amber" :alert="p.overdueTenants.value > 0" />
         </div>
-        <button class="btn-ghost px-2 py-1 text-xs text-red-600" @click="removeAccount(a)">
-          <Trash2 class="size-3.5" /> Delete
-        </button>
-      </li>
-    </ul>
-    <p v-else class="px-5 py-8 text-center text-sm text-slate-500">No inactive tenant accounts.</p>
-  </section>
+      </template>
+    </SuperHero>
+
+    <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+      <div class="relative flex-1 lg:max-w-sm">
+        <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
+        <input v-model="query" class="input pl-10" placeholder="Search name, phone, email or landlord" />
+      </div>
+      <div class="grid grid-cols-4 rounded-2xl bg-slate-100 p-1 text-sm lg:w-[26rem]">
+        <button v-for="f in [['current', 'Renting'], ['overdue', 'Overdue'], ['former', 'Former'], ['accounts', 'Accounts']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="show === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="show = f[0]">{{ f[1] }}</button>
+      </div>
+      <select v-if="show !== 'accounts'" v-model="landlordFilter" class="input lg:w-56">
+        <option value="">All landlords</option>
+        <option v-for="l in rental.landlords" :key="l.id" :value="l.id">{{ l.name }}</option>
+      </select>
+    </div>
+
+    <!-- Tenants -->
+    <div v-if="show !== 'accounts'" class="sheet">
+      <ul v-if="rows.length" class="divide-y divide-slate-100">
+        <ListRow
+          v-for="t in rows"
+          :key="t.id"
+          :to="`/admin2026/tenants/${t.id}`"
+          :title="t.name"
+          :subtitle="`${place(t)} · ${p.landlordName(t.landlordId)}`"
+          :value="t.propertyId ? (owed(t.id) ? formatUGX(owed(t.id)) : 'Paid up') : `Left ${formatDate(t.endedAt)}`"
+          :value-class="!t.propertyId ? 'text-slate-500' : owed(t.id) ? 'text-red-600' : 'text-emerald-700'"
+          :value-sub="t.propertyId ? (t.leaseEnd ? `to ${formatDate(t.leaseEnd)}` : 'not paid yet') : ''"
+        >
+          <template #icon>
+            <span class="icon-disc rounded-full" :class="!t.propertyId ? 'disc-slate' : isOverdue(t.id) ? 'disc-red' : t.userId ? 'disc-emerald' : 'disc-sky'">
+              <UserCog v-if="t.managedByLandlord" class="size-5" /><Users v-else class="size-5" />
+            </span>
+          </template>
+        </ListRow>
+      </ul>
+      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No tenants here.</p>
+    </div>
+
+    <!-- App accounts not renting -->
+    <div v-else class="sheet">
+      <p class="border-b border-slate-100 px-5 py-3.5 text-xs text-slate-500">App accounts not renting right now: never connected, or their tenancy ended.</p>
+      <div v-if="inactiveLoading" class="space-y-3 p-5"><div v-for="i in 3" :key="i" class="skeleton h-10 w-full" /></div>
+      <p v-else-if="inactiveError" class="px-5 py-6 text-sm text-red-600">{{ inactiveError }}</p>
+      <ul v-else-if="inactive.length" class="divide-y divide-slate-100">
+        <ListRow v-for="a in inactive" :key="a.id" :title="a.name || a.email" :subtitle="`${a.email} · joined ${formatDate(a.createdAt)} · ${a.formerTenant ? 'former tenant' : 'never connected'}`" :chevron="false" @click="deleting = a">
+          <template #icon><span class="icon-disc disc-slate rounded-full"><UserX class="size-5" /></span></template>
+          <template #value><span class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-red-600"><Trash2 class="size-3.5" /> Delete</span></template>
+        </ListRow>
+      </ul>
+      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No unused accounts.</p>
+    </div>
+
+    <BaseModal :model-value="Boolean(deleting)" title="Delete account?" width="max-w-sm" @update:model-value="!$event && (deleting = null)">
+      <p class="text-sm text-slate-600">The account <strong>{{ deleting?.email }}</strong> will be deleted and can't sign in any more. This cannot be undone.</p>
+      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <div class="mt-6 flex justify-end gap-2">
+        <button class="btn-secondary" @click="deleting = null">Cancel</button>
+        <button :data-busy="Boolean(busy)" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="busy" @click="removeAccount">{{ busy ? 'Deleting…' : 'Delete' }}</button>
+      </div>
+    </BaseModal>
+  </div>
 </template>

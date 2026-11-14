@@ -4,8 +4,8 @@ import { Search, History, Archive, FileText, MoreVertical } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useLongPress } from '@/composables/useLongPress'
 import { formatDate } from '@/utils/format'
-import PageHeader from '@/components/PageHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
+import AdminHeader from '@/components/admin/AdminHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import TenantRecordCard from '@/components/TenantRecordCard.vue'
@@ -16,7 +16,7 @@ import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 const rental = useRentalStore()
 const query = ref('')
 
-const houseName = (id) => rental.propertyById(id)?.name ?? 'Removed house'
+const houseName = (id) => (rental.propertyById(id) ? rental.placeName(id) : 'Removed house')
 
 const rows = computed(() =>
   rental.tenantRecords
@@ -83,17 +83,22 @@ function onSaved(t) {
 </script>
 
 <template>
-  <PageHeader title="Records" subtitle="Everyone who has rented from you, with each stay kept separately." />
+  <div class="mx-auto max-w-6xl">
+  <AdminHeader
+    eyebrow="History"
+    title="Records"
+    :subtitle="`${rental.tenantRecords.length} people who have rented from you, each stay kept separately`"
+  />
 
-  <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <div class="relative w-full sm:max-w-sm">
-      <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-      <input v-model="query" class="input pl-9" placeholder="Search name, email or house" />
+  <div>
+    <div class="relative">
+      <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
+      <input v-model="query" class="input h-11 rounded-xl pl-10" placeholder="Search name, email or house" />
     </div>
-    <p class="text-xs text-slate-400">Tap a tenant to view their records · press and hold for more options</p>
+    <p class="mt-2 px-1 text-xs text-slate-400">Tap a person to view their records · press and hold for more options</p>
   </div>
 
-  <section class="card overflow-hidden">
+  <section class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
     <ul v-if="rows.length" class="divide-y divide-slate-100">
       <li
         v-for="r in rows"
@@ -111,7 +116,7 @@ function onSaved(t) {
         @click="lp.consumed() || viewRecords(r)"
         @keydown.enter="viewRecords(r)"
       >
-        <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-sm font-semibold text-slate-600">
+        <div class="icon-disc rounded-full text-sm font-bold" :class="r.current ? 'disc-brand' : 'disc-slate'">
           {{ r.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase() }}
         </div>
         <div class="min-w-0 flex-1">
@@ -161,8 +166,8 @@ function onSaved(t) {
       >
         <History class="size-4 text-slate-400" />
         <span>
-          Add back to a house
-          <span v-if="menu.record.current" class="block text-xs text-slate-400">Already renting</span>
+          Register again (fresh)
+          <span class="block text-xs text-slate-400">{{ menu.record.current ? 'Already renting' : 'New tenant, no old history' }}</span>
         </span>
       </button>
       <button class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50" role="menuitem" @click="viewRecords(menu.record)">
@@ -181,4 +186,5 @@ function onSaved(t) {
   />
 
   <ConnectCodeModal v-if="codeFor" :tenant-id="codeFor" :model-value="true" @update:model-value="!$event && (codeFor = null)" />
+  </div>
 </template>

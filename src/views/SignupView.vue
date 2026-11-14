@@ -61,7 +61,7 @@ async function submit() {
             <p class="mt-1 text-xs text-slate-500">At least 8 characters.</p>
           </div>
           <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-          <button type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Creating account…' : 'Create account' }}</button>
+          <button :data-busy="Boolean(busy)" type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Creating account…' : 'Create account' }}</button>
         </form>
 
         <p class="mt-8 text-center text-sm text-slate-500">

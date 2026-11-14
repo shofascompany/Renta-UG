@@ -13,7 +13,11 @@ export function landlordSenderLine() {
 // All app data, loaded from Supabase. Row level security decides what each user sees:
 // the owner gets everything, a tenant only gets their own records.
 
+// Names always start each word with a capital: "john mukasa" → "John Mukasa"
+export const titleCase = (s) => (s ?? '').trim().replace(/(^|[\s\-'(])([a-zà-ÿ])/g, (_, a, b) => a + b.toUpperCase())
+
 const today = () => new Date().toLocaleDateString('en-CA') // YYYY-MM-DD, local time
+const NEEDS_DB_UPDATE = 'This needs a database update: run database/update_existing.sql in Supabase.'
 
 const map = {
   properties: (r) => ({
@@ -25,6 +29,17 @@ const map = {
     bedrooms: r.bedrooms,
     bathrooms: r.bathrooms,
     rent: Number(r.rent),
+    rentalId: r.rental_id ?? null, // room in a rental business (null = a standalone house)
+    createdAt: r.created_at,
+  }),
+  // A rental business with several rooms (each room is a property)
+  rentals: (r) => ({
+    id: r.id,
+    landlordId: r.landlord_id,
+    name: r.name,
+    location: r.location,
+    type: r.type,
+    createdAt: r.created_at,
   }),
   tenants: (r) => ({
     id: r.id,
@@ -41,6 +56,24 @@ const map = {
     lastPropertyId: r.last_property_id ?? null,
     endedAt: r.ended_at ?? null,
     personId: r.person_id ?? r.id, // same person across stays
+    managedByLandlord: r.managed_by_landlord === true, // no smartphone: the landlord manages them
+    createdAt: r.created_at,
+  }),
+  // Cash handed to the landlord, waiting for / after confirmation
+  cash_payments: (r) => ({
+    id: r.id,
+    tenantId: r.tenant_id,
+    landlordId: r.landlord_id,
+    amount: Number(r.amount),
+    paidOn: r.paid_on,
+    note: r.note,
+    submittedBy: r.submitted_by,
+    submittedRole: r.submitted_role, // tenant | landlord
+    status: r.status, // pending | confirmed | rejected
+    confirmedAmount: r.confirmed_amount == null ? null : Number(r.confirmed_amount),
+    reviewedRole: r.reviewed_role,
+    reviewedAt: r.reviewed_at,
+    rejectReason: r.reject_reason,
     createdAt: r.created_at,
   }),
   payments: (r) => ({
@@ -62,10 +95,29 @@ const map = {
   notifications: (r) => ({
     id: r.id,
     tenantId: r.tenant_id,
+    landlordId: r.landlord_id,
     type: r.type,
     title: r.title,
     body: r.body,
     read: r.read,
+    tenantHidden: r.tenant_hidden === true, // deleted by the tenant (landlord still sees it)
+    createdAt: r.created_at,
+  }),
+  // Tenant asks to leave their room (approved by their landlord or the main admin)
+  move_out_requests: (r) => ({
+    id: r.id,
+    tenantId: r.tenant_id,
+    landlordId: r.landlord_id,
+    propertyId: r.property_id,
+    userId: r.user_id,
+    rating: r.rating,
+    review: r.review,
+    reason: r.reason,
+    details: r.details,
+    status: r.status, // pending | approved | declined | cancelled
+    decidedRole: r.decided_role,
+    decidedAt: r.decided_at,
+    decisionNote: r.decision_note,
     createdAt: r.created_at,
   }),
   // Every amount received (cash or mobile money)
@@ -73,6 +125,7 @@ const map = {
     id: r.id,
     paymentId: r.payment_id,
     tenantId: r.tenant_id,
+    landlordId: r.landlord_id,
     amount: Number(r.amount),
     method: r.method,
     reference: r.reference,
@@ -98,12 +151,16 @@ let channel = null
 export const useRentalStore = defineStore('rental', {
   state: () => ({
     properties: [],
+    rentals: [],
     tenants: [],
     payments: [],
     notifications: [],
     payment_receipts: [],
     staff_notifications: [], // landlord / main admin inbox
+    cash_payments: [],
+    move_out_requests: [],
     landlords: [], // main admin only
+    audit: [], // main admin only: activity log
     owner: null, // tenant: their landlord's contact details
     loaded: false,
     error: '',
@@ -111,6 +168,19 @@ export const useRentalStore = defineStore('rental', {
 
   getters: {
     propertyById: (s) => (id) => s.properties.find((p) => p.id === id),
+    rentalById: (s) => (id) => s.rentals.find((r) => r.id === id),
+    // Rooms of a rental, in natural order (Room 2 before Room 10)
+    roomsOf: (s) => (rentalId) =>
+      s.properties
+        .filter((p) => p.rentalId === rentalId)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    // "Room 3 · Kira Rentals" for rooms, the plain name for houses
+    placeName: (s) => (id) => {
+      const p = s.properties.find((x) => x.id === id)
+      if (!p) return '—'
+      const r = p.rentalId && s.rentals.find((x) => x.id === p.rentalId)
+      return r ? `${p.name} · ${r.name}` : p.name
+    },
     tenantById: (s) => (id) => s.tenants.find((t) => t.id === id),
     tenantForUser: (s) => (userId) => s.tenants.find((t) => t.userId === userId),
     tenantForProperty: (s) => (propertyId) => s.tenants.find((t) => t.propertyId === propertyId),
@@ -152,6 +222,11 @@ export const useRentalStore = defineStore('rental', {
       s.payments.filter((p) => p.tenantId === tenantId).sort((a, b) => b.period.localeCompare(a.period)),
     duesForTenant: (s) => (tenantId) =>
       s.payments.filter((p) => p.tenantId === tenantId && p.status !== 'paid').sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+    cashForTenant: (s) => (tenantId) => s.cash_payments.filter((c) => c.tenantId === tenantId).sort(byNewest('createdAt')),
+    pendingMoveOuts: (s) => s.move_out_requests.filter((r) => r.status === 'pending').sort(byNewest('createdAt')),
+    // Tenant: their latest request to leave
+    myMoveOut: (s) => (userId) => s.move_out_requests.filter((r) => r.userId === userId).sort(byNewest('createdAt'))[0] ?? null,
+    pendingCash: (s) => s.cash_payments.filter((c) => c.status === 'pending').sort(byNewest('createdAt')),
     notificationsForTenant: (s) => (tenantId) =>
       s.notifications.filter((n) => n.tenantId === tenantId).sort(byNewest('createdAt')),
 
@@ -178,12 +253,16 @@ export const useRentalStore = defineStore('rental', {
       const auth = useAuthStore()
       try {
         // Newer, optional tables (receipts, inbox) must never stop the app from loading
-        const OPTIONAL = new Set(['payment_receipts', 'staff_notifications'])
+        const OPTIONAL = new Set(['payment_receipts', 'staff_notifications', 'cash_payments', 'rentals', 'move_out_requests'])
         const loadTable = (t) =>
           OPTIONAL.has(t)
             ? this.reload(t).catch((e) => console.warn(`[renta] ${t} unavailable (database update not run yet?): ${e.message}`))
             : this.reload(t)
-        await Promise.all([...TABLES.map(loadTable), auth.isSuperadmin && this.loadLandlords()])
+        await Promise.all([
+          ...TABLES.map(loadTable),
+          auth.isSuperadmin && this.loadLandlords(),
+          auth.isSuperadmin && this.loadAudit().catch((e) => console.warn(`[renta] activity log unavailable: ${e.message}`)),
+        ])
         if (auth.isTenant) await this.loadOwner()
         this.loaded = true
       } catch (e) {
@@ -220,7 +299,7 @@ export const useRentalStore = defineStore('rental', {
     },
 
     async createLandlord({ name, email, phone }) {
-      await api('/api/admin/landlords', { name, email, phone })
+      await api('/api/admin/landlords', { name: titleCase(name), email, phone })
       await this.loadLandlords()
     },
 
@@ -253,14 +332,73 @@ export const useRentalStore = defineStore('rental', {
       await this.loadLandlords()
     },
 
+    // ── Main admin console: every change is checked + logged by the database ──
+    async loadAudit() {
+      const rows = must(await supabase.from('admin_audit').select('*').order('created_at', { ascending: false }).limit(300))
+      this.audit = rows.map((r) => ({
+        id: r.id,
+        action: r.action,
+        targetType: r.target_type,
+        targetId: r.target_id,
+        summary: r.summary,
+        createdAt: r.created_at,
+      }))
+    },
+    async adminRpc(fn, args, reload = []) {
+      const { data, error } = await supabase.rpc(fn, args)
+      if (error) {
+        if (/could not find the function|does not exist/i.test(error.message)) throw new Error(NEEDS_DB_UPDATE)
+        throw new Error(error.message)
+      }
+      await Promise.all([...reload.map((t) => this.reload(t).catch(() => {})), this.loadAudit().catch(() => {})])
+      return data
+    },
+    // Logs something done through the server (register / suspend / delete a landlord…)
+    adminNote(action, type, id, summary) {
+      return this.adminRpc('admin_note', { p_action: action, p_type: type, p_id: id ?? null, p_summary: summary }).catch(() => {})
+    },
+    adminUpdateProperty(id, { name, location, rent }) {
+      return this.adminRpc('admin_update_property', { p_id: id, p_name: titleCase(name), p_location: location ?? '', p_rent: Math.round(Number(rent) || 0) }, ['properties'])
+    },
+    adminDeleteProperty(id) {
+      return this.adminRpc('admin_delete_property', { p_id: id }, ['properties'])
+    },
+    adminUpdateTenant(id, { name, phone, email }) {
+      return this.adminRpc('admin_update_tenant', { p_id: id, p_name: titleCase(name), p_phone: phone ?? '', p_email: email ?? '' }, ['tenants'])
+    },
+    adminEndTenancy(id, reason) {
+      return this.adminRpc('admin_end_tenancy', { p_id: id, p_reason: reason ?? '' }, ['tenants', 'move_out_requests', 'notifications'])
+    },
+    // Archive everything, then delete every landlord + tenant (the server checks it's the main admin)
+    async clearPlatform({ confirm, note }) {
+      const res = await api('/api/admin/clear', { confirm, note })
+      await this.load()
+      return res
+    },
+    // Archives: list (without the big data), and one archive's full copy
+    async loadArchives() {
+      const { data, error } = await supabase.from('platform_archives').select('id, note, counts, created_at').order('created_at', { ascending: false })
+      if (error) throw new Error(/does not exist|schema cache/i.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      return data.map((r) => ({ id: r.id, note: r.note, counts: r.counts ?? {}, createdAt: r.created_at }))
+    },
+    async loadArchive(id) {
+      return must(await supabase.from('platform_archives').select('*').eq('id', id).maybeSingle())
+    },
+    adminBroadcast({ audience, landlordId, message }) {
+      return this.adminRpc('admin_broadcast', { p_audience: audience, p_landlord: landlordId || null, p_message: message.trim() }, ['notifications'])
+    },
+
     subscribe() {
       if (channel) return
       channel = supabase.channel('renta-live')
-      for (const table of ['notifications', 'payments', 'tenants', 'staff_notifications']) {
+      for (const table of ['notifications', 'payments', 'tenants', 'staff_notifications', 'cash_payments', 'properties', 'rentals', 'move_out_requests']) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
           this.reload(table).catch(() => {})
           if (table === 'payments') this.reload('payment_receipts').catch(() => {}) // receipts change with payments
         })
+      }
+      if (useAuthStore().isSuperadmin) {
+        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'admin_audit' }, () => this.loadAudit().catch(() => {}))
       }
       channel.subscribe()
     },
@@ -272,10 +410,16 @@ export const useRentalStore = defineStore('rental', {
     },
 
     // ── Tenant actions ───────────────────────────────────────
+    // Marked read straight away on screen; put back if the database refuses.
     async markNotificationRead(id) {
-      must(await supabase.from('notifications').update({ read: true }).eq('id', id))
       const n = this.notifications.find((x) => x.id === id)
-      if (n) n.read = true
+      if (!n || n.read) return
+      n.read = true
+      const { error } = await supabase.from('notifications').update({ read: true }).eq('id', id)
+      if (error) {
+        n.read = false
+        throw error
+      }
     },
 
     // Tenant opened the app: rent status notification (the database sends at most one a day).
@@ -289,6 +433,19 @@ export const useRentalStore = defineStore('rental', {
       }
     },
 
+    // Tenant deletes a notification: hidden for them only.
+    async hideNotification(id) {
+      const { error } = await supabase.from('notifications').update({ tenant_hidden: true, read: true }).eq('id', id)
+      if (error) {
+        throw new Error(
+          /tenant_hidden/.test(error.message)
+            ? 'Deleting needs a database update: run database/update_existing.sql in Supabase.'
+            : error.message,
+        )
+      }
+      this.notifications = this.notifications.filter((x) => x.id !== id)
+    },
+
     async markAllRead(tenantId) {
       must(await supabase.from('notifications').update({ read: true }).eq('tenant_id', tenantId).eq('read', false))
       this.notifications.filter((n) => n.tenantId === tenantId).forEach((n) => (n.read = true))
@@ -297,7 +454,9 @@ export const useRentalStore = defineStore('rental', {
 
     // ── Owner actions ────────────────────────────────────────
     async addProperty(data) {
-      const row = must(await supabase.from('properties').insert(data).select().single())
+      const row = must(
+        await supabase.from('properties').insert({ ...data, name: titleCase(data.name), location: titleCase(data.location) }).select().single(),
+      )
       this.properties.unshift(map.properties(row))
     },
 
@@ -306,17 +465,96 @@ export const useRentalStore = defineStore('rental', {
       await this.load()
     },
 
-    async addTenant({ name, email, phone, propertyId, leaseStart, leaseEnd }) {
+    // Rename a house / room or change its rent: changes { name?, rent?, type?, bedrooms?, bathrooms?, location? }
+    async updateProperty(id, changes) {
+      if (changes.name) changes = { ...changes, name: titleCase(changes.name) }
+      if (changes.location) changes = { ...changes, location: titleCase(changes.location) }
+      const row = must(await supabase.from('properties').update(changes).eq('id', id).select().single())
+      const p = this.properties.find((x) => x.id === id)
+      if (p) Object.assign(p, map.properties(row))
+    },
+
+    // ── Rentals (a business with several rooms) ──
+    // rooms: [{ name, rent }] — each becomes a property linked to the rental
+    async addRental({ name, location, type, rooms }) {
+      if (!rooms?.length) throw new Error('Add at least one room.')
+      const { data, error } = await supabase
+        .from('rentals')
+        .insert({ name: titleCase(name), location: titleCase(location), type })
+        .select()
+        .single()
+      if (error) throw new Error(/rentals|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      const rental = map.rentals(data)
+      try {
+        await this.addRooms(rental.id, rooms, { location, type })
+      } catch (e) {
+        await supabase.from('rentals').delete().eq('id', rental.id) // don't leave an empty rental behind
+        throw e
+      }
+      this.rentals.unshift(rental)
+      return rental
+    },
+
+    async addRooms(rentalId, rooms, defaults = null) {
+      const r = defaults ?? this.rentalById(rentalId)
+      const rows = must(
+        await supabase
+          .from('properties')
+          .insert(
+            rooms.map((x) => ({
+              rental_id: rentalId,
+              name: titleCase(x.name),
+              rent: Math.round(Number(x.rent) || 0),
+              location: titleCase(r?.location) || '—',
+              type: r?.type || 'Rooms',
+              bedrooms: 1,
+              bathrooms: 1,
+            })),
+          )
+          .select(),
+      )
+      this.properties.push(...rows.map(map.properties))
+    },
+
+    async updateRental(id, changes) {
+      if (changes.name) changes = { ...changes, name: titleCase(changes.name) }
+      if (changes.location) changes = { ...changes, location: titleCase(changes.location) }
+      const row = must(await supabase.from('rentals').update(changes).eq('id', id).select().single())
+      const r = this.rentals.find((x) => x.id === id)
+      if (r) Object.assign(r, map.rentals(row))
+      // keep the rooms' location in step with the rental
+      if (changes.location !== undefined) {
+        must(await supabase.from('properties').update({ location: changes.location }).eq('rental_id', id))
+        this.properties.filter((p) => p.rentalId === id).forEach((p) => (p.location = changes.location))
+      }
+    },
+
+    // Same rent for every room
+    async setRentalRent(id, rent) {
+      must(await supabase.from('properties').update({ rent: Math.round(Number(rent)) }).eq('rental_id', id))
+      this.properties.filter((p) => p.rentalId === id).forEach((p) => (p.rent = Math.round(Number(rent))))
+    },
+
+    async deleteRental(id) {
+      if (this.roomsOf(id).some((p) => this.tenantForProperty(p.id))) {
+        throw new Error('Some rooms still have tenants. End those tenancies first.')
+      }
+      must(await supabase.from('rentals').delete().eq('id', id))
+      await this.load()
+    },
+
+    async addTenant({ name, email, phone, propertyId, leaseStart, leaseEnd, managedByLandlord = false }) {
       const row = must(
         await supabase
           .from('tenants')
           .insert({
-            full_name: name,
+            full_name: titleCase(name),
             email: email?.trim().toLowerCase() || null,
             phone: phone || null,
             property_id: propertyId || null,
             lease_start: leaseStart || null,
             lease_end: leaseEnd || null,
+            ...(managedByLandlord ? { managed_by_landlord: true } : {}),
           })
           .select()
           .single(),
@@ -361,7 +599,7 @@ export const useRentalStore = defineStore('rental', {
         await supabase.rpc('readd_tenant', {
           p_former_id: formerId,
           p_property_id: propertyId,
-          p_full_name: name,
+          p_full_name: titleCase(name),
           p_email: email ?? '',
           p_phone: phone ?? '',
           p_lease_start: leaseStart || null,
@@ -384,40 +622,6 @@ export const useRentalStore = defineStore('rental', {
       await this.reload('notifications')
     },
 
-
-    // Creates a pending rent charge for every tenant with a property (skips ones that already exist).
-    async generateCharges(period, dueDate) {
-      const rows = this.tenants
-        .filter((t) => t.propertyId && this.propertyById(t.propertyId))
-        .map((t) => ({
-          tenant_id: t.id,
-          property_id: t.propertyId,
-          period,
-          amount: this.propertyById(t.propertyId).rent,
-          due_date: dueDate,
-        }))
-      if (!rows.length) throw new Error('No tenants with a property to charge.')
-
-      const created = must(
-        await supabase.from('payments').upsert(rows, { onConflict: 'tenant_id,period', ignoreDuplicates: true }).select(),
-      )
-      if (created.length) {
-        const label = new Date(`${period}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-        must(
-          await supabase.from('notifications').insert(
-            created.map((p) => ({
-              tenant_id: p.tenant_id,
-              type: 'payment',
-              title: 'Rent charge',
-              body: `Your rent of UGX ${Number(p.amount).toLocaleString()} for ${label} is now available for payment and is due on ${new Date(p.due_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}. You can pay via MTN Mobile Money or Airtel Money on the Payments page.`,
-            })),
-          ),
-        )
-      }
-      await Promise.all([this.reload('payments'), this.reload('notifications')])
-      return created.length
-    },
-
     // Landlord records cash. The database applies it to the oldest unpaid rent first and confirms
     // to the tenant only when a month's rent is fully paid. Returns { applied, balance_after, parts }.
     async recordCashPayment({ tenantId, amount, receivedAt, note }) {
@@ -431,6 +635,67 @@ export const useRentalStore = defineStore('rental', {
       )
       await Promise.all([this.reload('payments'), this.reload('payment_receipts'), this.reload('notifications')])
       return result
+    },
+
+    // Landlord: tenant without a smartphone, managed by the landlord (or back to using the app)
+    async setManagedByLandlord(tenantId, managed) {
+      const { error } = await supabase.from('tenants').update({ managed_by_landlord: managed }).eq('id', tenantId)
+      if (error) throw new Error(/managed_by_landlord/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      const t = this.tenants.find((x) => x.id === tenantId)
+      if (t) t.managedByLandlord = managed
+    },
+
+    // Landlord: tenant got a smartphone → create their login. They sign in with their phone number
+    // (no connection code); on first sign-in they add an email and choose a password.
+    async giveAppAccess(tenantId) {
+      const res = await api(`/api/landlord/tenants/${tenantId}/app-access`, {})
+      await this.reload('tenants')
+      return res
+    },
+
+    // ── Cash payments (confirmed by the landlord or the main admin before they count) ──
+    // Tenant: tenantId null = their own. Landlord: any of their tenants.
+    async submitCash({ tenantId = null, amount, paidOn, note }) {
+      const { data, error } = await supabase.rpc('submit_cash_payment', {
+        p_tenant_id: tenantId,
+        p_amount: Math.round(Number(amount)),
+        p_paid_on: paidOn || null,
+        p_note: note || null,
+      })
+      if (error) throw new Error(/submit_cash_payment|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await Promise.all([this.reload('cash_payments'), this.reload('notifications').catch(() => {})])
+      return data
+    },
+
+    async confirmCash(id, amount) {
+      const result = must(await supabase.rpc('confirm_cash_payment', { p_id: id, p_amount: amount ? Math.round(Number(amount)) : null }))
+      await Promise.all(['cash_payments', 'payments', 'payment_receipts', 'notifications'].map((t) => this.reload(t).catch(() => {})))
+      return result
+    },
+
+    async rejectCash(id, reason) {
+      must(await supabase.rpc('reject_cash_payment', { p_id: id, p_reason: reason || null }))
+      await Promise.all(['cash_payments', 'notifications'].map((t) => this.reload(t).catch(() => {})))
+    },
+
+    // ── Move-out requests ──
+    async requestMoveOut({ rating, review, reason, details }) {
+      const { error } = await supabase.rpc('request_move_out', { p_rating: rating || null, p_review: review || null, p_reason: reason, p_details: details || null })
+      if (error) throw new Error(/request_move_out|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await this.reload('move_out_requests')
+    },
+    async cancelMoveOut() {
+      must(await supabase.rpc('cancel_move_out'))
+      await this.reload('move_out_requests')
+    },
+    // After the goodbye: unlink this account from the old stay, so it starts fresh next sign-in
+    async finishMoveOut() {
+      const { error } = await supabase.rpc('finish_move_out')
+      if (error) console.warn('[renta] finish_move_out:', error.message)
+    },
+    async decideMoveOut(id, approve, note) {
+      must(await supabase.rpc('decide_move_out', { p_id: id, p_approve: approve, p_note: note || null }))
+      await Promise.all(['move_out_requests', 'tenants', 'notifications'].map((t) => this.reload(t).catch(() => {})))
     },
 
     // ── Staff inbox (landlords + main admin) ──

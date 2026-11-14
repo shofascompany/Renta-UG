@@ -27,6 +27,8 @@ export const useAuthStore = defineStore('auth', {
     isTenant: (s) => !s.profile || s.profile.role === 'tenant',
     // Landlord still on the temporary password from the main admin
     needsPassword: (s) => s.profile?.role === 'landlord' && s.profile?.must_change_password === true,
+    // Tenant whose landlord just gave them app access: must add an email + password first
+    needsSetup: (s) => s.profile?.role === 'tenant' && s.profile?.must_change_password === true,
     home: (s) =>
       ({ superadmin: '/admin2026/overview', landlord: '/landlord' })[s.profile?.role] ?? '/tenant',
     user: (s) =>
@@ -75,8 +77,13 @@ export const useAuthStore = defineStore('auth', {
         throw new Error('This account has been suspended. Please contact Renta UG.')
       }
       const data = must(result)
+      await this.finishSignIn(data.session, portal)
+    },
+
+    // Shared by email and phone sign-in: load the profile, then apply the same checks.
+    async finishSignIn(session, portal = 'app') {
       this.profile = null
-      await this.setSession(data.session)
+      await this.setSession(session)
 
       const role = this.profile?.role
       const wrong =
@@ -114,6 +121,37 @@ export const useAuthStore = defineStore('auth', {
       await notifySignIn()
     },
 
+    // Sign in with a phone number: the server finds the account (its email stays private).
+    async phoneSignIn(phone, password) {
+      const res = await api('/api/auth/phone-sign-in', { phone, password })
+      const data = must(
+        await supabase.auth.setSession({ access_token: res.accessToken, refresh_token: res.refreshToken }),
+      )
+      await this.finishSignIn(data.session)
+    },
+
+    // Landlord's first sign-in by phone number (no password yet).
+    async firstLoginPhoneSignIn(phone) {
+      const { tokenHash } = await api('/api/auth/phone-sign-in', { phone })
+      const data = must(await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' }))
+      this.profile = null
+      await this.setSession(data.session)
+      await notifySignIn()
+    },
+
+    // Sign-in page: what kind of account is this phone number? Same answers as emailStatus().
+    async phoneStatus(phone) {
+      const { data, error } = await supabase.rpc('login_phone_status', { p_phone: phone })
+      if (!error && typeof data === 'string') return data
+      if (error && !/login_phone_status|function|schema cache/i.test(error.message)) return 'unknown'
+      // Database update not run yet: ask the server instead
+      try {
+        return (await api('/api/auth/phone-sign-in', { phone, check: true })).status ?? 'unknown'
+      } catch {
+        return 'unknown'
+      }
+    },
+
     // Sign-in page: what kind of account is this email?
     // 'first_login' | 'landlord' | 'tenant' | 'suspended' | 'not_found' | 'unknown' (couldn't check → normal sign-in)
     async emailStatus(email) {
@@ -140,6 +178,13 @@ export const useAuthStore = defineStore('auth', {
       }
       must(await supabase.rpc('complete_password_setup'))
       this.profile = { ...this.profile, must_change_password: false }
+    },
+
+    // Tenant's first sign-in after app access: add their email and choose a password.
+    async completeTenantAccount({ email, password }) {
+      const res = await api('/api/auth/complete-tenant', { email, password })
+      await supabase.auth.refreshSession() // the session now carries the new email
+      this.profile = { ...this.profile, email: res.email, must_change_password: false }
     },
 
     // Settings → Account: users may change only their own name and phone (enforced by the database).

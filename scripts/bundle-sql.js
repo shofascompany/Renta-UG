@@ -44,6 +44,21 @@ const UPDATE = [
   '17_cash_receipts_inbox.sql',
   '18_smart_notifications.sql',
   '19_login_email_check.sql',
+  '20_login_phone_check.sql',
+  '21_recharge.sql',
+  '22_month_start_notices.sql',
+  '23_notification_delete.sql',
+  '24_cash_confirmation.sql',
+  '25_tenant_phone_first_login.sql',
+  '26_rentals.sql',
+  '27_one_house_per_tenant.sql',
+  '28_cash_any_time.sql',
+  '29_paid_rental_time.sql',
+  '30_move_out_requests.sql',
+  '31_calm_notifications.sql',
+  '32_admin_console.sql',
+  '33_landlord_owns_issues.sql',
+  '34_archive_and_clear.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

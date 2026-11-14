@@ -17,7 +17,7 @@ watch(open, (v) => {
   if (v) openStay.value = props.record?.stays[0]?.id ?? null
 })
 
-const houseName = (id) => rental.propertyById(id)?.name ?? 'Removed house'
+const houseName = (id) => (rental.propertyById(id) ? rental.placeName(id) : 'Removed house')
 
 const stays = computed(() =>
   (props.record?.stays ?? []).map((t) => {

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { UserRound, Mail, ShieldCheck, CalendarDays, CheckCircle2 } from '@lucide/vue'
+import { UserRound, Mail, ShieldCheck, CalendarDays, CheckCircle2, KeyRound, ChevronRight } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { formatDate } from '@/utils/format'
 import SettingsSubpage from '@/components/SettingsSubpage.vue'
@@ -81,7 +81,7 @@ const details = computed(() => [
 
       <div class="flex justify-end gap-2 pt-1">
         <button v-if="dirty" type="button" class="btn-secondary" @click="reset">Cancel</button>
-        <button type="submit" class="btn-primary" :disabled="busy || !dirty">{{ busy ? 'Saving…' : 'Save changes' }}</button>
+        <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy || !dirty">{{ busy ? 'Saving…' : 'Save changes' }}</button>
       </div>
     </form>
 
@@ -96,5 +96,23 @@ const details = computed(() => [
     <p class="px-1 text-xs text-slate-400">
       To change your email address, contact {{ auth.isLandlord ? 'Renta UG support' : 'your landlord' }}.
     </p>
+
+    <!-- Password -->
+    <section>
+      <h2 class="mb-3 px-1 text-xs font-medium tracking-wide text-slate-400 uppercase">Password</h2>
+      <RouterLink
+        :to="`${auth.home}/settings/password`"
+        class="card flex items-center gap-4 px-5 py-4 transition-colors hover:bg-slate-50"
+      >
+        <div class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+          <KeyRound class="size-5" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-medium text-slate-900">Change password</p>
+          <p class="mt-0.5 text-sm text-slate-500">Keep your account secure</p>
+        </div>
+        <ChevronRight class="size-5 shrink-0 text-slate-400" />
+      </RouterLink>
+    </section>
   </SettingsSubpage>
 </template>

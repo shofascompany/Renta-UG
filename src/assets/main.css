@@ -24,6 +24,76 @@ body {
   @apply text-slate-800 antialiased;
 }
 
+/* ── Touch friendliness ── */
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+a, button, [role='button'], label, select, summary {
+  touch-action: manipulation; /* no double-tap zoom delay */
+}
+/* Phones: 16px text in fields (stops iOS zooming in) and finger-sized controls */
+@media (max-width: 639.98px) {
+  input:not([type='checkbox']):not([type='radio']), select, textarea {
+    font-size: 16px !important;
+  }
+  .input:not(textarea) { min-height: 2.875rem; border-radius: 0.875rem; }
+  textarea.input { border-radius: 0.875rem; }
+  .btn-primary, .btn-secondary { min-height: 2.875rem; border-radius: 0.875rem; font-weight: 600; }
+  .label { font-size: 0.875rem; margin-bottom: 0.5rem; }
+}
+/* Phones: the Cancel / Save row at the bottom of a sheet becomes two big equal buttons */
+@media (max-width: 639.98px) {
+  .sheet-body .flex.justify-end:has(> .btn-primary, > .btn-secondary) {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+  }
+}
+/* ── Buttons that are working (Saving…, Sending…) ──
+   Marked with :data-busy="flag": a spinner before the words and a light sweeping across. */
+button[data-busy='true'] {
+  position: relative;
+  overflow: hidden;
+  cursor: progress !important;
+  opacity: 1 !important;
+}
+button[data-busy='true'] > svg:not(.animate-spin) { display: none; }
+button[data-busy='true']:not(:has(.animate-spin))::before {
+  content: '';
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: busy-spin 0.7s linear infinite;
+}
+button[data-busy='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.35) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: busy-sweep 1.3s ease-in-out infinite;
+  pointer-events: none;
+}
+.btn-secondary[data-busy='true']::after,
+.btn-ghost[data-busy='true']::after {
+  background: linear-gradient(100deg, transparent 20%, rgb(15 118 110 / 0.12) 50%, transparent 80%);
+}
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+@keyframes busy-sweep { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  button[data-busy='true']::after { animation: none; display: none; }
+  button[data-busy='true']::before { animation-duration: 1.6s; }
+}
+
+/* Pressed feedback on touch */
+@media (hover: none) {
+  .btn-primary:active, .btn-secondary:active, .btn-ghost:active { transform: scale(0.98); }
+}
+
 /* ── Dark mode ──
    The app is written with light colours (bg-white, text-slate-900, …). In dark mode we remap
    those colour tokens, so every existing page turns dark without per-page changes. */
@@ -124,6 +194,256 @@ html.dark .bg-slate-900\/30 { background-color: rgb(0 0 0 / 0.6); }
 @utility input {
   @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
 }
+
+/* ── Charts (landlord console) ──────────────────────────────────────────────
+   Validated categorical palette (slots in fixed order) + chart chrome. Dark steps are selected
+   for the dark surface, not flipped. Text never wears a series colour. */
+.viz {
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-track: #cde2fb; /* lighter step of series-1 (expected / ghost) */
+  --seq-1: #86b6ef; /* ordinal blue ramp, light → dark */
+  --seq-2: #5598e7;
+  --seq-3: #256abf;
+  --seq-4: #184f95;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-surface: var(--color-white);
+}
+html.dark .viz {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-track: #1c3557;
+  --seq-1: #184f95;
+  --seq-2: #256abf;
+  --seq-3: #3987e5;
+  --seq-4: #86b6ef;
+  --viz-grid: #2c2c2a;
+  --viz-axis: #383835;
+}
+
+/* ── Shared page styles (tenant + landlord pages) ───────────────────────── */
+/* In the components layer, so Tailwind utilities on the same element still win. */
+@layer components {
+
+/* Gradient header. Fixed colours, so it looks the same in light and dark mode. */
+.page-hero {
+  --color-white: #fff;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: 1.5rem;
+  color: #fff;
+  background: linear-gradient(135deg, #14918a 0%, #0f766e 45%, #0a3b38 100%);
+  box-shadow: 0 20px 45px -24px rgb(10 59 56 / 0.6);
+}
+.page-hero-blue {
+  background: linear-gradient(120deg, #0284c7 0%, #0f766e 55%, #0a3b38 100%);
+  box-shadow: 0 20px 45px -24px rgb(2 84 120 / 0.55);
+}
+.page-hero-red {
+  background: linear-gradient(135deg, #e0564b 0%, #b42318 50%, #6e1610 100%);
+}
+/* faint grid + a soft drifting light */
+.page-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 80%);
+}
+.page-hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: -45%;
+  right: -15%;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgb(255 255 255 / 0.2), transparent 65%);
+  animation: hero-drift 16s ease-in-out infinite alternate;
+}
+@keyframes hero-drift {
+  to { transform: translate(-2.5rem, 1.5rem) scale(1.1); }
+}
+
+/* Buttons on a gradient header */
+.hero-btn {
+  display: inline-flex;
+  height: 2.875rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.875rem;
+  padding: 0 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+.hero-btn:hover { transform: translateY(-1px); }
+.hero-btn:active { transform: scale(0.98); }
+.hero-btn-solid { background: #fff; color: #0a3b38; box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.35); }
+.hero-btn-glass { color: #fff; background: rgb(255 255 255 / 0.12); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25); }
+.hero-btn-glass:hover { background: rgb(255 255 255 / 0.2); }
+
+/* Glass figures inside a gradient header */
+.hero-stat {
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.15);
+  padding: 0.875rem 1rem;
+}
+.hero-stat-link { display: block; transition: background-color 0.15s ease, transform 0.15s ease; }
+.hero-stat-link:hover { background: rgb(255 255 255 / 0.16); }
+.hero-stat-link:active { transform: scale(0.98); }
+.hero-stat-label { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: rgb(255 255 255 / 0.7); }
+.hero-stat-value { margin-top: 0.25rem; font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+
+/* Section label + white list "sheet" */
+.section-title {
+  margin: 0 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-slate-500);
+}
+.sheet {
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid var(--color-slate-200);
+  background: var(--color-white);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+/* Soft coloured icon discs */
+.icon-disc {
+  display: flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.875rem;
+}
+.disc-brand { color: var(--color-brand-700); background: var(--color-brand-50); }
+.disc-emerald { color: var(--color-emerald-700); background: var(--color-emerald-50); }
+.disc-amber { color: var(--color-amber-700); background: var(--color-amber-50); }
+.disc-red { color: var(--color-red-700); background: var(--color-red-50); }
+.disc-sky { color: var(--color-sky-700); background: var(--color-sky-50); }
+.disc-slate { color: var(--color-slate-600); background: var(--color-slate-100); }
+.disc-solid { color: #fff; background: linear-gradient(135deg, #14b8a6, #0f766e); }
+
+/* Gradient icon tiles (properties, rooms, houses) — fixed colours, white glyph */
+.icon-tile {
+  --color-white: #fff;
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.95rem;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 6px 14px -8px var(--tile-shadow, rgb(15 118 110 / 0.7));
+}
+.tile-teal { background: linear-gradient(140deg, #2dd4bf 0%, #0f766e 55%, #0a3b38 100%); --tile-shadow: rgb(15 118 110 / 0.75); }
+.tile-sky { background: linear-gradient(140deg, #38bdf8 0%, #0369a1 100%); --tile-shadow: rgb(3 105 161 / 0.7); }
+.tile-amber { background: linear-gradient(140deg, #fbbf24 0%, #d97706 100%); --tile-shadow: rgb(217 119 6 / 0.7); }
+.tile-violet { background: linear-gradient(140deg, #a78bfa 0%, #6d28d9 100%); --tile-shadow: rgb(109 40 217 / 0.7); }
+.tile-slate { background: linear-gradient(140deg, #cbd5e1 0%, #64748b 100%); --tile-shadow: rgb(71 85 105 / 0.55); }
+
+/* Tinted gradient tile */
+.tile-glow {
+  background:
+    radial-gradient(120% 90% at 100% 0%, var(--color-sky-50) 0%, transparent 55%),
+    linear-gradient(160deg, var(--color-brand-50) 0%, var(--color-white) 70%);
+}
+
+/* KPI cards: phones swipe sideways (roomy cards), computers get a grid */
+.kpi-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-inline: -1rem;
+  padding: 0.25rem 1rem 0.5rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.kpi-row::-webkit-scrollbar { display: none; }
+.kpi-row > * {
+  flex: 0 0 78%;
+  scroll-snap-align: start;
+}
+@media (min-width: 640px) {
+  .kpi-row > * { flex-basis: 46%; }
+}
+@media (min-width: 1024px) {
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(var(--kpi-cols, 4), minmax(0, 1fr));
+    gap: 1rem;
+    margin-inline: 0;
+    padding: 0;
+    overflow: visible;
+  }
+}
+
+/* ── Phones: polished, roomy surfaces ── */
+@media (max-width: 1023.98px) {
+  .sheet {
+    border-radius: 1.375rem;
+    border-color: rgb(226 232 240 / 0.8);
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 10px 28px -20px rgb(15 23 42 / 0.3);
+  }
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0.25rem 0.75rem;
+    font-size: 0.8125rem;
+    letter-spacing: 0.06em;
+    color: var(--color-slate-700);
+  }
+  .section-title::before {
+    content: '';
+    width: 0.25rem;
+    height: 0.95rem;
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #2dd4bf, #0f766e);
+  }
+  /* Search boxes: tall, rounded, lifted */
+  input.input[placeholder^='Search'] {
+    min-height: 3rem;
+    border-radius: 1rem;
+    border-color: rgb(226 232 240 / 0.9);
+    background: var(--color-white);
+    box-shadow: 0 6px 18px -14px rgb(15 23 42 / 0.45);
+  }
+}
+
+/* Entrance: rise in, staggered with style="--d: 80ms" */
+.rise {
+  animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rise, .page-hero::after { animation: none; }
+}
+} /* end @layer components */
 
 /* Placeholder block shown while content loads */
 @utility skeleton {

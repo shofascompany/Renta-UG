@@ -4,10 +4,11 @@ import { ChevronLeft } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 
 // Frame for one settings screen: "← Settings" back link, title, description, roomy content.
-defineProps({ title: String, subtitle: String, icon: [Object, Function] })
+// backTo / backLabel: e.g. 'account' + 'Account details' to go back to a sub-page instead of Settings
+const props = defineProps({ title: String, subtitle: String, icon: [Object, Function], backTo: String, backLabel: String })
 
 const auth = useAuthStore()
-const back = computed(() => `${auth.home}/settings`)
+const back = computed(() => `${auth.home}/settings${props.backTo ? `/${props.backTo}` : ''}`)
 </script>
 
 <template>
@@ -16,7 +17,7 @@ const back = computed(() => `${auth.home}/settings`)
       :to="back"
       class="-ml-2 mb-6 inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
     >
-      <ChevronLeft class="size-4" /> Settings
+      <ChevronLeft class="size-4" /> {{ backLabel || 'Settings' }}
     </RouterLink>
 
     <div class="mb-8 flex items-start gap-4">

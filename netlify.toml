@@ -13,6 +13,46 @@
   status = 200
   force = true
 
+# Sign in with a phone number instead of an email (Netlify Function)
+[[redirects]]
+  from = "/api/auth/phone-sign-in"
+  to = "/.netlify/functions/phone-sign-in"
+  status = 200
+  force = true
+
+# Tenants without a smartphone → app access, and their first-sign-in setup (Netlify Function)
+[[redirects]]
+  from = "/api/landlord/*"
+  to = "/.netlify/functions/tenant-account/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/auth/complete-tenant"
+  to = "/.netlify/functions/tenant-account/complete-tenant"
+  status = 200
+  force = true
+
+# Main admin: register / edit / suspend / delete landlords (Netlify Function)
+[[redirects]]
+  from = "/api/admin/*"
+  to = "/.netlify/functions/admin/:splat"
+  status = 200
+  force = true
+
+# Mobile money rent payments: MTN / Airtel via Relworx (Netlify Function)
+[[redirects]]
+  from = "/api/payments/*"
+  to = "/.netlify/functions/payments/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/momo/*"
+  to = "/.netlify/functions/payments/:splat"
+  status = 200
+  force = true
+
 # Vue Router uses history mode: send every unknown path to index.html
 # so refreshing or opening a deep link (e.g. /login) doesn't 404.
 [[redirects]]

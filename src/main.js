@@ -5,8 +5,10 @@ import router from './router'
 import './assets/main.css'
 import { registerServiceWorker } from './lib/push'
 import { initTheme } from './lib/theme'
+import { installAutoCapitalize } from './lib/autoCapitalize'
 
 initTheme() // light / dark mode follows the device automatically
+installAutoCapitalize() // capital first letters; names get a capital on every word
 registerServiceWorker() // enables phone notifications + "install app"
 
 const app = createApp(App)

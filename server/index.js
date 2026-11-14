@@ -3,13 +3,16 @@
 import express from 'express'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
-import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { retryFetch, isNetworkError, NETWORK_MESSAGE } from '../src/lib/retryFetch.js'
 import * as momo from './momo.js'
+import * as payments from './payments.js'
 import { startPushSender } from './push.js'
+import * as admin from './admin.js'
+
+const { HttpError } = admin
 
 const { providerName } = momo
 const PORT = process.env.PORT || 4242
@@ -29,12 +32,6 @@ app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173' }))
 
 // ── Helpers ───────────────────────────────────────────────────
 
-class HttpError extends Error {
-  constructor(status, message) {
-    super(message)
-    this.status = status
-  }
-}
 
 const handle = (fn) => async (req, res) => {
   try {
@@ -78,257 +75,42 @@ async function requireUser(req) {
   return data.user
 }
 
-// Loads a payment and checks it belongs to the signed-in tenant.
-async function ownedPayment(paymentId, userId) {
-  if (!paymentId) throw new HttpError(400, 'Missing payment.')
-  const { data, error } = await db
-    .from('payments')
-    .select('id, amount, amount_paid, period, status, tenant_id, landlord_id, tenants!inner(user_id)')
-    .eq('id', paymentId)
-    .maybeSingle()
-  check(error)
-  if (!data || data.tenants.user_id !== userId) throw new HttpError(404, 'Payment not found.')
-  return data
-}
-
-const ugx = (n) => `UGX ${Number(n).toLocaleString('en-UG')}`
-const monthOf = (period) => {
-  const [y, m] = period.split('-').map(Number)
-  return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
-}
-
-// Online payment verified → pay off the rent charge (idempotent), keep a receipt, confirm to the
-// tenant, and send a "payment received" confirmation to the landlord's and main admin's accounts.
-async function markPaid(paymentId, reference, method, phone) {
-  const { data: before, error: bErr } = await db
-    .from('payments')
-    .select('id, amount, amount_paid, status, landlord_id, tenant_id, property_id, period')
-    .eq('id', paymentId)
-    .maybeSingle()
-  check(bErr)
-  if (!before || before.status === 'paid') return
-  const received = Number(before.amount) - Number(before.amount_paid ?? 0)
-  const paidAt = new Date().toISOString()
-
-  const { data: rows, error } = await db
-    .from('payments')
-    .update({ status: 'paid', amount_paid: before.amount, paid_at: paidAt, method, reference })
-    .eq('id', paymentId)
-    .eq('status', 'pending') // only the first caller gets past here
-    .select('id')
-  check(error)
-  if (!rows?.length) return
-
-  await db.from('payment_receipts').insert({
-    payment_id: before.id,
-    tenant_id: before.tenant_id,
-    landlord_id: before.landlord_id,
-    amount: received,
-    method,
-    reference,
-    received_at: paidAt,
-  })
-
-  const [{ data: tenant }, { data: house }, { data: rest }] = await Promise.all([
-    db.from('tenants').select('full_name').eq('id', before.tenant_id).maybeSingle(),
-    db.from('properties').select('name').eq('id', before.property_id).maybeSingle(),
-    db.from('payments').select('amount, amount_paid').eq('tenant_id', before.tenant_id).eq('status', 'pending'),
-  ])
-  const balance = (rest ?? []).reduce((s, p) => s + Number(p.amount) - Number(p.amount_paid ?? 0), 0)
-  const month = monthOf(before.period)
-
-  // Tenant confirmation
-  await db.from('notifications').insert({
-    landlord_id: before.landlord_id,
-    tenant_id: before.tenant_id,
-    type: 'payment',
-    title: 'Payment confirmation', // sender line; the notification title is always "Renta UG"
-    body:
-      `Your ${method} payment of ${ugx(received)} for ${month} rent has been received and verified. ` +
-      (balance === 0 ? 'You have no outstanding balance. Thank you.' : `Outstanding balance: ${ugx(balance)}.`),
-  })
-
-  // Company confirmation: the landlord + the main admin
-  const { data: admins } = await db.from('profiles').select('id').eq('role', 'superadmin')
-  const body =
-    `${tenant?.full_name ?? 'A tenant'} has paid ${ugx(received)} for ${month} rent${house?.name ? ` at ${house.name}` : ''} via ${method}` +
-    `${phone ? ` (${String(phone).replace(/^256/, '0')})` : ''}. The payment was verified automatically. Reference: ${reference}.`
-  await db.from('staff_notifications').insert([
-    { user_id: before.landlord_id, type: 'payment', title: 'Payment received', body, url: '/landlord/inbox' },
-    ...(admins ?? []).map((a) => ({ user_id: a.id, type: 'payment', title: 'Payment received', body, url: '/admin2026/inbox' })),
-  ])
-}
-
 app.use(express.json())
 
 // ── Routes ────────────────────────────────────────────────────
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, supabase: Boolean(db), mobileMoney: providerName() })
+  res.json({ ok: true, supabase: Boolean(db), mobileMoney: providerName() ?? 'off' })
 })
 
-// ── Mobile money (MTN / Airtel) ──────────────────────────────
+// ── Mobile money (MTN / Airtel): logic in ./payments.js, shared with the Netlify Function ──
 
-const attemptView = (a) => ({
-  attemptId: a.id,
-  status: a.status,
-  network: a.network,
-  phone: a.phone,
-  redirectUrl: a.redirect_url,
-  reason: a.failure_reason,
-  testMode: a.provider === 'test',
-})
+app.post('/api/payments/info', (_req, res) => res.json(payments.info()))
 
-// Checks one attempt with the provider and records the outcome. Safe to call repeatedly.
-async function checkAttempt(attempt) {
-  if (attempt.status !== 'pending') return attempt
-
-  let result
-  try {
-    result = await momo.verify(attempt)
-  } catch (e) {
-    console.warn(`[momo] verify ${attempt.tx_ref}: ${e.message}`)
-    return attempt // try again on the next check
-  }
-
-  let update = null
-  if (result.status === 'successful') {
-    // Never trust a success that doesn't match what we asked for
-    if (result.currency === 'UGX' && Number(result.amount) >= Number(attempt.amount)) {
-      update = { status: 'successful', provider_ref: result.providerRef ?? attempt.provider_ref }
-    } else {
-      update = { status: 'failed', failure_reason: 'Amount or currency did not match. Contact support.' }
-    }
-  } else if (result.status === 'failed') {
-    update = { status: 'failed', failure_reason: result.reason || 'The payment was declined or cancelled.' }
-  } else if (Date.now() - new Date(attempt.created_at).getTime() > momo.ATTEMPT_TIMEOUT_MS) {
-    update = { status: 'failed', failure_reason: 'The payment was not approved in time.' }
-  }
-  if (!update) return attempt
-
-  // Only the first checker to flip it from pending gets to act on it
-  const { data: rows, error } = await db
-    .from('momo_attempts')
-    .update({ ...update, updated_at: new Date().toISOString() })
-    .eq('id', attempt.id)
-    .eq('status', 'pending')
-    .select()
-  check(error)
-  const updated = rows?.[0]
-  if (!updated) {
-    const { data: fresh } = await db.from('momo_attempts').select('*').eq('id', attempt.id).single()
-    return fresh ?? attempt
-  }
-  if (updated.status === 'successful') {
-    await markPaid(updated.payment_id, updated.provider_ref ?? updated.tx_ref, momo.NETWORK_LABEL[updated.network], updated.phone)
-  }
-  return updated
-}
-
-// Tenant starts paying a rent charge with MTN or Airtel.
-app.post(
-  '/api/momo/pay',
+const asTenant = (fn) =>
   handle(async (req, res) => {
     requireDb()
     const user = await requireUser(req)
-    const payment = await ownedPayment(req.body?.paymentId, user.id)
-    if (payment.status === 'paid') throw new HttpError(400, 'This rent has already been paid.')
+    res.json(await fn(db, user, req.body))
+  })
 
-    const network = String(req.body?.network ?? '').toUpperCase()
-    if (!['MTN', 'AIRTEL'].includes(network)) throw new HttpError(400, 'Choose MTN or Airtel.')
-    const msisdn = momo.normalizeUgPhone(req.body?.phone)
-    if (!msisdn) throw new HttpError(400, 'Enter a valid Ugandan mobile number, e.g. 0772 123456.')
-    const actual = momo.networkOf(msisdn)
-    if (actual && actual !== network) {
-      throw new HttpError(400, `That looks like an ${actual === 'MTN' ? 'MTN' : 'Airtel'} number. Choose ${actual === 'MTN' ? 'MTN' : 'Airtel'} or use a different number.`)
-    }
+app.post('/api/momo/pay', asTenant(payments.pay))
+app.post('/api/momo/status', asTenant(payments.status))
+app.post('/api/momo/recharge-quote', asTenant(payments.rechargeQuote))
+app.post('/api/momo/recharge', asTenant(payments.recharge))
 
-    // Don't send a second prompt while one is still waiting for approval
-    const { data: open, error: oErr } = await db
-      .from('momo_attempts')
-      .select('*')
-      .eq('payment_id', payment.id)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-    check(oErr)
-    if (open?.[0]) {
-      const current = await checkAttempt(open[0])
-      if (current.status === 'pending') return res.json({ ...attemptView(current), resumed: true })
-      if (current.status === 'successful') return res.json(attemptView(current))
-    }
-
-    // Only what's still owed (part of it may already have been paid in cash)
-    const due = Number(payment.amount) - Number(payment.amount_paid ?? 0)
-    const txRef = momo.newTxRef()
-    const provider = providerName()
-    const { data: attempt, error } = await db
-      .from('momo_attempts')
-      .insert({
-        payment_id: payment.id,
-        tenant_id: payment.tenant_id,
-        landlord_id: payment.landlord_id,
-        network,
-        phone: msisdn,
-        amount: due,
-        tx_ref: txRef,
-        provider,
-      })
-      .select()
-      .single()
-    check(error)
-
-    try {
-      const { providerRef, redirectUrl } = await momo.initiate({
-        txRef,
-        amount: due,
-        msisdn,
-        network,
-        email: user.email || process.env.PAYMENT_EMAIL_FALLBACK || 'payments@example.com',
-        fullname: user.user_metadata?.full_name,
-      })
-      const { data: saved } = await db
-        .from('momo_attempts')
-        .update({ provider_ref: providerRef, redirect_url: redirectUrl, updated_at: new Date().toISOString() })
-        .eq('id', attempt.id)
-        .select()
-        .single()
-      res.json(attemptView(saved ?? attempt))
-    } catch (e) {
-      await db.from('momo_attempts').update({ status: 'failed', failure_reason: e.message }).eq('id', attempt.id)
-      if (isNetworkError(e)) throw new HttpError(503, NETWORK_MESSAGE)
-      throw new HttpError(502, `Could not start the payment: ${e.message}`)
-    }
-  }),
-)
-
-// The app polls this while the tenant approves the prompt on their phone.
 app.post(
-  '/api/momo/status',
+  '/api/momo/relworx-webhook',
   handle(async (req, res) => {
     requireDb()
-    const user = await requireUser(req)
-    const { data: attempt, error } = await db.from('momo_attempts').select('*').eq('id', req.body?.attemptId).maybeSingle()
-    check(error)
-    if (!attempt) throw new HttpError(404, 'Payment not found.')
-    await ownedPayment(attempt.payment_id, user.id) // must be this tenant's
-    res.json(attemptView(await checkAttempt(attempt)))
+    res.json(await payments.relworxWebhook(db, req.body))
   }),
 )
-
-// Flutterwave calls this when a payment completes. The body is never trusted: we re-verify with the API.
 app.post(
   '/api/momo/webhook',
   handle(async (req, res) => {
     requireDb()
-    const expected = process.env.FLW_WEBHOOK_HASH
-    if (!expected || req.headers['verif-hash'] !== expected) throw new HttpError(401, 'Invalid webhook signature.')
-    const txRef = req.body?.data?.tx_ref ?? req.body?.txRef
-    if (txRef) {
-      const { data: attempt } = await db.from('momo_attempts').select('*').eq('tx_ref', txRef).maybeSingle()
-      if (attempt) await checkAttempt(attempt)
-    }
-    res.json({ received: true })
+    res.json(await payments.flutterwaveWebhook(db, req.body, req.headers['verif-hash']))
   }),
 )
 
@@ -340,8 +122,7 @@ function startMomoWatcher() {
     if (running) return
     running = true
     try {
-      const { data: pending } = await db.from('momo_attempts').select('*').eq('status', 'pending').order('created_at').limit(25)
-      for (const a of pending ?? []) await checkAttempt(a)
+      await payments.checkPending(db)
     } catch (e) {
       console.warn(`[momo] watcher: ${e.message}`)
     } finally {
@@ -350,12 +131,7 @@ function startMomoWatcher() {
   }, 15_000)
 }
 
-// ── Main admin: manage landlord accounts ─────────────────────
-
-const BAN_FOREVER = '876000h' // ~100 years
-
-// Unusable random password: first-time landlords sign in by email only, then set their own.
-const placeholderPassword = () => randomBytes(24).toString('base64url')
+// ── Main admin: manage landlord accounts (logic in ./admin.js, shared with Netlify) ──
 
 // ── Landlord first sign-in (email only) ──────────────────────
 // NOTE: by design, a landlord who hasn't set a password yet can be signed in with just
@@ -397,34 +173,98 @@ app.post(
   }),
 )
 
+// ── Sign in with a PHONE NUMBER (same box as email on the login page) ──
+// The account's email is looked up here on the server, so it is never revealed to the browser.
+// Numbers match on their last 9 digits: 0772 123456 = +256772123456 = 256772123456.
+
+const phoneDigits = (v) => String(v ?? '').replace(/\D/g, '')
+
+async function profileByPhone(phone) {
+  const want = phoneDigits(phone).slice(-9)
+  if (want.length < 9) return null
+  const { data, error } = await db
+    .from('profiles')
+    .select('id, email, phone, role, active, must_change_password, created_at')
+    .not('phone', 'is', null)
+  check(error)
+  return (
+    (data ?? [])
+      .filter((p) => phoneDigits(p.phone).slice(-9) === want)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null
+  )
+}
+
+function phoneStatus(p) {
+  if (!p) return 'not_found'
+  if (p.role === 'landlord' && !p.active) return 'suspended'
+  if (p.role === 'landlord' && p.must_change_password) return 'first_login'
+  if (p.role === 'tenant' && p.must_change_password) return 'tenant_first_login' // app access just given by the landlord
+  return p.role === 'landlord' || p.role === 'tenant' ? p.role : 'not_found'
+}
+
+// { phone, password }   → { accessToken, refreshToken }  (normal sign-in)
+// { phone }             → { tokenHash }                   (landlord's first sign-in, no password yet)
+// { phone, check: true } → { status }  live check fallback if 20_login_phone_check.sql hasn't been run
+app.post(
+  '/api/auth/phone-sign-in',
+  handle(async (req, res) => {
+    requireDb()
+    const profile = await profileByPhone(req.body?.phone)
+    const status = phoneStatus(profile)
+    if (req.body?.check) return res.json({ status })
+    if (status === 'not_found' || !profile?.email) throw new HttpError(400, 'No account uses this phone number.')
+    if (status === 'suspended') throw new HttpError(403, 'This account has been suspended. Please contact Renta UG.')
+
+    const password = String(req.body?.password ?? '')
+    if ((status === 'first_login' || status === 'tenant_first_login') && !password) {
+      const { data, error } = await db.auth.admin.generateLink({ type: 'magiclink', email: profile.email })
+      if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
+      if (error) throw new HttpError(400, error.message)
+      return res.json({ tokenHash: data.properties.hashed_token })
+    }
+    if (!password) throw new HttpError(400, 'Please enter your password.')
+
+    // A throwaway client so this server never keeps the user's session.
+    const client = createClient(SUPABASE_URL, SERVICE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: retryFetch() },
+    })
+    const { data, error } = await client.auth.signInWithPassword({ email: profile.email, password })
+    if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
+    if (error) throw new HttpError(400, error.message)
+    res.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token })
+  }),
+)
+
+// ── Tenants without a smartphone → app access (logic in ./admin.js, shared with Netlify) ──
+
+// Landlord: create the tenant's login (signs in with their phone number; no connection code).
+app.post(
+  '/api/landlord/tenants/:id/app-access',
+  handle(async (req, res) => {
+    requireDb()
+    const { user, profile } = await admin.requireUserProfile(db, req.headers.authorization)
+    if (profile?.role !== 'landlord' || !profile.active) throw new HttpError(403, 'Only landlords can do this.')
+    res.json(await admin.giveTenantAppAccess(db, user.id, req.params.id))
+  }),
+)
+
+// Tenant's first sign-in: add their email + choose a password.
+app.post(
+  '/api/auth/complete-tenant',
+  handle(async (req, res) => {
+    requireDb()
+    const { user, profile } = await admin.requireUserProfile(db, req.headers.authorization)
+    res.json(await admin.completeTenantAccount(db, user, profile, req.body))
+  }),
+)
+
 // Register a landlord: creates their login and marks the profile as landlord.
 app.post(
   '/api/admin/landlords',
   handle(async (req, res) => {
     await requireSuperadmin(req)
-    const name = req.body?.name?.trim()
-    const email = req.body?.email?.trim().toLowerCase()
-    const phone = req.body?.phone?.trim() || null
-    if (!name || !email) throw new HttpError(400, 'Name and email are required.')
-
-    const { data, error } = await db.auth.admin.createUser({
-      email,
-      password: placeholderPassword(), // never used: they set their own on first sign-in
-      email_confirm: true,
-      user_metadata: { full_name: name },
-    })
-    if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
-    if (error) {
-      const taken = /already|registered|exists/i.test(error.message)
-      throw new HttpError(400, taken ? 'An account with this email already exists.' : error.message)
-    }
-
-    const { error: pErr } = await db
-      .from('profiles')
-      // First sign-in by email only, then the landlord must choose their own password
-      .upsert({ id: data.user.id, email, full_name: name, phone, role: 'landlord', active: true, must_change_password: true })
-    check(pErr)
-    res.json({ id: data.user.id })
+    res.json(await admin.createLandlord(db, req.body)) // shared with the Netlify Function
   }),
 )
 
@@ -433,39 +273,16 @@ app.patch(
   '/api/admin/landlords/:id',
   handle(async (req, res) => {
     await requireSuperadmin(req)
-    const { id } = req.params
-    const { data: target, error: tErr } = await db.from('profiles').select('role').eq('id', id).maybeSingle()
-    check(tErr)
-    if (target?.role !== 'landlord') throw new HttpError(404, 'Landlord not found.')
+    res.json(await admin.updateLandlord(db, req.params.id, req.body))
+  }),
+)
 
-    const { name, phone, resetPassword, active } = req.body ?? {}
-    const authAttrs = {}
-    const profile = {}
-    if (typeof name === 'string' && name.trim()) {
-      profile.full_name = name.trim()
-      authAttrs.user_metadata = { full_name: name.trim() }
-    }
-    if (typeof phone === 'string') profile.phone = phone.trim() || null
-    if (resetPassword === true) {
-      // Old password stops working; next sign-in is by email only, then they set a new one
-      authAttrs.password = placeholderPassword()
-      profile.must_change_password = true
-    }
-    if (typeof active === 'boolean') {
-      profile.active = active
-      authAttrs.ban_duration = active ? 'none' : BAN_FOREVER
-    }
-
-    if (Object.keys(authAttrs).length) {
-      const { error } = await db.auth.admin.updateUserById(id, authAttrs)
-      if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
-      if (error) throw new HttpError(400, error.message)
-    }
-    if (Object.keys(profile).length) {
-      const { error } = await db.from('profiles').update(profile).eq('id', id)
-      check(error)
-    }
-    res.json({ ok: true })
+// Archive everything, then delete every landlord and tenant (main admin only, typed confirmation).
+app.post(
+  '/api/admin/clear',
+  handle(async (req, res) => {
+    const me = await requireSuperadmin(req)
+    res.json(await admin.archiveAndClear(db, me.id, req.body))
   }),
 )
 
@@ -476,32 +293,7 @@ app.delete(
   '/api/admin/users/:id',
   handle(async (req, res) => {
     const me = await requireSuperadmin(req)
-    const { id } = req.params
-    if (id === me.id) throw new HttpError(400, 'You cannot delete the main admin account.')
-
-    const { data: target, error } = await db.from('profiles').select('role, active').eq('id', id).maybeSingle()
-    check(error)
-    if (!target) throw new HttpError(404, 'User not found.')
-    if (target.role === 'superadmin') throw new HttpError(400, 'The main admin account cannot be deleted.')
-
-    if (target.role === 'landlord' && target.active) {
-      throw new HttpError(400, 'Suspend this landlord first. Only inactive landlords can be deleted.')
-    }
-    if (target.role === 'tenant') {
-      const { data: rental, error: rErr } = await db
-        .from('tenants')
-        .select('id')
-        .eq('user_id', id)
-        .not('property_id', 'is', null)
-        .maybeSingle()
-      check(rErr)
-      if (rental) throw new HttpError(400, 'This tenant still has an active rental. Their landlord must end the tenancy first.')
-    }
-
-    const { error: delErr } = await db.auth.admin.deleteUser(id)
-    if (delErr && isNetworkError(delErr)) throw new HttpError(503, NETWORK_MESSAGE)
-    if (delErr) throw new HttpError(400, delErr.message)
-    res.json({ ok: true })
+    res.json(await admin.deleteUser(db, me.id, req.params.id))
   }),
 )
 
@@ -519,7 +311,8 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
 app.listen(PORT, () => {
   console.log(`Renta API on http://localhost:${PORT}`)
   console.log(`  supabase: ${db ? 'configured' : 'NOT configured'}`)
-  console.log(`  momo:     ${providerName() === 'test' ? 'TEST MODE (no real money; payments auto-approve)' : 'Flutterwave (live/sandbox per your key)'}`)
+  const p = providerName()
+  console.log(`  momo:     ${{ relworx: 'Relworx (real MTN / Airtel payments)', flutterwave: 'Flutterwave (live/sandbox per your key)', test: 'TEST MODE (no real money; payments auto-approve)' }[p] ?? 'OFF: add RELWORX_API_KEY + RELWORX_ACCOUNT_NO to .env'}`)
   startPushSender(db)
   startMomoWatcher()
 })

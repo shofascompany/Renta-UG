@@ -52,7 +52,7 @@ async function signIn() {
           <input id="apass" v-model="password" type="password" class="input" required autocomplete="current-password" />
         </div>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-        <button type="submit" class="btn w-full bg-slate-900 text-white hover:bg-slate-800" :disabled="busy">
+        <button :data-busy="Boolean(busy)" type="submit" class="btn w-full bg-slate-900 text-white hover:bg-slate-800" :disabled="busy">
           {{ busy ? 'Signing in…' : 'Sign in to console' }}
         </button>
       </form>

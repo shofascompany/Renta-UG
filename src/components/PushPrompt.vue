@@ -6,7 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 
 // Card inviting the tenant to get notifications on their phone.
 // `always` = also show the "on" / "blocked" state (used on the Notifications page).
-defineProps({ always: Boolean })
+// `flat` = no card: a slim strip (Notifications page).
+defineProps({ always: Boolean, flat: Boolean })
 
 const auth = useAuthStore()
 const status = ref('loading')
@@ -51,7 +52,8 @@ function dismiss() {
   <!-- Offer to turn on -->
   <div
     v-if="status === 'off' && (always || !dismissed)"
-    class="card flex flex-col gap-4 border-brand-200 p-5 sm:flex-row sm:items-center"
+    class="flex flex-col gap-4 sm:flex-row sm:items-center"
+    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'card border-brand-200 p-5'"
   >
     <div class="flex flex-1 items-start gap-4">
       <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
@@ -67,12 +69,16 @@ function dismiss() {
     </div>
     <div class="flex shrink-0 gap-2">
       <button v-if="!always" class="btn-ghost" @click="dismiss">Not now</button>
-      <button class="btn-primary" :disabled="busy" @click="turnOn">{{ busy ? 'Turning on…' : 'Turn on' }}</button>
+      <button :data-busy="Boolean(busy)" class="btn-primary" :disabled="busy" @click="turnOn">{{ busy ? 'Turning on…' : 'Turn on' }}</button>
     </div>
   </div>
 
   <!-- iPhone: must add to Home Screen first -->
-  <div v-else-if="status === 'needs-install' && (always || !dismissed)" class="card flex items-start gap-4 border-brand-200 p-5">
+  <div
+    v-else-if="status === 'needs-install' && (always || !dismissed)"
+    class="flex items-start gap-4"
+    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'card border-brand-200 p-5'"
+  >
     <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
       <Share class="size-5" />
     </div>

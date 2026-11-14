@@ -1,183 +1,158 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { Plus, Search, CheckCircle2 } from '@lucide/vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Plus, Search, CheckCircle2, Briefcase, Building2, Users, Wallet, ShieldOff } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useLandlordStats } from '@/composables/useLandlordStats'
-import { formatDate } from '@/utils/format'
-import PageHeader from '@/components/PageHeader.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
+import { formatUGX } from '@/utils/format'
+import SuperHero from '@/components/super/SuperHero.vue'
+import StatTile from '@/components/super/StatTile.vue'
+import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 
 const rental = useRentalStore()
+const route = useRoute()
+const router = useRouter()
 const { rows } = useLandlordStats()
 const query = ref('')
+const show = ref(route.query.show === 'suspended' ? 'suspended' : 'all') // all | active | suspended
 const flash = ref('')
 
 const list = computed(() => {
   const q = query.value.trim().toLowerCase()
-  return rows.value.filter((l) => !q || `${l.name} ${l.email} ${l.phone ?? ''}`.toLowerCase().includes(q))
+  return rows.value
+    .filter((l) => (show.value === 'all' ? true : show.value === 'active' ? l.active : !l.active))
+    .filter((l) => !q || `${l.name} ${l.email} ${l.phone ?? ''}`.toLowerCase().includes(q))
 })
+const totals = computed(() => ({
+  active: rows.value.filter((l) => l.active).length,
+  properties: rows.value.reduce((s, l) => s + l.properties, 0),
+  tenants: rows.value.reduce((s, l) => s + l.tenants, 0),
+  collected: rows.value.reduce((s, l) => s + l.collected, 0),
+}))
+const initials = (n) => (n ?? '?').split(' ').map((x) => x[0]).slice(0, 2).join('').toUpperCase()
 
 function showFlash(msg) {
   flash.value = msg
-  setTimeout(() => (flash.value = ''), 4000)
+  setTimeout(() => (flash.value = ''), 5000)
 }
 
-// ── Register / edit ──
-const editing = ref(null) // null = closed, {} = new, landlord = edit
-const form = reactive({ name: '', email: '', phone: '', resetPassword: false })
+// ── Register ──
+const open = ref(false)
+const form = reactive({ name: '', email: '', phone: '' })
 const busy = ref(false)
 const error = ref('')
-const isNew = computed(() => editing.value && !editing.value.id)
-
 function openNew() {
-  Object.assign(form, { name: '', email: '', phone: '', resetPassword: false })
+  Object.assign(form, { name: '', email: '', phone: '' })
   error.value = ''
-  editing.value = {}
+  open.value = true
 }
-
-function openEdit(l) {
-  Object.assign(form, { name: l.name ?? '', email: l.email, phone: l.phone ?? '', resetPassword: false })
-  error.value = ''
-  editing.value = l
-}
-
+onMounted(() => {
+  if (route.query.new) {
+    openNew()
+    router.replace({ query: {} })
+  }
+})
 async function save() {
   busy.value = true
   error.value = ''
   try {
-    if (isNew.value) {
-      await rental.createLandlord({ name: form.name, email: form.email.trim(), phone: form.phone })
-      showFlash(`${form.name} is registered. They sign in at /login with ${form.email.trim()} and create their password.`)
-    } else {
-      await rental.updateLandlord(editing.value.id, {
-        name: form.name,
-        phone: form.phone,
-        ...(form.resetPassword ? { resetPassword: true } : {}),
-      })
-      showFlash(form.resetPassword ? 'Landlord updated. They will create a new password at their next sign-in.' : 'Landlord updated.')
-    }
-    editing.value = null
+    await rental.createLandlord({ name: form.name, email: form.email.trim(), phone: form.phone })
+    rental.adminNote('landlord.create', 'landlord', null, `Registered landlord ${form.name} (${form.email.trim()})`)
+    showFlash(`${form.name} is registered. They sign in with ${form.email.trim()} and create their own password.`)
+    open.value = false
   } catch (e) {
     error.value = e.message
   } finally {
     busy.value = false
   }
 }
-
-async function remove(l) {
-  const warning =
-    `Permanently delete ${l.name} (${l.email})?\n\n` +
-    `This also deletes their ${l.properties} propert${l.properties === 1 ? 'y' : 'ies'}, ${l.tenants} tenant record(s), ` +
-    `all payments and notifications. This cannot be undone.`
-  if (!confirm(warning)) return
-  try {
-    await rental.deleteUser(l.id)
-    showFlash(`${l.name} was deleted.`)
-  } catch (e) {
-    alert(e.message)
-  }
-}
-
-async function toggleActive(l) {
-  const verb = l.active ? 'Suspend' : 'Reactivate'
-  if (!confirm(`${verb} ${l.name}?${l.active ? ' They will not be able to sign in.' : ''}`)) return
-  try {
-    await rental.updateLandlord(l.id, { active: !l.active })
-    showFlash(`${l.name} ${l.active ? 'suspended' : 'reactivated'}.`)
-  } catch (e) {
-    alert(e.message)
-  }
-}
 </script>
 
 <template>
-  <PageHeader title="Landlords" :subtitle="`${rental.landlords.length} registered`">
-    <button class="btn-primary" @click="openNew"><Plus class="size-4" /> Register landlord</button>
-  </PageHeader>
+  <div>
+    <SuperHero eyebrow="People" title="Landlords" :subtitle="`${rental.landlords.length} registered · ${totals.active} active`">
+      <button class="btn-primary" @click="openNew"><Plus class="size-4" /> Register landlord</button>
+      <template #stats>
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile glass label="Active" :value="totals.active" :hint="`${rental.landlords.length - totals.active} suspended`" :icon="Briefcase" />
+          <StatTile glass label="Properties" :value="totals.properties" hint="Across all landlords" :icon="Building2" tile="tile-sky" />
+          <StatTile glass label="Tenants" :value="totals.tenants" hint="Renting now" :icon="Users" tile="tile-violet" />
+          <StatTile glass label="This month" :value="formatUGX(totals.collected)" hint="Collected" :icon="Wallet" tile="tile-amber" />
+        </div>
+      </template>
+    </SuperHero>
 
-  <p v-if="flash" class="card mb-6 flex items-center gap-2 border-emerald-200 p-4 text-sm text-slate-700">
-    <CheckCircle2 class="size-5 text-emerald-600" /> {{ flash }}
-  </p>
+    <p v-if="flash" class="sheet mb-5 flex items-center gap-2.5 border-emerald-200 p-4 text-sm text-slate-700">
+      <CheckCircle2 class="size-5 shrink-0 text-emerald-600" /> {{ flash }}
+    </p>
 
-  <div class="relative mb-5 max-w-sm">
-    <Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-    <input v-model="query" class="input pl-9" placeholder="Search landlords" />
-  </div>
+    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div class="relative flex-1 sm:max-w-sm">
+        <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
+        <input v-model="query" class="input pl-10" placeholder="Search name, email or phone" />
+      </div>
+      <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm sm:w-80">
+        <button v-for="f in [['all', 'All'], ['active', 'Active'], ['suspended', 'Suspended']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="show === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="show = f[0]">{{ f[1] }}</button>
+      </div>
+    </div>
 
-  <section class="card overflow-hidden">
-    <div class="overflow-x-auto">
-      <table v-if="list.length" class="min-w-full divide-y divide-slate-100">
-        <thead>
-          <tr>
-            <th class="table-head">Landlord</th>
-            <th class="table-head">Phone</th>
-            <th class="table-head">Properties</th>
-            <th class="table-head">Tenants</th>
-            <th class="table-head">Registered</th>
-            <th class="table-head">Status</th>
-            <th class="table-head"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="l in list" :key="l.id">
-            <td class="table-cell">
-              <RouterLink :to="`/admin2026/landlords/${l.id}`" class="font-medium text-slate-900 hover:text-brand-600">{{ l.name }}</RouterLink>
-              <p class="text-xs text-slate-500">{{ l.email }}</p>
-            </td>
-            <td class="table-cell">{{ l.phone ?? '—' }}</td>
-            <td class="table-cell">{{ l.properties }}</td>
-            <td class="table-cell">{{ l.tenants }}</td>
-            <td class="table-cell">{{ formatDate(l.createdAt) }}</td>
-            <td class="table-cell"><StatusBadge :status="l.active ? 'active' : 'suspended'" /></td>
-            <td class="table-cell text-right">
-              <button class="btn-ghost px-2 py-1 text-xs" @click="openEdit(l)">Edit</button>
-              <button class="btn-ghost px-2 py-1 text-xs" :class="l.active && 'text-red-600'" @click="toggleActive(l)">
-                {{ l.active ? 'Suspend' : 'Reactivate' }}
-              </button>
-              <button v-if="!l.active" class="btn-ghost px-2 py-1 text-xs text-red-600" @click="remove(l)">Delete</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="px-5 py-10 text-center text-sm text-slate-500">
-        {{ rental.landlords.length ? 'No landlords match your search.' : 'No landlords yet. Click "Register landlord" to add one.' }}
+    <div class="sheet">
+      <ul v-if="list.length" class="divide-y divide-slate-100">
+        <ListRow
+          v-for="l in list"
+          :key="l.id"
+          :to="`/admin2026/landlords/${l.id}`"
+          :title="l.name || l.email"
+          :subtitle="`${l.properties} propert${l.properties === 1 ? 'y' : 'ies'} · ${l.tenants} tenant${l.tenants === 1 ? '' : 's'} · ${l.email}`"
+          :value="formatUGX(l.collected)"
+          :value-sub="l.active ? 'this month' : 'suspended'"
+          :value-class="l.active ? 'text-slate-900' : 'text-slate-400'"
+        >
+          <template #icon>
+            <span class="avatar relative flex size-11 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white" :class="!l.active && 'grayscale'">
+              {{ initials(l.name) }}
+              <ShieldOff v-if="!l.active" class="absolute -right-1 -bottom-1 size-4.5 rounded-full bg-white p-0.5 text-red-600" />
+            </span>
+          </template>
+        </ListRow>
+      </ul>
+      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">
+        {{ rental.landlords.length ? 'No landlords match.' : 'No landlords yet. Tap "Register landlord" to add one.' }}
       </p>
     </div>
-  </section>
 
-  <BaseModal :model-value="Boolean(editing)" :title="isNew ? 'Register landlord' : 'Edit landlord'" @update:model-value="!$event && (editing = null)">
-    <form class="space-y-4" @submit.prevent="save">
-      <div>
-        <label class="label" for="lname">Full name</label>
-        <input id="lname" v-model="form.name" class="input" required />
-      </div>
-      <div class="grid grid-cols-2 gap-4">
+    <BaseModal v-model="open" title="Register landlord">
+      <form class="space-y-4" @submit.prevent="save">
         <div>
-          <label class="label" for="lemail">Email (login)</label>
-          <input id="lemail" v-model="form.email" type="email" class="input" placeholder="name@gmail.com" :disabled="!isNew" required />
+          <label class="label" for="lname">Full name</label>
+          <input id="lname" v-model="form.name" class="input" data-cap="words" autocomplete="off" required />
         </div>
-        <div>
-          <label class="label" for="lphone">Phone</label>
-          <input id="lphone" v-model="form.phone" type="tel" class="input" placeholder="+256…" />
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="label" for="lemail">Email (login)</label>
+            <input id="lemail" v-model="form.email" type="email" class="input" placeholder="name@gmail.com" data-cap="off" required />
+          </div>
+          <div>
+            <label class="label" for="lphone">Phone</label>
+            <input id="lphone" v-model="form.phone" type="tel" class="input" placeholder="0772 123456" />
+          </div>
         </div>
-      </div>
-      <p v-if="isNew" class="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-        The landlord signs in at <strong>/login</strong> with this email. The first time, they create their own password; after
-        that they go straight to their dashboard.
-      </p>
-      <label v-else class="flex items-start gap-2 text-sm text-slate-700">
-        <input v-model="form.resetPassword" type="checkbox" class="mt-0.5 size-4 accent-brand-600" />
-        <span>
-          Reset password
-          <span class="block text-xs text-slate-500">Their current password stops working; they create a new one at next sign-in.</span>
-        </span>
-      </label>
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-      <div class="flex justify-end gap-2 pt-2">
-        <button type="button" class="btn-secondary" @click="editing = null">Cancel</button>
-        <button type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Saving…' : isNew ? 'Register' : 'Save changes' }}</button>
-      </div>
-    </form>
-  </BaseModal>
+        <p class="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">They sign in with this email (or phone). The first time, they create their own password.</p>
+        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" class="btn-secondary" @click="open = false">Cancel</button>
+          <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Registering…' : 'Register' }}</button>
+        </div>
+      </form>
+    </BaseModal>
+  </div>
 </template>
+
+<style scoped>
+.avatar {
+  --color-white: #fff;
+  background: linear-gradient(140deg, #2dd4bf, #0f766e 55%, #0a3b38);
+  box-shadow: 0 6px 14px -8px rgb(15 118 110 / 0.8);
+}
+</style>

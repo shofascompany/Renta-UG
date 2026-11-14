@@ -69,7 +69,7 @@ async function signOut() {
           <p v-if="mismatch" class="mt-1 text-xs text-red-600">Passwords do not match.</p>
         </div>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-        <button type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Saving…' : 'Save password & continue' }}</button>
+        <button :data-busy="Boolean(busy)" type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Saving…' : 'Save password & continue' }}</button>
       </form>
 
       <p class="mt-8 text-center text-xs text-slate-400">

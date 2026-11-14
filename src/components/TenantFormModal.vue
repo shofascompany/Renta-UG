@@ -1,45 +1,31 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { History, UserPlus, X } from '@lucide/vue'
+import { UserPlus, Smartphone, PhoneOff } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate } from '@/utils/format'
 import BaseModal from './BaseModal.vue'
 
-// Landlord: add a new tenant, or bring a former tenant back as a NEW stay (fresh history;
-// their old stays stay in Records). As the email is typed, matching people are suggested.
-const props = defineProps({ prefillId: { type: String, default: null } }) // a former stay to add back
+// Landlord: register a tenant. Always a FRESH tenant — nothing from any earlier stay is brought back,
+// even if this person rented before (their old stays stay untouched in Records).
+const props = defineProps({
+  prefillId: { type: String, default: null }, // a former stay: only their name / phone / email are copied in
+  propertyId: { type: String, default: null }, // house / room picked already (e.g. from a rental's room list)
+})
 const open = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['saved'])
 
 const rental = useRentalStore()
 
-const blank = () => ({ email: '', name: '', phone: '', propertyId: '', leaseStart: '', leaseEnd: '' })
+const blank = () => ({ email: '', name: '', phone: '', propertyId: '', leaseStart: '', leaseEnd: '', managedByLandlord: false })
 const form = reactive(blank())
-const returning = ref(null) // former tenant being added back
 const saving = ref(false)
 const error = ref('')
 
-const vacant = computed(() => rental.properties.filter((p) => !rental.tenantForProperty(p.id)))
-const propertyName = (id) => rental.propertyById(id)?.name ?? 'a removed property'
-
-function selectFormer(t) {
-  returning.value = t
-  Object.assign(form, {
-    email: t.email ?? form.email,
-    name: t.name,
-    phone: t.phone ?? '',
-    // Back to their former house if it's free
-    propertyId: vacant.value.some((p) => p.id === t.lastPropertyId) ? t.lastPropertyId : '',
-    leaseStart: new Date().toLocaleDateString('en-CA'),
-    leaseEnd: '',
-  })
-  error.value = ''
-}
-
-function clearFormer() {
-  returning.value = null
-  Object.assign(form, { ...blank(), email: form.email })
-}
+const vacant = computed(() =>
+  rental.properties
+    .filter((p) => !rental.tenantForProperty(p.id))
+    .sort((a, b) => rental.placeName(a.id).localeCompare(rental.placeName(b.id), undefined, { numeric: true })),
+)
+const propertyName = (id) => (rental.propertyById(id) ? rental.placeName(id) : 'a removed property')
 
 // Reset each time the form opens
 watch(
@@ -47,60 +33,54 @@ watch(
   (v) => {
     if (!v) return
     Object.assign(form, blank())
-    returning.value = null
     error.value = ''
     const pre = props.prefillId && rental.tenantById(props.prefillId)
-    if (pre) selectFormer(pre)
+    if (pre) {
+      Object.assign(form, {
+        name: pre.name ?? '',
+        phone: pre.phone ?? '',
+        email: pre.email && !pre.email.endsWith('@phone-signin.example.com') ? pre.email : '',
+      })
+    }
+    if (props.propertyId && vacant.value.some((p) => p.id === props.propertyId)) form.propertyId = props.propertyId
   },
   { immediate: true },
 )
 
-// One entry per person (a person can have several stays): their current stay and latest ended one
-const people = computed(() => {
-  const byPerson = new Map()
-  for (const t of rental.tenants) {
-    const p = byPerson.get(t.personId) ?? { personId: t.personId, current: null, lastEnded: null }
-    if (t.propertyId) p.current = t
-    else if (!p.lastEnded || (t.endedAt ?? '') > (p.lastEnded.endedAt ?? '')) p.lastEnded = t
-    byPerson.set(t.personId, p)
-  }
-  return [...byPerson.values()].map((p) => ({ ...p, shown: p.current ?? p.lastEnded }))
+// A person can only live in ONE house / room at a time: same email or same phone = already renting
+const last9 = (v) => (v ?? '').replace(/\D/g, '').slice(-9)
+const alreadyRenting = computed(() => {
+  const email = form.managedByLandlord ? '' : form.email.trim().toLowerCase()
+  const phone = last9(form.phone)
+  return rental.currentTenants.find(
+    (t) => (email && t.email && t.email.toLowerCase() === email) || (phone.length === 9 && last9(t.phone) === phone),
+  )
 })
-
-// Suggestions while typing the email (also matches names); former tenants first
-const query = computed(() => form.email.trim().toLowerCase())
-const suggestions = computed(() => {
-  if (returning.value || query.value.length < 2) return []
-  return people.value
-    .filter((p) => `${p.shown.email ?? ''} ${p.shown.name}`.toLowerCase().includes(query.value))
-    .sort((a, b) => Number(Boolean(a.current)) - Number(Boolean(b.current)))
-    .slice(0, 4)
-})
-const sameEmail = (t) => t?.email && t.email.toLowerCase() === query.value
-const exactFormer = computed(() => people.value.find((p) => !p.current && sameEmail(p.lastEnded))?.lastEnded)
-const exactCurrent = computed(() => people.value.find((p) => sameEmail(p.current))?.current)
 
 async function save() {
   error.value = ''
-  if (!returning.value && exactCurrent.value) {
-    error.value = `${exactCurrent.value.name} already rents ${propertyName(exactCurrent.value.propertyId)}.`
+  if (form.managedByLandlord) {
+    if (!/^(?:\+?256|0)?[1-9]\d{8}$/.test(form.phone.replace(/[\s\-().]/g, ''))) {
+      error.value = 'Enter a valid phone number, e.g. 0772 123456. The tenant will sign in with it later.'
+      return
+    }
+    form.email = '' // not needed for a tenant without a smartphone
+  }
+  if (!form.managedByLandlord && !form.email.trim() && !form.phone.trim()) {
+    error.value = 'Enter their phone number or email. Their connection code only works for an account with the same phone number or email.'
     return
   }
-  if (!returning.value && exactFormer.value) {
-    // Same email as a former tenant → add that person back rather than creating a stranger
-    selectFormer(exactFormer.value)
-    error.value = 'This is a former tenant. Check the details below and save to add them back.'
+  if (alreadyRenting.value) {
+    error.value = `This person already rents ${propertyName(alreadyRenting.value.propertyId)}. A tenant can only be in one house or room at a time. End that tenancy first.`
     return
   }
   saving.value = true
   try {
-    const tenant = returning.value
-      ? await rental.readdTenant(returning.value.id, { ...form })
-      : await rental.addTenant({ ...form })
+    const tenant = await rental.addTenant({ ...form })
     open.value = false
     emit('saved', tenant)
   } catch (e) {
-    error.value = e.code === '23505' ? 'A tenant with this email already exists.' : e.message
+    error.value = e.code === '23505' ? 'A current tenant already uses this email.' : e.message
   } finally {
     saving.value = false
   }
@@ -108,103 +88,67 @@ async function save() {
 </script>
 
 <template>
-  <BaseModal v-model="open" :title="returning ? 'Add tenant back' : 'Add tenant'">
+  <BaseModal v-model="open" title="Add tenant">
     <form class="space-y-4" @submit.prevent="save">
-      <!-- Email first: drives the former-tenant lookup -->
-      <div class="relative">
-        <label class="label" for="tf-email">Email</label>
-        <input
-          id="tf-email"
-          v-model="form.email"
-          type="email"
-          class="input"
-          placeholder="Type an email to find former tenants"
-          autocomplete="off"
-          :disabled="Boolean(returning?.email)"
-        />
-        <ul
-          v-if="suggestions.length"
-          class="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
+      <!-- Does the tenant have a smartphone? -->
+      <div class="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1" role="radiogroup" aria-label="Does the tenant have a smartphone?">
+        <button
+          v-for="opt in [[false, 'Has a smartphone', Smartphone], [true, 'No smartphone', PhoneOff]]"
+          :key="String(opt[0])"
+          type="button"
+          role="radio"
+          :aria-checked="form.managedByLandlord === opt[0]"
+          class="flex h-10 items-center justify-center gap-2 rounded-lg text-sm font-medium transition"
+          :class="form.managedByLandlord === opt[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
+          @click="form.managedByLandlord = opt[0]"
         >
-          <li v-for="p in suggestions" :key="p.personId" class="flex items-center justify-between gap-3 px-3 py-2.5">
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-slate-900">{{ p.shown.name }}</p>
-              <p class="truncate text-xs text-slate-500">
-                {{ p.shown.email ?? 'no email' }} ·
-                <template v-if="p.current">renting {{ propertyName(p.current.propertyId) }}</template>
-                <template v-else>former tenant, {{ propertyName(p.lastEnded.lastPropertyId) }}</template>
-              </p>
-            </div>
-            <button v-if="!p.current" type="button" class="btn-secondary shrink-0 px-2.5 py-1 text-xs" @click="selectFormer(p.lastEnded)">
-              <History class="size-3.5" /> Add back
-            </button>
-            <span v-else class="shrink-0 text-xs text-slate-400">Current</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Returning tenant banner -->
-      <div v-if="returning" class="flex items-start gap-3 rounded-lg border border-brand-200 bg-brand-50 p-3">
-        <History class="mt-0.5 size-4 shrink-0 text-brand-600" />
-        <div class="flex-1 text-sm">
-          <p class="font-medium text-slate-900">Adding back {{ returning.name }}</p>
-          <p class="mt-0.5 text-xs text-slate-600">
-            Previously at {{ propertyName(returning.lastPropertyId) }}<template v-if="returning.endedAt">, left {{ formatDate(returning.endedAt) }}</template>.
-            This starts a <strong>new stay with a fresh history</strong>; their past stays stay in Records.
-            <template v-if="returning.userId"> They'll be reconnected to their app account automatically.</template>
-          </p>
-        </div>
-        <button type="button" class="btn-ghost -m-1 px-1.5" aria-label="Add someone else instead" @click="clearFormer">
-          <X class="size-4" />
+          <component :is="opt[2]" class="size-4" /> {{ opt[1] }}
         </button>
+      </div>
+      <p v-if="form.managedByLandlord" class="-mt-1 rounded-lg border border-slate-200 p-3 text-xs leading-relaxed text-slate-600">
+        <strong class="text-slate-900">You'll manage this tenant.</strong> No email or password is needed: just their phone number.
+        You record their cash payments and keep their rent and notices. When they get a smartphone, give them app access and they sign in with this number.
+        Only you and Renta UG see this.
+      </p>
+
+      <div v-if="!form.managedByLandlord">
+        <label class="label" for="tf-email">Email</label>
+        <input id="tf-email" v-model="form.email" type="email" class="input" placeholder="tenant@example.com" autocomplete="off" />
       </div>
 
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label class="label" for="tf-name">Full name</label>
-          <input id="tf-name" v-model="form.name" class="input" required />
+          <input id="tf-name" v-model="form.name" class="input" data-cap="words" autocomplete="name" required />
         </div>
         <div>
-          <label class="label" for="tf-phone">Phone</label>
-          <input id="tf-phone" v-model="form.phone" type="tel" class="input" placeholder="+256…" />
+          <label class="label" for="tf-phone">Phone<span v-if="form.managedByLandlord" class="text-red-500"> *</span></label>
+          <input id="tf-phone" v-model="form.phone" type="tel" class="input" placeholder="0772 123456" :required="form.managedByLandlord" />
         </div>
       </div>
 
       <div>
-        <label class="label" for="tf-prop">House</label>
+        <label class="label" for="tf-prop">House or room</label>
         <select id="tf-prop" v-model="form.propertyId" class="input" required>
-          <option value="" disabled>{{ vacant.length ? 'Select a vacant house' : 'No vacant houses' }}</option>
-          <option v-for="p in vacant" :key="p.id" :value="p.id">
-            {{ p.name }} · {{ formatUGX(p.rent) }}{{ returning && p.id === returning.lastPropertyId ? ' (their former house)' : '' }}
-          </option>
+          <option value="" disabled>{{ vacant.length ? 'Select a vacant house or room' : 'No vacant houses' }}</option>
+          <option v-for="p in vacant" :key="p.id" :value="p.id">{{ rental.placeName(p.id) }}</option>
         </select>
-        <p v-if="returning && returning.lastPropertyId && !vacant.some((p) => p.id === returning.lastPropertyId)" class="mt-1 text-xs text-amber-700">
-          Their former house is occupied right now. Pick another.
-        </p>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="label" for="tf-start">Lease start</label>
-          <input id="tf-start" v-model="form.leaseStart" type="date" class="input" required />
-        </div>
-        <div>
-          <label class="label" for="tf-end">Lease end</label>
-          <input id="tf-end" v-model="form.leaseEnd" type="date" class="input" :min="form.leaseStart" required />
-        </div>
-      </div>
-
-      <p v-if="!returning" class="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-        After saving you'll get a <strong>connection code</strong> (valid 20 minutes) for the tenant to connect their account.
+      <p v-if="alreadyRenting" class="-mt-1 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+        {{ alreadyRenting.name }} already rents {{ propertyName(alreadyRenting.propertyId) }}. A tenant can only be in one place at a time.
       </p>
 
-      <p v-if="error" class="text-sm" :class="error.startsWith('This is a former') ? 'text-brand-700' : 'text-red-600'">{{ error }}</p>
+      <p v-if="!form.managedByLandlord" class="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+        After saving you'll get a <strong>connection code</strong> (valid 20 minutes). It only works for an account with the <strong>same phone number or email</strong> you enter here. Their rental time starts when they first pay.
+      </p>
+
+      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
 
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" class="btn-secondary" @click="open = false">Cancel</button>
-        <button type="submit" class="btn-primary" :disabled="saving">
-          <component :is="returning ? History : UserPlus" class="size-4" />
-          {{ saving ? 'Saving…' : returning ? 'Add back' : 'Add tenant' }}
+        <button :data-busy="Boolean(saving)" type="submit" class="btn-primary" :disabled="saving || Boolean(alreadyRenting)">
+          <UserPlus class="size-4" /> {{ saving ? 'Saving…' : 'Add tenant' }}
         </button>
       </div>
     </form>

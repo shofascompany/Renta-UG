@@ -42,7 +42,13 @@ async function save() {
 </script>
 
 <template>
-  <SettingsSubpage title="Change password" subtitle="Use a password you don't use anywhere else." :icon="KeyRound">
+  <SettingsSubpage
+    title="Change password"
+    subtitle="Use a password you don't use anywhere else."
+    :icon="KeyRound"
+    back-to="account"
+    back-label="Account details"
+  >
     <div v-if="done" class="card flex items-start gap-4 border-emerald-200 bg-emerald-50 p-5">
       <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-emerald-700" />
       <div class="flex-1 text-sm">
@@ -81,7 +87,7 @@ async function save() {
       <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
 
       <div class="flex justify-end pt-1">
-        <button type="submit" class="btn-primary" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Update password' }}</button>
+        <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Update password' }}</button>
       </div>
     </form>
 

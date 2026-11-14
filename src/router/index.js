@@ -9,6 +9,7 @@ const settingsRoutes = (role) => [
   { path: 'settings/password', name: `${role}-settings-password`, component: () => import('@/views/settings/PasswordView.vue') },
   { path: 'settings/notifications', name: `${role}-settings-notifications`, component: () => import('@/views/settings/NotificationsSettingsView.vue') },
   { path: 'settings/about', name: `${role}-settings-about`, component: () => import('@/views/settings/AboutView.vue') },
+  { path: 'settings/terms', name: `${role}-settings-terms`, component: () => import('@/views/settings/TermsView.vue') },
 ]
 
 const routes = [
@@ -21,6 +22,9 @@ const routes = [
   // Landlord's first sign-in: choose their own password (shown only until they do).
   { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue'), meta: { role: 'landlord' } },
 
+  // Tenant's first sign-in after their landlord gave them app access: add email + password.
+  { path: '/complete-account', name: 'complete-account', component: () => import('@/views/CompleteAccountView.vue'), meta: { role: 'tenant' } },
+
   // Main admin (superadmin) only.
   { path: '/admin2026', name: 'admin-login', component: () => import('@/views/AdminLoginView.vue'), meta: { guest: true } },
 
@@ -32,6 +36,8 @@ const routes = [
       { path: '', name: 'tenant-dashboard', component: () => import('@/views/tenant/DashboardView.vue') },
       { path: 'home', name: 'tenant-home', component: () => import('@/views/tenant/MyHomeView.vue') },
       { path: 'payments', name: 'tenant-payments', component: () => import('@/views/tenant/PaymentsView.vue') },
+      { path: 'recharge', name: 'tenant-recharge', component: () => import('@/views/tenant/RechargeView.vue') },
+      { path: 'leave', name: 'tenant-leave', component: () => import('@/views/tenant/LeaveView.vue'), meta: { focus: true } },
       { path: 'notifications', name: 'tenant-notifications', component: () => import('@/views/tenant/NotificationsView.vue') },
       ...settingsRoutes('tenant'),
     ],
@@ -43,13 +49,21 @@ const routes = [
     meta: { role: 'landlord' },
     children: [
       { path: '', name: 'landlord-dashboard', component: () => import('@/views/landlord/DashboardView.vue') },
+      { path: 'reports', name: 'landlord-reports', component: () => import('@/views/landlord/ReportsView.vue') },
       { path: 'properties', name: 'landlord-properties', component: () => import('@/views/landlord/PropertiesView.vue') },
       { path: 'properties/:id', name: 'landlord-property', component: () => import('@/views/landlord/PropertyDetailView.vue'), props: true },
+      { path: 'rentals/:id', name: 'landlord-rental', component: () => import('@/views/landlord/RentalDetailView.vue'), props: true },
+      { path: 'earnings', name: 'landlord-earnings', component: () => import('@/views/landlord/EarningsView.vue') },
+      { path: 'revenue', name: 'landlord-revenue', component: () => import('@/views/landlord/RevenueView.vue') },
+      { path: 'managed', name: 'landlord-managed', component: () => import('@/views/landlord/ManagedView.vue') },
+      { path: 'managed/:id', name: 'landlord-managed-account', component: () => import('@/views/landlord/ManagedAccountView.vue'), props: true },
       { path: 'tenants', name: 'landlord-tenants', component: () => import('@/views/landlord/TenantsView.vue') },
+      { path: 'tenants/:id', name: 'landlord-tenant', component: () => import('@/views/landlord/TenantView.vue'), props: true, meta: { focus: true } },
       { path: 'records', name: 'landlord-records', component: () => import('@/views/landlord/RecordsView.vue') },
       { path: 'payments', name: 'landlord-payments', component: () => import('@/views/landlord/PaymentsView.vue') },
       { path: 'notifications', name: 'landlord-notifications', component: () => import('@/views/landlord/NotificationsView.vue') },
       { path: 'inbox', name: 'landlord-inbox', component: () => import('@/views/InboxView.vue') },
+      { path: 'move-outs', name: 'landlord-move-outs', component: () => import('@/views/MoveOutsView.vue') },
       { path: 'messages', redirect: '/landlord/notifications' },
       ...settingsRoutes('landlord'),
     ],
@@ -65,7 +79,19 @@ const routes = [
       { path: '/admin2026/landlords', name: 'super-landlords', component: () => import('@/views/super/LandlordsView.vue') },
       { path: '/admin2026/landlords/:id', name: 'super-landlord', component: () => import('@/views/super/LandlordDetailView.vue'), props: true },
       { path: '/admin2026/tenants', name: 'super-tenants', component: () => import('@/views/super/TenantsView.vue') },
+      { path: '/admin2026/tenants/:id', name: 'super-tenant', component: () => import('@/views/super/TenantDetailView.vue'), props: true },
+      { path: '/admin2026/properties', name: 'super-properties', component: () => import('@/views/super/PropertiesView.vue') },
+      { path: '/admin2026/transactions', name: 'super-transactions', component: () => import('@/views/super/TransactionsView.vue') },
+      { path: '/admin2026/reports', name: 'super-reports', component: () => import('@/views/super/ReportsView.vue') },
+      { path: '/admin2026/broadcast', name: 'super-broadcast', component: () => import('@/views/super/BroadcastView.vue') },
+      { path: '/admin2026/activity', name: 'super-activity', component: () => import('@/views/super/ActivityView.vue') },
+      { path: '/admin2026/archives', name: 'super-archives', component: () => import('@/views/super/ArchivesView.vue') },
+      { path: '/admin2026/archives/:id', name: 'super-archive', component: () => import('@/views/super/ArchivesView.vue'), props: true },
+      { path: '/admin2026/system', name: 'super-system', component: () => import('@/views/super/SystemView.vue') },
+      // Cash and requests to leave are handled by landlords; old links go to the activity timeline
+      { path: '/admin2026/cash', redirect: '/admin2026/activity' },
       { path: '/admin2026/inbox', name: 'super-inbox', component: () => import('@/views/InboxView.vue') },
+      { path: '/admin2026/move-outs', redirect: '/admin2026/activity' },
     ],
   },
 
@@ -92,6 +118,10 @@ router.beforeEach(async (to) => {
   // Landlord on a temporary password → must set their own before anything else
   if (auth.needsPassword && to.name !== 'set-password') return { name: 'set-password' }
   if (!auth.needsPassword && to.name === 'set-password') return auth.home
+
+  // Tenant given app access by their landlord → add email + password before anything else
+  if (auth.needsSetup && to.name !== 'complete-account') return { name: 'complete-account' }
+  if (!auth.needsSetup && to.name === 'complete-account') return auth.home
   return true
 })
 

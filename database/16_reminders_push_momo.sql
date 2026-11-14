@@ -10,8 +10,10 @@ drop table if exists public.alerts cascade;
 
 -- ── Notifications: reminder type, de-duplication, push tracking ──
 alter table public.notifications drop constraint if exists notifications_type_check;
+-- Full list (incl. the types added in 18), so re-running this on a newer database doesn't fail
 alter table public.notifications
-  add constraint notifications_type_check check (type in ('general', 'maintenance', 'payment', 'reminder'));
+  add constraint notifications_type_check
+  check (type in ('general', 'maintenance', 'payment', 'reminder', 'security', 'welcome', 'status', 'rent_due'));
 alter table public.notifications add column if not exists dedupe_key text;
 alter table public.notifications add column if not exists pushed_at timestamptz;
 create unique index if not exists notifications_dedupe_key on public.notifications (dedupe_key);
