@@ -46,6 +46,7 @@ export default async (req) => {
     const name = path.split('/').filter(Boolean).at(-1)
 
     if (name === 'relworx-webhook') return json(await payments.relworxWebhook(db, body))
+    if (name === 'ssentezo-webhook') return json(await payments.ssentezoWebhook(db, body))
     if (name === 'webhook') return json(await payments.flutterwaveWebhook(db, body, req.headers.get('verif-hash')))
 
     const handler = TENANT_ROUTES[name]

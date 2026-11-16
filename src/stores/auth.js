@@ -99,19 +99,40 @@ export const useAuthStore = defineStore('auth', {
       await notifySignIn()
     },
 
-    // Returns true if the user is signed in immediately, false if they must confirm their email first.
-    async signUp({ name, email, password }) {
-      const data = must(
-        await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: name }, emailRedirectTo: window.location.origin },
-        }),
-      )
-      if (data.session) await this.setSession(data.session)
-      return Boolean(data.session)
+    // Sign-up step 1: the server emails a 6-character code (valid 20 minutes). The account is only
+    // created once the right code is entered (verifySignUp).
+    // The phone number is kept in this tab (never sent with the code request) and saved on the profile
+    // once the email is verified.
+    async startSignUp({ name, email, password, phone }) {
+      const res = await api('/api/signup/start', { name, email, password })
+      try {
+        if (phone) sessionStorage.setItem('renta.signup-phone', phone)
+        else sessionStorage.removeItem('renta.signup-phone')
+      } catch {
+        /* storage blocked: they can add the number in Settings */
+      }
+      return res
     },
 
+    // A fresh code for the sign-up that is waiting
+    async resendSignUpCode(email) {
+      return api('/api/signup/resend', { email })
+    },
+
+    // Sign-up step 2: right code → account created and signed in straight away.
+    async verifySignUp(email, code) {
+      const { tokenHash } = await api('/api/signup/verify', { email, code })
+      const data = must(await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' }))
+      this.profile = null
+      await this.setSession(data.session)
+      try {
+        const phone = sessionStorage.getItem('renta.signup-phone')
+        sessionStorage.removeItem('renta.signup-phone')
+        if (phone && this.profile) await this.updateProfile({ name: this.profile.full_name || '', phone })
+      } catch {
+        /* the number can be added later in Settings */
+      }
+    },
     // Landlord's first sign-in: email only (server-issued one-time token), no password.
     async firstLoginSignIn(email) {
       const { tokenHash } = await api('/api/auth/first-login', { email })

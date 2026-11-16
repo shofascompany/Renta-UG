@@ -2,12 +2,12 @@
 // Console page header. Computers: plain title row with actions on the right.
 // Phones: a gradient banner with roomy, full-width action buttons.
 // compact = one small action button on phones instead of a full-width one
-defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean })
+defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean, cornerWide: Boolean })
 </script>
 
 <template>
   <header class="admin-hero mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-4">
-    <div class="relative min-w-0" :class="$slots.corner && 'pr-16 lg:pr-0'">
+    <div class="relative min-w-0" :class="$slots.corner && (cornerWide ? 'pr-32 lg:pr-0' : 'pr-16 lg:pr-0')">
       <p v-if="eyebrow" class="eyebrow text-xs font-semibold tracking-[0.12em] text-brand-700 uppercase">{{ eyebrow }}</p>
       <h1 class="title mt-1 text-[1.65rem] leading-tight font-bold tracking-tight text-slate-900 lg:text-[1.75rem]">{{ title }}</h1>
       <p v-if="subtitle" class="sub mt-1.5 text-sm leading-relaxed text-slate-500">{{ subtitle }}</p>
@@ -21,7 +21,7 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
         <slot />
       </div>
       <!-- corner: phones → top-right of the gradient card; computers → with the other actions -->
-      <div v-if="$slots.corner" class="absolute top-4 right-4 z-10 lg:static">
+      <div v-if="$slots.corner" class="absolute top-4 right-4 z-10 flex items-center gap-2 lg:static">
         <slot name="corner" />
       </div>
     </div>

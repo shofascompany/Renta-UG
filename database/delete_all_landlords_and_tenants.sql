@@ -46,7 +46,7 @@ begin
   -- 2. Clear everything they entered (children first; tables that don't exist are skipped)
   foreach t in array array[
     'notifications', 'payment_receipts', 'cash_payments', 'momo_attempts', 'move_out_requests',
-    'payments', 'tenants', 'properties', 'rentals'
+    'payments', 'tenants', 'properties', 'rentals', 'email_verifications'
   ] loop
     if to_regclass('public.' || t) is not null then
       execute format('delete from public.%I where true', t);

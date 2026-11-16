@@ -1,16 +1,27 @@
 {
+  "id": "/?source=pwa",
   "name": "Renta UG",
   "short_name": "Renta",
-  "description": "Rent, payments and notices for tenants and landlords in Uganda.",
-  "start_url": "/",
+  "description": "Pay rent with MTN and Airtel, track your rental time, and manage homes, rooms and tenants in Uganda.",
+  "lang": "en-UG",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#0f766e",
+  "categories": ["finance", "business", "lifestyle"],
+  "prefer_related_applications": false,
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Pay rent", "short_name": "Pay", "url": "/tenant/payments?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Recharge", "short_name": "Recharge", "url": "/tenant/recharge?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Notifications", "short_name": "Alerts", "url": "/tenant/notifications?source=pwa", "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
   ]
 }

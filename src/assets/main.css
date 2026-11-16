@@ -494,3 +494,37 @@ html.dark .viz {
 @utility table-cell {
   @apply px-4 py-3 text-sm whitespace-nowrap text-slate-700;
 }
+
+/* Add / edit buttons inside cards and rows (same look as the "Add tenant" button) */
+.add-pill {
+  display: inline-flex;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 1rem;
+  padding: 0 1.25rem 0 1.1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #14918a, #0f766e 60%, #0a3b38);
+  box-shadow: 0 10px 22px -12px rgb(15 118 110 / 0.8);
+  transition: transform 0.15s ease;
+}
+.add-pill:active { transform: scale(0.96); }
+.row-act {
+  display: flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.875rem;
+  color: var(--color-slate-500);
+  background: var(--color-slate-100);
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.row-act:hover { color: var(--color-slate-800); background: var(--color-slate-200); }
+.row-act:active { transform: scale(0.92); }
+.row-act-add { color: #fff; background: linear-gradient(135deg, #14918a, #0f766e); box-shadow: 0 6px 14px -8px rgb(15 118 110 / 0.9); }
+.row-act-add:hover { color: #fff; background: linear-gradient(135deg, #0f766e, #0a3b38); }

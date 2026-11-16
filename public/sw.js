@@ -1,9 +1,54 @@
-// Renta UG service worker: shows notifications in the phone's notification panel.
-// (No offline caching, so the app is always up to date.)
+// Renta UG service worker:
+//   • shows notifications in the phone's notification panel
+//   • keeps the app shell so it opens (and shows a friendly page) with no internet
+// Pages are always fetched fresh when online, so the app is never out of date.
+// Money, sign-in and database calls are never cached.
 
-self.addEventListener('install', () => self.skipWaiting())
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
+const VERSION = 'renta-v3'
+const SHELL = ['/offline.html', '/icon-192.png', '/favicon.svg']
 
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).catch(() => {}))
+  self.skipWaiting()
+})
+self.addEventListener('activate', (event) =>
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  ),
+)
+
+self.addEventListener('fetch', (event) => {
+  const req = event.request
+  if (req.method !== 'GET') return
+  const url = new URL(req.url)
+  if (url.origin !== self.location.origin) return // Supabase, fonts, etc.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return
+
+  // Opening a page: network first; with no internet show the offline page
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req).catch(() => caches.match('/offline.html')))
+    return
+  }
+  // Built files have a fingerprint in their name, so they can be kept and reused
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((res) => {
+            if (res.ok) {
+              const copy = res.clone()
+              caches.open(VERSION).then((c) => c.put(req, copy))
+            }
+            return res
+          }),
+      ),
+    )
+  }
+})
 self.addEventListener('push', (event) => {
   let data = {}
   try {

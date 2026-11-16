@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRentalStore } from '@/stores/rental'
+import { daysUntil } from '@/utils/format'
 
 // Everything the signed-in tenant needs (their CURRENT stay only), derived from the rental store.
 export function useTenant() {
@@ -17,8 +18,16 @@ export function useTenant() {
   const payments = computed(() => rental.paymentsForTenant(id.value))
   const dues = computed(() => rental.duesForTenant(id.value))
   const notifications = computed(() => rental.notificationsForTenant(id.value).filter((n) => !n.tenantHidden))
-  const unread = computed(() => notifications.value.filter((n) => !n.read))
-  const balance = computed(() => dues.value.reduce((s, p) => s + p.balance, 0))
+  const unread = computed(() => notifications.value.filter((n) => !n.tenantHidden && !n.read))
 
-  return { rental, id, tenant, property, payments, dues, notifications, unread, balance }
+  // Rental time: starts the day they pay (at least 60% of a month), so a new tenant has none yet
+  const rent = computed(() => Number(property.value?.rent ?? 0))
+  const notStarted = computed(() => Boolean(tenant.value?.propertyId) && !tenant.value?.leaseEnd)
+  const timeEnded = computed(() => Boolean(tenant.value?.leaseEnd) && daysUntil(tenant.value.leaseEnd) < 0)
+
+  // A tenant with nothing charged yet (just moved in, or their paid time ran out) owes one month's rent
+  const firstRent = computed(() => (!dues.value.length && (notStarted.value || timeEnded.value) ? rent.value : 0))
+  const balance = computed(() => dues.value.reduce((s, p) => s + p.balance, 0) + firstRent.value)
+
+  return { rental, id, tenant, property, payments, dues, notifications, unread, balance, rent, notStarted, timeEnded, firstRent }
 }

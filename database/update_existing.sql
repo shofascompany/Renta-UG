@@ -4,7 +4,7 @@
 -- Keeps all data. Re-applies the security policies and newer additions.
 -- Paste the whole file into Supabase → SQL Editor → Run. Safe to run more than once.
 --
--- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql
+-- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql, 36_part_payments.sql, 37_email_verification.sql
 -- ============================================================================
 
 -- Safety check: stop right away if this isn't the Renta database
@@ -2796,3 +2796,91 @@ select p.id, p.tenant_id, p.landlord_id,
 from public.payments p
 left join (select payment_id, sum(amount) as total from public.payment_receipts group by payment_id) r on r.payment_id = p.id
 where p.amount_paid > coalesce(r.total, 0);
+
+-- ────────────── 36_part_payments.sql ──────────────
+
+-- 36 · part payments: a month starts counting once at least 60% of its rent is paid
+--
+--  • A tenant can pay part of what they owe (not less than 60%). The rest stays as their balance due.
+--  • Rental time grows by one month the moment a month's rent reaches 60% paid (or is fully paid in
+--    one go). Paying the remaining 40% later does not add another month.
+--  • A new tenant starts with no rental time; it starts on the day of their first qualifying payment.
+--
+-- Safe to run more than once. No data is deleted.
+
+create or replace function public.extend_rental_time() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_day date := (coalesce(new.paid_at, now()) at time zone 'Africa/Kampala')::date;
+  v_now_ok boolean;
+  v_was_ok boolean := false;
+begin
+  v_now_ok := new.status = 'paid' or (new.amount > 0 and new.amount_paid * 10 >= new.amount * 6);
+  if tg_op = 'UPDATE' then
+    v_was_ok := old.status = 'paid' or (old.amount > 0 and old.amount_paid * 10 >= old.amount * 6);
+  end if;
+  if not v_now_ok or v_was_ok then
+    return new;
+  end if;
+  update public.tenants
+  set lease_start = coalesce(lease_start, v_day),
+      lease_end = (coalesce(lease_end, v_day) + interval '1 month')::date
+  where id = new.tenant_id and property_id is not null;
+  return new;
+end $$;
+
+drop trigger if exists payments_extend_rental_time on public.payments;
+create trigger payments_extend_rental_time
+  after insert or update of status, amount_paid on public.payments
+  for each row execute function public.extend_rental_time();
+
+-- One-time catch-up: tenants with no rental time yet who already have a month at 60%+ paid
+update public.tenants t
+set lease_start = s.start_day,
+    lease_end = (s.start_day + make_interval(months => s.months))::date
+from (
+  select p.tenant_id,
+         min((coalesce(p.paid_at, p.created_at) at time zone 'Africa/Kampala')::date) as start_day,
+         count(*)::int as months
+  from public.payments p
+  where p.amount > 0 and (p.status = 'paid' or p.amount_paid * 10 >= p.amount * 6)
+  group by p.tenant_id
+) s
+where t.id = s.tenant_id and t.property_id is not null and t.lease_end is null;
+
+-- ────────────── 37_email_verification.sql ──────────────
+
+-- 37 · email verification codes for new sign-ups
+--
+-- A new person fills in the sign-up form; the server emails them a 6-character code (letters and
+-- numbers) that works for 20 minutes. The account is only created once the right code is entered, so
+-- nobody can register with an email they don't own. This table holds the waiting sign-ups.
+--
+-- It is only ever read and written by the server (service role). Nobody can read it from the app.
+-- Safe to run more than once.
+
+create table if not exists public.email_verifications (
+  email text primary key,
+  full_name text not null,
+  password_enc text not null, -- encrypted by the server; removed as soon as the account is created
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts int not null default 0,
+  sent_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table public.email_verifications enable row level security; -- no policies = closed to the app
+revoke all on public.email_verifications from public, anon, authenticated;
+
+-- Tidy up expired sign-ups every hour (pg_cron is already used for the reminders)
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'renta-clean-email-verifications';
+    perform cron.schedule('renta-clean-email-verifications', '17 * * * *',
+      $job$delete from public.email_verifications where expires_at < now() - interval '1 hour'$job$);
+  end if;
+exception when others then
+  null; -- cleaning up is optional: the server also removes expired rows itself
+end $$;

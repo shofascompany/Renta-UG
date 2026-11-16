@@ -19,7 +19,21 @@ export const ATTEMPT_TIMEOUT_MS = 15 * 60 * 1000 // give up waiting for approval
 
 export const NETWORK_LABEL = { MTN: 'MTN Mobile Money', AIRTEL: 'Airtel Money' }
 
+const ssentezoReady = (env) => Boolean(env.SSENTEZO_API_USER && env.SSENTEZO_API_KEY)
+// Ssentezo Wallet (Uganda): live address, or the sandbox when SSENTEZO_SANDBOX=true (no real money)
+const ssentezoBase = (env) => (String(env.SSENTEZO_SANDBOX).toLowerCase() === 'true' ? 'https://devwallet.ssentezo.com' : 'https://wallet.ssentezo.com')
+const ssentezoHeaders = (env) => ({
+  Authorization: `Basic ${Buffer.from(`${env.SSENTEZO_API_USER}:${env.SSENTEZO_API_KEY}`).toString('base64')}`,
+  'Content-Type': 'application/json',
+})
+
 export function providerName(env = process.env) {
+  // PAYMENT_PROVIDER=ssentezo | relworx | flutterwave picks one on purpose when several are set up
+  const forced = String(env.PAYMENT_PROVIDER ?? '').toLowerCase()
+  if (forced === 'ssentezo' && ssentezoReady(env)) return 'ssentezo'
+  if (forced === 'relworx' && env.RELWORX_API_KEY && env.RELWORX_ACCOUNT_NO) return 'relworx'
+  if (forced === 'flutterwave' && env.FLW_SECRET_KEY) return 'flutterwave'
+  if (ssentezoReady(env) && !forced) return 'ssentezo'
   if (env.RELWORX_API_KEY && env.RELWORX_ACCOUNT_NO) return 'relworx'
   if (env.FLW_SECRET_KEY) return 'flutterwave'
   if (String(env.PAYMENTS_TEST_MODE).toLowerCase() === 'true') return 'test'
@@ -61,6 +75,31 @@ export async function initiate({ txRef, amount, msisdn, network, email, fullname
   if (!provider) throw new Error('Online payments are not set up yet. Please pay your landlord in cash for now.')
   if (provider === 'test') return { providerRef: `test-${txRef}`, redirectUrl: null }
 
+  if (provider === 'ssentezo') {
+    // The provider calls us back when the payment finishes, but only a public address can be reached
+    const site = String(env.CLIENT_URL || '').replace(/\/$/, '')
+    const hook = site && !/localhost|127\.0\.0\.1/.test(site) ? `${site}/api/momo/ssentezo-webhook` : null
+    const res = await http(`${ssentezoBase(env)}/api/deposit`, {
+      method: 'POST',
+      headers: ssentezoHeaders(env),
+      body: JSON.stringify({
+        externalReference: txRef,
+        msisdn,
+        amount: Number(amount),
+        currency: 'UGX',
+        reason: description || 'Rent payment',
+        ...(fullname ? { name: fullname } : {}),
+        ...(hook ? { success_callback: hook, failure_callback: hook } : {}),
+      }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || String(body.response).toUpperCase() === 'ERROR') {
+      const fields = body.error && typeof body.error === 'object' ? Object.values(body.error).flat().join(' ') : body.error
+      throw new Error(body.message || fields || `Mobile money provider error (${res.status})`)
+    }
+    return { providerRef: body.data?.ssentezoWalletReference ?? null, redirectUrl: null }
+  }
+
   if (provider === 'relworx') {
     const res = await http(`${RELWORX}/mobile-money/request-payment`, {
       method: 'POST',
@@ -99,6 +138,22 @@ export async function verify(attempt, env = process.env) {
     return age >= TEST_APPROVE_AFTER_MS
       ? { status: 'successful', amount: Number(attempt.amount), currency: 'UGX', providerRef: attempt.provider_ref }
       : { status: 'pending' }
+  }
+
+  if (attempt.provider === 'ssentezo') {
+    if (!ssentezoReady(env)) return { status: 'pending' }
+    const res = await http(`${ssentezoBase(env)}/api/get_status/${encodeURIComponent(attempt.tx_ref)}`, { method: 'POST', headers: ssentezoHeaders(env), body: '{}' })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body?.data) return { status: 'pending' }
+    const s = String(body.data.transactionStatus ?? '').toUpperCase()
+    // The status is looked up by OUR unique reference, so the amount and currency are the ones we asked for
+    return {
+      status: s === 'SUCCEEDED' ? 'successful' : s === 'FAILED' ? 'failed' : 'pending', // PENDING / INDETERMINATE keep waiting
+      amount: Number(body.data.amount ?? attempt.amount),
+      currency: 'UGX',
+      providerRef: body.data.financialTransactionId || body.data.ssentezoWalletReference || attempt.provider_ref,
+      reason: s === 'FAILED' ? body.data.reason || body.data.message : undefined,
+    }
   }
 
   if (attempt.provider === 'relworx') {

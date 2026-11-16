@@ -57,3 +57,4 @@ drop function if exists public.admin_end_tenancy(uuid, text) cascade;
 drop function if exists public.admin_broadcast(text, uuid, text) cascade;
 drop function if exists public.admin_note(text, text, uuid, text) cascade;
 drop function if exists public.admin_archive_and_clear(uuid, text) cascade;
+drop table if exists public.email_verifications cascade;

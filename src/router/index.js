@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppShell from '@/layouts/AppShell.vue'
+import { isInstalledApp } from '@/lib/runtime'
 
 // Settings: same screens for landlords and tenants; each option is its own page.
 const settingsRoutes = (role) => [
@@ -13,11 +14,30 @@ const settingsRoutes = (role) => [
 ]
 
 const routes = [
-  { path: '/', redirect: () => useAuthStore().home },
+  // In a browser the first page is the landing site. Inside the installed app (home-screen app, Play Store /
+  // App Store app) people go straight to the app.
+  {
+    path: '/',
+    name: 'landing',
+    component: () => import('@/views/LandingView.vue'),
+    meta: { public: true },
+    beforeEnter: () => {
+      if (!isInstalledApp()) return true
+      const auth = useAuthStore()
+      return auth.isAuthenticated ? auth.home : { name: 'login' }
+    },
+  },
+
+  // Public pages the app stores ask for
+  { path: '/privacy', name: 'privacy', component: () => import('@/views/PublicInfoView.vue'), meta: { public: true, page: 'privacy' } },
+  { path: '/terms', name: 'terms', component: () => import('@/views/PublicInfoView.vue'), meta: { public: true, page: 'terms' } },
+  { path: '/delete-account', name: 'delete-account', component: () => import('@/views/PublicInfoView.vue'), meta: { public: true, page: 'delete-account' } },
 
   // Landlords and tenants sign in here; the app sends each to their own area.
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { guest: true } },
   { path: '/signup', name: 'signup', component: () => import('@/views/SignupView.vue'), meta: { guest: true } },
+  // New account: type the 6-character code from the email, then go straight to the dashboard
+  { path: '/verify-email', name: 'verify-email', component: () => import('@/views/VerifyEmailView.vue'), meta: { guest: true } },
 
   // Landlord's first sign-in: choose their own password (shown only until they do).
   { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue'), meta: { role: 'landlord' } },
@@ -87,6 +107,7 @@ const routes = [
       { path: '/admin2026/activity', name: 'super-activity', component: () => import('@/views/super/ActivityView.vue') },
       { path: '/admin2026/archives', name: 'super-archives', component: () => import('@/views/super/ArchivesView.vue') },
       { path: '/admin2026/archives/:id', name: 'super-archive', component: () => import('@/views/super/ArchivesView.vue'), props: true },
+      { path: '/admin2026/downloads', name: 'super-downloads', component: () => import('@/views/super/DownloadsView.vue') },
       { path: '/admin2026/system', name: 'super-system', component: () => import('@/views/super/SystemView.vue') },
       // Cash and requests to leave are handled by landlords; old links go to the activity timeline
       { path: '/admin2026/cash', redirect: '/admin2026/activity' },
@@ -107,6 +128,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.init()
+  if (to.meta.public) return true
   if (to.meta.guest) return auth.isAuthenticated ? auth.home : true
   if (!auth.isAuthenticated) {
     const area = to.matched.find((r) => r.meta.role)?.meta.role

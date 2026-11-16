@@ -20,6 +20,13 @@
   status = 200
   force = true
 
+# Tenant signs up with a phone number instead of an email (Netlify Function)
+[[redirects]]
+  from = "/api/auth/phone-sign-up"
+  to = "/.netlify/functions/phone-sign-up"
+  status = 200
+  force = true
+
 # Tenants without a smartphone → app access, and their first-sign-in setup (Netlify Function)
 [[redirects]]
   from = "/api/landlord/*"
@@ -37,6 +44,13 @@
 [[redirects]]
   from = "/api/admin/*"
   to = "/.netlify/functions/admin/:splat"
+  status = 200
+  force = true
+
+# Sign up with an emailed verification code (Netlify Function)
+[[redirects]]
+  from = "/api/signup/*"
+  to = "/.netlify/functions/signup/:splat"
   status = 200
   force = true
 
@@ -59,3 +73,27 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# The service worker and manifest must never be served from an old cache
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/.well-known/assetlinks.json"
+  [headers.values]
+    Content-Type = "application/json"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

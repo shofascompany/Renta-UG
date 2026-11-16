@@ -72,7 +72,9 @@ async function notifyPayment(db, { tenantId, landlordId, propertyId, received, m
 
 // Online payment verified → pay off the rent charge (idempotent) and keep a receipt.
 // notify = false when it's part of a bigger payment that sends one summary at the end.
-async function markPaid(db, paymentId, reference, method, phone, notify = true) {
+// `part` = a part payment (60% or more of what was owed): only that amount is added and the rent stays
+// open for the rest. Without it the whole remaining balance is paid.
+async function markPaid(db, paymentId, reference, method, phone, notify = true, part = null) {
   const { data: before, error: bErr } = await db
     .from('payments')
     .select('id, amount, amount_paid, status, landlord_id, tenant_id, property_id, period')
@@ -80,12 +82,18 @@ async function markPaid(db, paymentId, reference, method, phone, notify = true) 
     .maybeSingle()
   check(bErr)
   if (!before || before.status === 'paid') return 0
-  const received = Number(before.amount) - Number(before.amount_paid ?? 0)
+  const remaining = Number(before.amount) - Number(before.amount_paid ?? 0)
+  const received = part ? Math.min(Number(part), remaining) : remaining
+  const complete = received >= remaining
   const paidAt = new Date().toISOString()
 
   const { data: rows, error } = await db
     .from('payments')
-    .update({ status: 'paid', amount_paid: before.amount, paid_at: paidAt, method, reference })
+    .update(
+      complete
+        ? { status: 'paid', amount_paid: before.amount, paid_at: paidAt, method, reference }
+        : { amount_paid: Number(before.amount_paid ?? 0) + received, method, reference },
+    )
     .eq('id', paymentId)
     .eq('status', 'pending') // only the first caller gets past here
     .select('id')
@@ -111,7 +119,7 @@ async function markPaid(db, paymentId, reference, method, phone, notify = true) 
       method,
       phone,
       reference,
-      months: [before.period],
+      months: complete ? [before.period] : [],
     })
   }
   return received
@@ -270,7 +278,7 @@ export async function checkAttempt(db, attempt) {
   }
   if (updated.status === 'successful') {
     if (updated.advance_months) await applyRecharge(db, updated)
-    else await markPaid(db, updated.payment_id, updated.provider_ref ?? updated.tx_ref, momo.NETWORK_LABEL[updated.network], updated.phone)
+    else await markPaid(db, updated.payment_id, updated.provider_ref ?? updated.tx_ref, momo.NETWORK_LABEL[updated.network], updated.phone, true, updated.amount)
   }
   return updated
 }
@@ -293,7 +301,7 @@ function payerFrom(body) {
 // tenant a plain message. Problems with their own payment (e.g. a wrong number) are shown as they are.
 function providerError(e) {
   if (isNetworkError(e)) return new HttpError(503, NETWORK_MESSAGE)
-  if (/disabled|not authenticated|authori[sz]ed ip|invalid access|not authorized|api key/i.test(e.message)) {
+  if (/disabled|not authenticated|authori[sz]ed ip|invalid access|not authorized|unauthori[sz]ed|invalid (credentials|api)|api key/i.test(e.message)) {
     console.error(`[momo] provider account problem: ${e.message}`)
     return new HttpError(503, 'Mobile money payments are not available right now. Please try again later, or pay your landlord in cash.')
   }
@@ -305,6 +313,19 @@ export const MAX_AMOUNT = 5_000_000 // per mobile money transaction
 function checkAmount(amount) {
   if (amount < MIN_AMOUNT) throw new HttpError(400, `The smallest payment is ${ugx(MIN_AMOUNT)}.`)
   if (amount > MAX_AMOUNT) throw new HttpError(400, `Mobile money allows up to ${ugx(MAX_AMOUNT)} in one payment. Choose fewer months.`)
+}
+
+// A tenant may type how much to pay: at least 60% of what is owed, and no more than what is owed
+// (paying ahead is done with Recharge). Nothing typed = pay it all.
+export const MIN_SHARE = 0.6
+function chooseAmount(typed, required) {
+  if (typed === undefined || typed === null || typed === '') return required
+  const n = Math.round(Number(typed))
+  if (!Number.isFinite(n) || n <= 0) throw new HttpError(400, 'Enter how much you want to pay.')
+  const min = Math.min(required, Math.max(Math.ceil(required * MIN_SHARE), MIN_AMOUNT))
+  if (n < min) throw new HttpError(400, `The least you can pay now is ${ugx(min)} (60% of ${ugx(required)}).`)
+  if (n > required) throw new HttpError(400, `You owe ${ugx(required)}. To pay months ahead, use Recharge.`)
+  return n
 }
 
 // Sends the prompt for an attempt row that was just saved, and records the provider's reference.
@@ -362,7 +383,8 @@ export async function pay(db, user, body) {
   }
 
   // Only what's still owed (part of it may already have been paid in cash)
-  const due = Number(payment.amount) - Number(payment.amount_paid ?? 0)
+  const owed = Number(payment.amount) - Number(payment.amount_paid ?? 0)
+  const due = chooseAmount(body?.amount, owed)
   checkAmount(due)
   const { data: attempt, error } = await db
     .from('momo_attempts')
@@ -409,7 +431,8 @@ export async function rechargeQuote(db, user, body) {
 export async function recharge(db, user, body) {
   const months = monthsFrom(body)
   const { msisdn, network } = payerFrom(body)
-  const { tenant, total } = await rechargePlan(db, { user_id: user.id }, months)
+  const { tenant, total: owed } = await rechargePlan(db, { user_id: user.id }, months)
+  const total = months === 1 ? chooseAmount(body?.amount, owed) : owed // part payments: one month only
   checkAmount(total)
 
   const { data: open, error: oErr } = await db
@@ -460,6 +483,17 @@ export async function relworxWebhook(db, body) {
   if (ref) ({ data: attempt } = await db.from('momo_attempts').select('*').eq('tx_ref', ref).maybeSingle())
   if (!attempt && internal) ({ data: attempt } = await db.from('momo_attempts').select('*').eq('provider_ref', internal).maybeSingle())
   if (attempt) await checkAttempt(db, attempt)
+  return { received: true }
+}
+
+// Ssentezo calls this when a payment succeeds or fails. The body is only used to FIND the payment:
+// the result is always re-checked with Ssentezo before any rent is marked paid.
+export async function ssentezoWebhook(db, body) {
+  const ref = body?.externalReference ?? body?.data?.externalReference
+  if (ref) {
+    const { data: attempt } = await db.from('momo_attempts').select('*').eq('tx_ref', ref).maybeSingle()
+    if (attempt) await checkAttempt(db, attempt)
+  }
   return { received: true }
 }
 

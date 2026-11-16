@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import {
   Wallet, CalendarClock, MapPin, ArrowUpRight, Receipt, AlertCircle, Phone, Mail, MessageCircle, Zap, ShieldCheck,
   Clock, Banknote, ArrowDownLeft, Smartphone,
@@ -13,7 +13,7 @@ import PushPrompt from '@/components/PushPrompt.vue'
 
 // Only what a tenant needs at a glance: what they owe, their lease, their home.
 // Everything else has its own page (My home, Payments, Notifications via the bell).
-const { rental, tenant, property, payments, dues, balance } = useTenant()
+const { rental, tenant, property, payments, dues, balance, rent, notStarted, timeEnded, firstRent } = useTenant()
 
 const firstName = computed(() => tenant.value?.name.split(' ')[0] ?? '')
 const nextDue = computed(() => dues.value[0])
@@ -40,9 +40,7 @@ const payWays = computed(() => {
 })
 
 const daysLeft = computed(() => (tenant.value?.leaseEnd ? daysUntil(tenant.value.leaseEnd) : null))
-// New tenant who hasn't paid yet: their rental time has not started, so no days are counted
-const notStarted = computed(() => !tenant.value?.leaseEnd && !payments.value.some((p) => p.status === 'paid'))
-const timeEnded = computed(() => daysLeft.value !== null && daysLeft.value < 0)
+// New tenant who hasn't paid yet: their rental time has not started, so no days are counted (see useTenant)
 const endingSoon = computed(() => daysLeft.value !== null && daysLeft.value >= 0 && daysLeft.value <= 7)
 const leaseProgress = computed(() => {
   const t = tenant.value
@@ -122,7 +120,32 @@ const whatsapp = computed(() => {
   return `https://wa.me/${intl}`
 })
 
+// "Pay now": an existing unpaid charge, or (new tenant / time ended) one month's rent that isn't charged yet
 const paying = ref(null)
+const thisMonthLabel = `Rent for ${now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+const canPayNow = computed(() => Boolean(nextDue.value || firstRent.value))
+function payNow() {
+  paying.value = nextDue.value ?? { recharge: { months: 1, total: firstRent.value }, label: thisMonthLabel }
+}
+
+// Short sentences that fade in one after another, words only (no box around them)
+const sentences = computed(() => {
+  const list = []
+  if (notStarted.value) list.push(`Your balance is one month's rent, ${formatUGX(rent.value)}. It goes down as you pay.`)
+  else if (balance.value) list.push(`You still owe ${formatUGX(balance.value)}. Pay part or all of it any time.`)
+  else list.push('You are all paid up. Thank you!')
+  list.push(
+    'Your rental month starts counting the moment you pay.',
+    'Pay at least 60% of the rent to start your month.',
+    'Pay with MTN or Airtel Mobile Money. It is confirmed automatically.',
+    'Recharge early and every paid month is added on top of your time.',
+  )
+  return list
+})
+const sentenceIndex = ref(0)
+const sentenceTimer = setInterval(() => (sentenceIndex.value = (sentenceIndex.value + 1) % sentences.value.length), 4500)
+onBeforeUnmount(() => clearInterval(sentenceTimer))
+
 async function onPaid() {
   paying.value = null
   await Promise.all([rental.reload('payments'), rental.reload('notifications')])
@@ -202,18 +225,19 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
               <template v-if="nextDue">
                 {{ formatPeriod(nextDue.period) }}<template v-if="dues.length > 1"> +{{ dues.length - 1 }}</template>
               </template>
+              <template v-else-if="firstRent">Rent for {{ now.toLocaleDateString('en-GB', { month: 'long' }) }}</template>
               <template v-else>{{ formatUGX(property?.rent) }} / month</template>
             </p>
           </div>
         </div>
 
         <!-- Actions -->
-        <div class="mt-6 grid gap-2.5" :class="nextDue ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'">
-          <button v-if="nextDue" class="hero-btn hero-btn-solid col-span-2 sm:col-span-1" @click="paying = nextDue">
+        <div class="mt-6 grid gap-2.5" :class="canPayNow ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'">
+          <button v-if="canPayNow" class="hero-btn hero-btn-solid col-span-2 sm:col-span-1" @click="payNow">
             Pay now
           </button>
-          <RouterLink to="/tenant/recharge" class="hero-btn" :class="nextDue ? 'hero-btn-glass' : 'hero-btn-solid'">
-            <Zap class="size-4" /> {{ notStarted ? 'Pay first rent' : 'Recharge' }}
+          <RouterLink to="/tenant/recharge" class="hero-btn" :class="canPayNow ? 'hero-btn-glass' : 'hero-btn-solid'">
+            <Zap class="size-4" /> Recharge
           </RouterLink>
           <RouterLink to="/tenant/payments" class="hero-btn hero-btn-glass">
             <Receipt class="size-4" /> History
@@ -221,6 +245,13 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         </div>
       </div>
     </section>
+
+    <!-- Animated sentences: words only -->
+    <div class="sentence-box mt-4 overflow-hidden px-2" aria-live="polite">
+      <Transition name="sentence" mode="out-in">
+        <p :key="sentenceIndex" class="text-center text-[0.8125rem] leading-snug text-slate-500">{{ sentences[sentenceIndex % sentences.length] }}</p>
+      </Transition>
+    </div>
 
     <!-- Rental time + home -->
     <div class="mt-4 grid gap-4 sm:grid-cols-2">
@@ -305,9 +336,9 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
             <p class="pb-1 text-sm leading-snug text-slate-600">days counted<br /><span class="text-slate-400">Starts the day you pay</span></p>
           </div>
           <p class="mt-4 text-sm leading-relaxed text-slate-600">
-            You haven't paid rent yet, so your rental time hasn't started. When you pay, it starts that same day and runs one month for every month you pay.
+            You haven't paid rent yet, so your rental time hasn't started. Your balance is one month's rent. Pay at least 60% of it and your month starts that same day.
           </p>
-          <RouterLink to="/tenant/recharge" class="btn-primary mt-4 h-11 w-full rounded-xl sm:w-auto"><Zap class="size-4" /> Pay first rent</RouterLink>
+          <button v-if="canPayNow" type="button" class="btn-primary mt-4 h-11 w-full rounded-xl sm:w-auto" @click="payNow"><Zap class="size-4" /> Pay first rent</button>
         </div>
 
         <!-- Paid: count down to the end of the paid rental time -->
@@ -419,9 +450,14 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
               </template>
             </ListRow>
           </ul>
+          <ul v-else-if="firstRent">
+            <ListRow :title="thisMonthLabel" subtitle="Pay at least 60% to start your month" :value="formatUGX(firstRent)" value-class="text-amber-700" @click="payNow">
+              <template #icon><span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span></template>
+            </ListRow>
+          </ul>
           <ul v-else>
-            <ListRow to="/tenant/recharge" :title="notStarted ? 'Pay your first rent' : 'Nothing to pay'" :subtitle="notStarted ? 'Your rental time starts the day you pay' : 'Recharge any time to pay ahead'">
-              <template #icon><span class="icon-disc rounded-full" :class="notStarted ? 'disc-amber' : 'disc-emerald'"><Zap v-if="notStarted" class="size-5" /><ShieldCheck v-else class="size-5" /></span></template>
+            <ListRow to="/tenant/recharge" title="Nothing to pay" subtitle="Recharge any time to pay ahead">
+              <template #icon><span class="icon-disc rounded-full disc-emerald"><ShieldCheck class="size-5" /></span></template>
             </ListRow>
           </ul>
         </div>
@@ -500,7 +536,14 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   </div>
 
   <BaseModal :model-value="Boolean(paying)" title="Pay rent" @update:model-value="!$event && (paying = null)">
-    <PayRentForm v-if="paying" :payment="paying" @paid="onPaid" @cancel="paying = null" />
+    <PayRentForm
+      v-if="paying"
+      :payment="paying.recharge ? undefined : paying"
+      :recharge="paying.recharge"
+      :label="paying.label"
+      @paid="onPaid"
+      @cancel="paying = null"
+    />
   </BaseModal>
 </template>
 
@@ -719,7 +762,14 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   100% { box-shadow: 0 0 0 0 rgb(16 185 129 / 0); }
 }
 
+/* Sentences: just words, sliding in and out */
+.sentence-box { min-height: 2.5rem; }
+.sentence-enter-active, .sentence-leave-active { transition: opacity 0.5s ease, transform 0.5s ease; }
+.sentence-enter-from { opacity: 0; transform: translateY(8px); }
+.sentence-leave-to { opacity: 0; transform: translateY(-8px); }
+
 @media (prefers-reduced-motion: reduce) {
+  .sentence-enter-active, .sentence-leave-active { transition: none; }
   .rise, .bar, .blob, .pop, .live-dot { animation: none; }
   .tile:hover { transform: none; }
 }

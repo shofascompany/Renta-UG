@@ -12,7 +12,7 @@ import PayRentForm from '@/components/PayRentForm.vue'
 // The server works out the exact amount; the "paid up to" date follows the rental-time rules
 // (each paid month adds one month on top of the time they already have, or from today if none).
 const router = useRouter()
-const { rental, tenant, property, dues, balance } = useTenant()
+const { rental, tenant, property, dues } = useTenant()
 
 const OPTIONS = [
   { m: 1, tag: '' },
@@ -28,7 +28,8 @@ const error = ref('')
 let seq = 0
 
 const rent = computed(() => quote.value?.rent ?? property.value?.rent ?? 0)
-const owed = computed(() => quote.value?.outstanding ?? balance.value ?? 0)
+// Unpaid charges only: a month that isn't charged yet is the first of the months chosen below
+const owed = computed(() => quote.value?.outstanding ?? dues.value.reduce((s, d) => s + d.balance, 0))
 const priceFor = (m) => owed.value + rent.value * m
 
 async function loadQuote() {

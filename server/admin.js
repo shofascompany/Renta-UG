@@ -171,6 +171,41 @@ export async function giveTenantAppAccess(db, landlordId, tenantId) {
   return { ok: true, phone: t.phone }
 }
 
+// A tenant signs themselves up with a phone number instead of an email.
+// The login gets a private placeholder email; they then sign in with the phone number + password.
+export async function signUpTenantByPhone(db, body) {
+  const name = String(body?.name ?? '').trim()
+  const phone = String(body?.phone ?? '').trim()
+  const password = String(body?.password ?? '')
+  if (!name) throw new HttpError(400, 'Enter your full name.')
+  if (last9(phone).length < 9) throw new HttpError(400, 'Enter a valid phone number.')
+  if (password.length < 8) throw new HttpError(400, 'Your password needs at least 8 characters.')
+
+  const { data: others, error: oErr } = await db.from('profiles').select('id, phone').not('phone', 'is', null)
+  check(oErr)
+  if ((others ?? []).some((p) => last9(p.phone) === last9(phone))) {
+    throw new HttpError(400, 'This phone number is already used by another Renta account.')
+  }
+
+  const email = `phone-${last9(phone)}-${randomBytes(4).toString('hex')}@${PHONE_ONLY_EMAIL_DOMAIN}`
+  const { data: created, error: cErr } = await db.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: name },
+  })
+  if (cErr) throw new HttpError(400, cErr.message)
+
+  const { error: pErr } = await db
+    .from('profiles')
+    .upsert({ id: created.user.id, email, full_name: name, phone, role: 'tenant', must_change_password: false })
+  if (pErr) {
+    await db.auth.admin.deleteUser(created.user.id)
+    check(pErr)
+  }
+  return { ok: true }
+}
+
 // Tenant's first sign-in (after app access was given): add their email and choose a password.
 export async function completeTenantAccount(db, user, profile, body) {
   if (profile?.role !== 'tenant' || !profile.must_change_password) {

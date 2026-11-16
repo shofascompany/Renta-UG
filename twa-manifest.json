@@ -1,0 +1,22 @@
+{
+  "packageId": "ug.renta.app",
+  "host": "rentaug.netlify.app",
+  "name": "Renta UG",
+  "launcherName": "Renta",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#0f766e",
+  "navigationColor": "#0f766e",
+  "backgroundColor": "#ffffff",
+  "startUrl": "/?source=pwa",
+  "iconUrl": "https://rentaug.netlify.app/icon-512.png",
+  "maskableIconUrl": "https://rentaug.netlify.app/icon-maskable-512.png",
+  "webManifestUrl": "https://rentaug.netlify.app/manifest.webmanifest",
+  "fullScopeUrl": "https://rentaug.netlify.app/",
+  "enableNotifications": true,
+  "appVersionName": "1.0.0",
+  "appVersion": "1",
+  "minSdkVersion": 21,
+  "signingKey": { "path": "./renta-upload.keystore", "alias": "renta" },
+  "fallbackType": "customtabs"
+}

@@ -7,6 +7,7 @@ import { registerServiceWorker } from './lib/push'
 import { initTheme } from './lib/theme'
 import { installAutoCapitalize } from './lib/autoCapitalize'
 import { installNoZoom } from './lib/noZoom'
+import { trackInstall } from './lib/installs'
 
 initTheme() // light / dark mode follows the device automatically
 installNoZoom() // pages stay at the phone's size: scroll up/down only, no zooming
@@ -17,3 +18,4 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+trackInstall() // counts this phone once for the main admin's Downloads page

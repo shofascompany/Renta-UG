@@ -5,6 +5,7 @@ import { CheckCircle2, XCircle, Loader2, KeyRound } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { isConfigured } from '@/lib/supabase'
 import Logo from '@/components/Logo.vue'
+import AuthBackground from '@/components/AuthBackground.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -147,8 +148,9 @@ async function forgot() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-white px-4 py-12">
-    <div class="w-full max-w-sm">
+  <div class="relative flex min-h-screen items-center justify-center px-4 py-12">
+    <AuthBackground />
+    <div class="relative z-10 w-full max-w-sm">
       <div class="mb-10 flex justify-center"><Logo /></div>
 
       <h1 class="text-center text-2xl font-semibold tracking-tight text-slate-900">Welcome back</h1>

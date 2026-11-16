@@ -35,6 +35,22 @@ Open `.env.netlify` on your computer, copy everything, paste it in, keep **All s
 | `VAPID_SUBJECT` | Contact for phone notifications | `mailto:` + an email address you control | No |
 | `PAYMENT_EMAIL_FALLBACK` | Email sent to the payment provider when a tenant has none | Any company email | No |
 | `CLIENT_URL` | Your live address | `https://rentaug.netlify.app` | No |
+| `SMTP_USER` | The Gmail address that sends the sign-up codes | A Gmail account made for Renta UG | No |
+| `SMTP_PASS` | That Gmail's **App password** (16 letters) | Google Account → Security → 2-Step Verification on → *App passwords* | **YES** |
+| `MAIL_FROM` | (optional) Sender name shown in the email | e.g. `Renta UG <the same Gmail>` | No |
+| `VITE_SUPPORT_EMAIL` | Contact shown on the Privacy and Delete-account pages | A support email you read | No |
+
+**Text messages (SMS)**: when a landlord confirms (or rejects) a cash payment, the tenant gets an SMS, with or without a smartphone. Made with Africa's Talking (africastalking.com):
+
+| Variable | What it is | Secret? |
+|---|---|---|
+| `AT_USERNAME` | Your Africa's Talking app username (use `sandbox` to test without sending real texts) | No |
+| `AT_API_KEY` | API key: Africa's Talking → Settings → API Key | **YES** |
+| `AT_SENDER_ID` | (optional) Name shown as the sender, e.g. `RentaUG`; needs approval from Africa's Talking | No |
+
+Also run `database/39_sms_confirmations.sql` once in Supabase. A tenant is texted when there is a phone number on their tenant record or their app account.
+
+Instead of Gmail you can use Resend (resend.com): set `RESEND_API_KEY` and `MAIL_FROM` (on a domain you verified there).
 
 Optional, only if you ever switch from Relworx to Flutterwave: `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH`.
 
@@ -57,6 +73,7 @@ Netlify → **Deploys → Trigger deploy → Deploy site**. The `VITE_…` keys 
 | `payments` | Pay rent / recharge with MTN or Airtel, check payments, Relworx webhook |
 | `payments-sweep` | Every minute: confirms payments still waiting |
 | `push-sweep` | Every minute: sends notifications to phones |
+| `signup` | Emails the 6-character sign-up code and creates the account when it is entered |
 | `admin` | Main admin: landlords, delete accounts, delete all users (with archive) |
 | `first-login`, `phone-sign-in`, `tenant-account` | Sign-in by email or phone, first sign-in, app access for tenants |
 

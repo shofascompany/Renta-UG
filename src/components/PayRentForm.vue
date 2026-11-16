@@ -9,8 +9,24 @@ import { formatUGX, formatPeriod } from '@/utils/format'
 // the network is worked out from it, a prompt goes to that phone, and the server confirms the payment
 // with the provider before any rent is marked paid.
 // `payment`: pay one rent charge.  `recharge`: { months, total }: unpaid rent + months ahead (Recharge page).
-const props = defineProps({ payment: Object, recharge: Object })
-const amount = computed(() => (props.recharge ? props.recharge.total : props.payment?.balance))
+const props = defineProps({ payment: Object, recharge: Object, label: String })
+
+// What is owed, and what this payment will be. A tenant may type a smaller amount (at least 60%) when
+// paying one rent charge or one month; longer recharges pay the full total.
+const required = computed(() => Math.round(Number((props.recharge ? props.recharge.total : props.payment?.balance) || 0)))
+const canPart = computed(() => Boolean(props.payment) || props.recharge?.months === 1)
+const typed = ref('')
+const typedValue = computed(() => Math.round(Number(String(typed.value).replace(/[^\d]/g, '')) || 0))
+const minAmount = computed(() => Math.min(required.value, Math.max(Math.ceil(required.value * 0.6), 2000)))
+const amountError = computed(() => {
+  if (!canPart.value || !typedValue.value) return ''
+  if (typedValue.value < minAmount.value) return `The least you can pay now is ${formatUGX(minAmount.value)} (60% of ${formatUGX(required.value)}).`
+  if (typedValue.value > required.value) return `You owe ${formatUGX(required.value)}. To pay months ahead, use Recharge.`
+  return ''
+})
+// Locked-in amount: what they typed (when allowed), otherwise everything that is owed
+const amount = computed(() => (canPart.value ? (typedValue.value && !amountError.value ? typedValue.value : 0) : required.value))
+const leftAfter = computed(() => (canPart.value && amount.value ? required.value - amount.value : 0))
 const emit = defineEmits(['paid', 'cancel'])
 
 const { tenant } = useTenant()
@@ -55,13 +71,13 @@ const myNumber = computed(() => {
 
 const networkLabel = computed(() => NETWORKS[attempt.value?.network ?? network.value]?.label ?? 'mobile money')
 const shownPhone = computed(() => (attempt.value?.phone ?? '').replace(/^256/, '0'))
-const canPay = computed(() => validNumber.value && network.value && amount.value > 0 && !busy.value)
+const canPay = computed(() => validNumber.value && network.value && amount.value > 0 && !amountError.value && !busy.value)
 
 async function pay() {
   error.value = ''
   busy.value = true
   try {
-    const body = { network: network.value, phone: phone.value }
+    const body = { network: network.value, phone: phone.value, ...(canPart.value ? { amount: amount.value } : {}) }
     const a = props.recharge
       ? await api('/api/momo/recharge', { months: props.recharge.months, ...body })
       : await api('/api/momo/pay', { paymentId: props.payment.id, ...body })
@@ -115,10 +131,10 @@ onBeforeUnmount(stop)
 
 <template>
   <div>
-    <div v-if="payment && step === 'form'" class="mb-5 rounded-2xl bg-slate-50 p-4">
-      <p class="text-sm text-slate-500">Rent for {{ formatPeriod(payment.period) }}</p>
-      <p class="mt-1 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{{ formatUGX(payment.balance) }}</p>
-      <p v-if="payment.amountPaid" class="mt-0.5 text-xs text-slate-500">{{ formatUGX(payment.amountPaid) }} of {{ formatUGX(payment.amount) }} already paid</p>
+    <div v-if="(payment || label) && step === 'form'" class="mb-5 rounded-2xl bg-slate-50 p-4">
+      <p class="text-sm text-slate-500">{{ payment ? `Rent for ${formatPeriod(payment.period)}` : label }}</p>
+      <p class="mt-1 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{{ formatUGX(required) }}</p>
+      <p class="mt-0.5 text-xs text-slate-500">{{ payment?.amountPaid ? `Balance due. ${formatUGX(payment.amountPaid)} of ${formatUGX(payment.amount)} already paid` : 'Balance due' }}</p>
     </div>
 
     <!-- Online payments not switched on -->
@@ -131,6 +147,28 @@ onBeforeUnmount(stop)
 
     <!-- 1. Number that pays -->
     <form v-else-if="step === 'form'" class="space-y-4" @submit.prevent="pay">
+      <!-- How much (one month or one charge only) -->
+      <div v-if="canPart">
+        <label class="label" for="pay-amount">How much do you want to pay? (UGX)</label>
+        <input
+          id="pay-amount"
+          v-model="typed"
+          type="text"
+          inputmode="numeric"
+          class="input h-13 text-base tabular-nums"
+          :placeholder="`Type an amount, at least ${formatUGX(minAmount)}`"
+          autocomplete="off"
+          data-cap="off"
+        />
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button type="button" class="amt-chip" @click="typed = String(required)">Pay it all · {{ formatUGX(required) }}</button>
+          <button v-if="minAmount < required" type="button" class="amt-chip" @click="typed = String(minAmount)">Least · {{ formatUGX(minAmount) }}</button>
+        </div>
+        <p v-if="amountError" class="mt-2 text-xs text-red-600">{{ amountError }}</p>
+        <p v-else-if="leftAfter" class="mt-2 text-xs text-slate-500">You will still owe {{ formatUGX(leftAfter) }} after this. Your rental time starts counting as soon as this payment goes through.</p>
+        <p v-else class="mt-2 text-xs text-slate-500">You can pay part of it, but not less than 60% ({{ formatUGX(minAmount) }}).</p>
+      </div>
+
       <div>
         <label class="label" for="momo-phone">Mobile money number</label>
         <div class="relative">
@@ -189,7 +227,7 @@ onBeforeUnmount(stop)
       <div class="flex gap-2.5 pt-1">
         <button type="button" class="btn-secondary h-12 flex-1 rounded-2xl" :disabled="busy" @click="emit('cancel')">Cancel</button>
         <button :data-busy="Boolean(busy)" type="submit" class="btn-primary h-12 flex-[2] rounded-2xl text-[0.95rem]" :disabled="!canPay">
-          <Lock class="size-4" /> {{ busy ? 'Sending prompt…' : amount ? `Pay ${formatUGX(amount)}` : 'Pay' }}
+          <Lock class="size-4" /> {{ busy ? 'Sending prompt…' : amount ? `Pay ${formatUGX(amount)}` : canPart ? 'Enter an amount' : 'Pay' }}
         </button>
       </div>
       <p class="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
@@ -240,6 +278,18 @@ onBeforeUnmount(stop)
 </template>
 
 <style scoped>
+.amt-chip {
+  height: 2rem;
+  border-radius: 9999px;
+  padding: 0 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.amt-chip:hover { background: var(--color-brand-100); }
+.amt-chip:active { transform: scale(0.97); }
 .phone-pulse { animation: ring 1.8s ease-out infinite; }
 .pop { animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes ring {

@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   LayoutDashboard, Home, CreditCard, Bell, Building2, Users, Wallet, Send, LogOut, Menu, X, Briefcase, Archive, Inbox,
-  Settings, Banknote, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server,
+  Settings, Banknote, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server, Download,
 } from '@lucide/vue'
 import PageSkeleton from '@/components/PageSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -74,6 +74,7 @@ const nav = computed(() => {
       { group: 'Money', to: '/admin2026/reports', label: 'Statistics', icon: BarChart3 },
       { group: 'Communicate', to: '/admin2026/broadcast', label: 'Announcements', icon: Megaphone },
       { group: 'Communicate', to: '/admin2026/inbox', label: 'Inbox', icon: Inbox, badge: staffUnread.value },
+      { group: 'System', to: '/admin2026/downloads', label: 'Downloads', icon: Download },
       { group: 'System', to: '/admin2026/system', label: 'Health & settings', short: 'System', icon: Server, also: ['/admin2026/archives'] },
     ]
   if (auth.isLandlord)

@@ -10,7 +10,9 @@ import { retryFetch, isNetworkError, NETWORK_MESSAGE } from '../src/lib/retryFet
 import * as momo from './momo.js'
 import * as payments from './payments.js'
 import { startPushSender } from './push.js'
+import { startSmsSender } from './sms.js'
 import * as admin from './admin.js'
+import * as verifyEmail from './verify.js'
 
 const { HttpError } = admin
 
@@ -107,6 +109,13 @@ app.post(
   }),
 )
 app.post(
+  '/api/momo/ssentezo-webhook',
+  handle(async (req, res) => {
+    requireDb()
+    res.json(await payments.ssentezoWebhook(db, req.body))
+  }),
+)
+app.post(
   '/api/momo/webhook',
   handle(async (req, res) => {
     requireDb()
@@ -173,6 +182,16 @@ app.post(
   }),
 )
 
+// ── Sign up with an emailed 6-character code (logic in ./verify.js, shared with the Netlify Function) ──
+for (const step of ['start', 'verify', 'resend']) {
+  app.post(
+    `/api/signup/${step}`,
+    handle(async (req, res) => {
+      requireDb()
+      res.json(await verifyEmail[step](db, req.body))
+    }),
+  )
+}
 // ── Sign in with a PHONE NUMBER (same box as email on the login page) ──
 // The account's email is looked up here on the server, so it is never revealed to the browser.
 // Numbers match on their last 9 digits: 0772 123456 = +256772123456 = 256772123456.
@@ -233,6 +252,15 @@ app.post(
     if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
     if (error) throw new HttpError(400, error.message)
     res.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token })
+  }),
+)
+
+// Tenant signs up with a phone number instead of an email: { name, phone, password }
+app.post(
+  '/api/auth/phone-sign-up',
+  handle(async (req, res) => {
+    requireDb()
+    res.json(await admin.signUpTenantByPhone(db, req.body))
   }),
 )
 
@@ -312,7 +340,8 @@ app.listen(PORT, () => {
   console.log(`Renta API on http://localhost:${PORT}`)
   console.log(`  supabase: ${db ? 'configured' : 'NOT configured'}`)
   const p = providerName()
-  console.log(`  momo:     ${{ relworx: 'Relworx (real MTN / Airtel payments)', flutterwave: 'Flutterwave (live/sandbox per your key)', test: 'TEST MODE (no real money; payments auto-approve)' }[p] ?? 'OFF: add RELWORX_API_KEY + RELWORX_ACCOUNT_NO to .env'}`)
+  console.log(`  momo:     ${{ ssentezo: 'Ssentezo Wallet (real MTN / Airtel payments)', relworx: 'Relworx (real MTN / Airtel payments)', flutterwave: 'Flutterwave (live/sandbox per your key)', test: 'TEST MODE (no real money; payments auto-approve)' }[p] ?? 'OFF: add RELWORX_API_KEY + RELWORX_ACCOUNT_NO to .env'}`)
   startPushSender(db)
+  startSmsSender(db)
   startMomoWatcher()
 })

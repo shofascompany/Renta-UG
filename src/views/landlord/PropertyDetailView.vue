@@ -5,10 +5,11 @@ import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 import CashPaymentModal from '@/components/CashPaymentModal.vue'
 import {
   ArrowLeft, MapPin, BedDouble, Bath, Phone, Mail, UserX, Smartphone, CheckCircle2, Building2, KeyRound, Banknote,
-  LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight,
+  LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight, UserRoundPlus,
 } from '@lucide/vue'
 import BaseModal from '@/components/BaseModal.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
+import HeaderAction from '@/components/admin/HeaderAction.vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
 
@@ -122,7 +123,9 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
         :title="property.name"
         :subtitle="parent ? `${property.location} · ${formatUGX(property.rent)} a month` : `${property.location} · ${formatUGX(property.rent)} a month · ${property.bedrooms} bed, ${property.bathrooms} bath`"
       >
-        <button class="btn-secondary h-10" @click="openEdit"><Pencil class="size-4" /> {{ parent ? 'Rename or change rent' : 'Edit house' }}</button>
+        <template #corner>
+          <HeaderAction :icon="Pencil" :label="parent ? 'Edit room' : 'Edit house'" intro @click="openEdit" />
+        </template>
       </AdminHeader>
 
       <div class="mt-6 grid gap-6 lg:grid-cols-5">
@@ -185,7 +188,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
             <span class="icon-disc disc-slate size-12 rounded-full"><UserX class="size-6" /></span>
             <p class="mt-3 font-semibold text-slate-900">This house is vacant</p>
             <p class="mt-1 text-sm text-slate-500">Add a tenant to start collecting rent.</p>
-            <RouterLink to="/landlord/tenants" class="btn-primary mt-4 h-11">Add a tenant</RouterLink>
+            <RouterLink to="/landlord/tenants" class="add-pill mt-4"><UserRoundPlus class="size-[1.2rem]" stroke-width="2.25" /> Add a tenant</RouterLink>
           </div>
 
           <button class="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-600 hover:text-red-700" @click="removeProperty">

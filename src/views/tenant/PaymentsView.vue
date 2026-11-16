@@ -9,7 +9,11 @@ import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PayRentForm from '@/components/PayRentForm.vue'
 
-const { rental, id, property, payments, dues, balance } = useTenant()
+const { rental, id, property, payments, dues, balance, firstRent, notStarted } = useTenant()
+
+// Nothing is charged yet (new tenant / time ended): paying starts a new month at the house's rent
+const thisMonthLabel = `Rent for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+const payFirst = () => (paying.value = { recharge: { months: 1, total: firstRent.value }, label: thisMonthLabel })
 
 // ── Cash paid to the landlord (confirmed by the landlord or Renta UG before it counts) ──
 const todayISO = () => new Date().toLocaleDateString('en-CA')
@@ -99,7 +103,8 @@ const methodIcon = (m) => (/cash/i.test(m ?? '') ? Banknote : Smartphone)
 // ── Rotating tips in the banner (change every 4 s) ──
 const tips = computed(() => {
   const list = []
-  if (dues.value.length) list.push({ icon: AlertCircle, text: `You have ${formatUGX(balance.value)} to pay. Pay now to keep your rental time running.` })
+  if (notStarted.value) list.push({ icon: AlertCircle, text: `Your balance is one month's rent, ${formatUGX(balance.value)}. Pay at least 60% and your month starts today.` })
+  else if (balance.value) list.push({ icon: AlertCircle, text: `You owe ${formatUGX(balance.value)}. Pay part (60% or more) or all of it to keep your rental time running.` })
   else list.push({ icon: CheckCircle2, text: 'You are all paid up. Recharge any time to pay months ahead.' })
   list.push(
     { icon: Zap, text: 'Recharge early: each payment adds a full month on top of the time you already have.' },
@@ -136,11 +141,11 @@ async function onPaid() {
         </p>
         <p v-if="property" class="mt-1 truncate text-sm text-white/70">{{ property.name }}</p>
 
-        <div class="mt-6 grid gap-2.5" :class="dues.length ? 'grid-cols-2' : 'grid-cols-1'">
-          <button v-if="dues.length" class="hero-btn hero-btn-solid" @click="paying = dues[0]">
+        <div class="mt-6 grid gap-2.5" :class="dues.length || firstRent ? 'grid-cols-2' : 'grid-cols-1'">
+          <button v-if="dues.length || firstRent" class="hero-btn hero-btn-solid" @click="dues.length ? (paying = dues[0]) : payFirst()">
             <Wallet class="size-4" /> Pay now
           </button>
-          <RouterLink to="/tenant/recharge" class="hero-btn" :class="dues.length ? 'hero-btn-glass' : 'hero-btn-solid'">
+          <RouterLink to="/tenant/recharge" class="hero-btn" :class="dues.length || firstRent ? 'hero-btn-glass' : 'hero-btn-solid'">
             <Zap class="size-4" /> Recharge
           </RouterLink>
         </div>
@@ -224,6 +229,24 @@ async function onPaid() {
       <p class="flex-1 text-sm text-emerald-800">Payment received. A confirmation has been sent to your notifications.</p>
       <button class="rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-100" aria-label="Dismiss" @click="justPaid = false"><X class="size-4" /></button>
     </div>
+
+    <!-- Nothing charged yet: one month's rent is owed -->
+    <section v-if="!dues.length && firstRent" class="rise mt-6" style="--d: 80ms">
+      <h2 class="section-title">To pay</h2>
+      <div class="sheet divide-y divide-slate-100">
+        <div class="flex items-center gap-3.5 px-4 py-4 sm:px-5">
+          <span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span>
+          <div class="min-w-0 flex-1">
+            <p class="truncate font-medium text-slate-900">{{ thisMonthLabel }}</p>
+            <p class="truncate text-xs text-slate-500">Pay at least 60% to start your month</p>
+          </div>
+          <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+            <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(firstRent) }}</p>
+            <button class="pay-btn" @click="payFirst">Pay</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- To pay -->
     <section v-if="dues.length" class="rise mt-6" style="--d: 80ms">
@@ -397,7 +420,7 @@ async function onPaid() {
     </Teleport>
 
     <BaseModal :model-value="Boolean(paying)" title="Pay rent" @update:model-value="!$event && (paying = null)">
-      <PayRentForm v-if="paying" :payment="paying" @paid="onPaid" @cancel="paying = null" />
+      <PayRentForm v-if="paying" :payment="paying.recharge ? undefined : paying" :recharge="paying.recharge" :label="paying.label" @paid="onPaid" @cancel="paying = null" />
     </BaseModal>
   </div>
 </template>

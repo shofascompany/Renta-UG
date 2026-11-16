@@ -1,0 +1,10 @@
+{
+  "appId": "ug.renta.app",
+  "appName": "Renta UG",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}

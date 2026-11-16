@@ -6,6 +6,7 @@ import { useRentalStore } from '@/stores/rental'
 import { useRentAnalytics } from '@/composables/useRentAnalytics'
 import { formatUGX } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
+import HeaderAction from '@/components/admin/HeaderAction.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
@@ -144,9 +145,11 @@ function onSaved(t) {
     <div v-if="!biz" class="py-20 text-center text-sm text-slate-500">Rental not found.</div>
 
     <template v-else>
-      <AdminHeader :eyebrow="`${biz.type} · ${biz.location}`" :title="biz.name" :subtitle="`${rooms.length} ${biz.type.toLowerCase()} · ${occupied} occupied · ${formatUGX(monthly)} a month when full`">
-        <button class="btn-secondary h-10" @click="openSettings"><Pencil class="size-4" /> Edit</button>
-        <button class="btn-primary h-10" @click="openAdd"><Plus class="size-4" /> Add rooms</button>
+      <AdminHeader corner-wide :eyebrow="`${biz.type} · ${biz.location}`" :title="biz.name" :subtitle="`${rooms.length} ${biz.type.toLowerCase()} · ${occupied} occupied · ${formatUGX(monthly)} a month when full`">
+        <template #corner>
+          <HeaderAction :icon="Pencil" label="Edit rental" variant="soft" @click="openSettings" />
+          <HeaderAction :icon="Plus" label="Add rooms" intro @click="openAdd" />
+        </template>
       </AdminHeader>
 
       <!-- Collected -->
@@ -187,8 +190,8 @@ function onSaved(t) {
                   <p class="text-sm font-semibold text-slate-900 tabular-nums">{{ formatUGX(r.rent) }}</p>
                   <p class="mt-0.5 text-[11px]" :class="r.owed ? 'font-medium text-red-600' : 'text-slate-500'">{{ r.owed ? `${formatUGX(r.owed)} owed` : 'a month' }}</p>
                 </div>
-                <button v-if="!r.tenant" class="ml-1 flex size-9 items-center justify-center rounded-full bg-brand-50 text-brand-700 hover:bg-brand-100" aria-label="Add a tenant" @click.prevent.stop="fillRoom = r.id"><UserPlus class="size-4" /></button>
-                <button class="flex size-9 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Rename or change rent" @click.prevent.stop="editRoom(r)"><Pencil class="size-4" /></button>
+                <button v-if="!r.tenant" class="row-act row-act-add ml-1" aria-label="Add a tenant" @click.prevent.stop="fillRoom = r.id"><UserPlus class="size-4" /></button>
+                <button class="row-act" aria-label="Edit room" @click.prevent.stop="editRoom(r)"><Pencil class="size-4" /></button>
               </div>
             </template>
           </ListRow>

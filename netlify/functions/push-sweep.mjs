@@ -3,6 +3,7 @@
 // Needs VITE_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT and SUPABASE_SERVICE_ROLE_KEY.
 import { createClient } from '@supabase/supabase-js'
 import { sendPendingPush } from '../../server/push.js'
+import { sendPendingSms } from '../../server/sms.js'
 
 export default async () => {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -12,6 +13,8 @@ export default async () => {
   try {
     const n = await sendPendingPush(db)
     if (n) console.log(`[push-sweep] sent ${n} notification(s)`)
+    const s = await sendPendingSms(db) // texts for tenants without smartphones (needs AT_USERNAME + AT_API_KEY)
+    if (s) console.log(`[push-sweep] sent ${s} text message(s)`)
   } catch (e) {
     console.warn(`[push-sweep] ${e.message}`)
   }
