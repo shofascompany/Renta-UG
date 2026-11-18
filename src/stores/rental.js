@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { supabase, must } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { useAuthStore } from './auth'
+import { rentCycle, isoDay } from '@/utils/rentCycle'
 
 // Sender line for a landlord's message, shown under the "Renta UG" title
 export function landlordSenderLine() {
@@ -57,13 +58,26 @@ const map = {
     endedAt: r.ended_at ?? null,
     personId: r.person_id ?? r.id, // same person across stays
     managedByLandlord: r.managed_by_landlord === true, // no smartphone: the landlord manages them
+    payCode: r.pay_code ?? null, // their one-word reason when sending mobile money
     createdAt: r.created_at,
   }),
-  // Cash handed to the landlord, waiting for / after confirmation
+  // Numbers a landlord receives mobile money on (one per network)
+  landlord_pay_accounts: (r) => ({
+    id: r.id,
+    landlordId: r.landlord_id,
+    network: r.network, // mtn | airtel
+    phone: r.phone,
+    accountName: r.account_name,
+    dialCode: r.dial_code,
+    createdAt: r.created_at,
+  }),
+  // Cash or mobile money paid to the landlord, waiting for / after confirmation
   cash_payments: (r) => ({
     id: r.id,
     tenantId: r.tenant_id,
     landlordId: r.landlord_id,
+    method: r.method ?? 'cash', // cash | mobile_money
+    network: r.network ?? null,
     amount: Number(r.amount),
     paidOn: r.paid_on,
     note: r.note,
@@ -158,6 +172,7 @@ export const useRentalStore = defineStore('rental', {
     payment_receipts: [],
     staff_notifications: [], // landlord / main admin inbox
     cash_payments: [],
+    landlord_pay_accounts: [],
     move_out_requests: [],
     landlords: [], // main admin only
     audit: [], // main admin only: activity log
@@ -227,6 +242,20 @@ export const useRentalStore = defineStore('rental', {
     // Tenant: their latest request to leave
     myMoveOut: (s) => (userId) => s.move_out_requests.filter((r) => r.userId === userId).sort(byNewest('createdAt'))[0] ?? null,
     pendingCash: (s) => s.cash_payments.filter((c) => c.status === 'pending').sort(byNewest('createdAt')),
+    // Day of a tenant's latest payment received ('YYYY-MM-DD')
+    lastPaidOn: (s) => (tenantId) => {
+      const last = s.payment_receipts.filter((r) => r.tenantId === tenantId).map((r) => r.receivedAt).sort().at(-1)
+      return last ? isoDay(last) : null
+    },
+    // Their current rent month: end, days left, debt days, days paid for (see utils/rentCycle.js)
+    cycleFor() {
+      return (tenantId) => rentCycle(this.tenantById(tenantId), this.lastPaidOn(tenantId))
+    },
+    // Mobile money numbers of a landlord (tenant: their landlord's), MTN first, then Airtel
+    payAccountsOf: (s) => (landlordId) =>
+      s.landlord_pay_accounts
+        .filter((a) => !landlordId || a.landlordId === landlordId)
+        .sort((a, b) => ['mtn', 'airtel'].indexOf(a.network) - ['mtn', 'airtel'].indexOf(b.network)),
     notificationsForTenant: (s) => (tenantId) =>
       s.notifications.filter((n) => n.tenantId === tenantId).sort(byNewest('createdAt')),
 
@@ -253,7 +282,7 @@ export const useRentalStore = defineStore('rental', {
       const auth = useAuthStore()
       try {
         // Newer, optional tables (receipts, inbox) must never stop the app from loading
-        const OPTIONAL = new Set(['payment_receipts', 'staff_notifications', 'cash_payments', 'rentals', 'move_out_requests'])
+        const OPTIONAL = new Set(['payment_receipts', 'staff_notifications', 'cash_payments', 'rentals', 'move_out_requests', 'landlord_pay_accounts'])
         const loadTable = (t) =>
           OPTIONAL.has(t)
             ? this.reload(t).catch((e) => console.warn(`[renta] ${t} unavailable (database update not run yet?): ${e.message}`))
@@ -321,8 +350,9 @@ export const useRentalStore = defineStore('rental', {
     },
 
     // Main admin: permanently delete an inactive account (suspended landlord or tenant without a rental)
-    async deleteUser(id) {
-      await api(`/api/admin/users/${id}`, {}, 'DELETE')
+    // opts.force: Danger zone, delete ANY landlord / tenant account (typed confirmation in the page)
+    async deleteUser(id, opts = {}) {
+      await api(`/api/admin/users/${id}`, opts, 'DELETE')
       await this.load()
     },
 
@@ -391,10 +421,11 @@ export const useRentalStore = defineStore('rental', {
     subscribe() {
       if (channel) return
       channel = supabase.channel('renta-live')
-      for (const table of ['notifications', 'payments', 'tenants', 'staff_notifications', 'cash_payments', 'properties', 'rentals', 'move_out_requests']) {
+      for (const table of ['notifications', 'payments', 'tenants', 'staff_notifications', 'cash_payments', 'properties', 'rentals', 'move_out_requests', 'landlord_pay_accounts']) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
           this.reload(table).catch(() => {})
           if (table === 'payments') this.reload('payment_receipts').catch(() => {}) // receipts change with payments
+          if (table === 'payments' || table === 'cash_payments') this.reload('tenants').catch(() => {}) // rental time moves with payments
         })
       }
       if (useAuthStore().isSuperadmin) {
@@ -653,24 +684,51 @@ export const useRentalStore = defineStore('rental', {
       return res
     },
 
-    // ── Cash payments (confirmed by the landlord or the main admin before they count) ──
-    // Tenant: tenantId null = their own. Landlord: any of their tenants.
-    async submitCash({ tenantId = null, amount, paidOn, note }) {
-      const { data, error } = await supabase.rpc('submit_cash_payment', {
+    // ── Payments to the landlord: cash or mobile money (confirmed by the landlord before they count) ──
+    // Tenant: tenantId null = their own, waits for the landlord. Landlord: any of their tenants, counts at once.
+    // method: 'cash' | 'mobile_money'; network: 'mtn' | 'airtel' (mobile money)
+    async submitPayment({ tenantId = null, amount, paidOn, note, method = 'cash', network = null }) {
+      const { data, error } = await supabase.rpc('submit_payment', {
         p_tenant_id: tenantId,
         p_amount: Math.round(Number(amount)),
         p_paid_on: paidOn || null,
         p_note: note || null,
+        p_method: method,
+        p_network: network,
       })
-      if (error) throw new Error(/submit_cash_payment|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
-      await Promise.all([this.reload('cash_payments'), this.reload('notifications').catch(() => {})])
+      if (error) throw new Error(/submit_payment|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await Promise.all(
+        ['cash_payments', 'notifications', 'payments', 'payment_receipts', 'tenants'].map((t) => this.reload(t).catch(() => {})),
+      )
       return data
+    },
+    submitCash(args) {
+      return this.submitPayment({ ...args, method: 'cash' })
     },
 
     async confirmCash(id, amount) {
       const result = must(await supabase.rpc('confirm_cash_payment', { p_id: id, p_amount: amount ? Math.round(Number(amount)) : null }))
-      await Promise.all(['cash_payments', 'payments', 'payment_receipts', 'notifications'].map((t) => this.reload(t).catch(() => {})))
+      await Promise.all(['cash_payments', 'payments', 'payment_receipts', 'notifications', 'tenants'].map((t) => this.reload(t).catch(() => {})))
       return result
+    },
+
+    // ── Landlord: numbers they receive mobile money on ──
+    async savePayAccount({ network, phone, accountName, dialCode }) {
+      const row = {
+        landlord_id: useAuthStore().user?.id,
+        network,
+        phone: phone.trim(),
+        account_name: titleCase(accountName),
+        dial_code: dialCode?.trim() || null,
+        updated_at: new Date().toISOString(),
+      }
+      const { error } = await supabase.from('landlord_pay_accounts').upsert(row, { onConflict: 'landlord_id,network' })
+      if (error) throw new Error(/landlord_pay_accounts|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await this.reload('landlord_pay_accounts')
+    },
+    async deletePayAccount(id) {
+      must(await supabase.from('landlord_pay_accounts').delete().eq('id', id))
+      this.landlord_pay_accounts = this.landlord_pay_accounts.filter((a) => a.id !== id)
     },
 
     async rejectCash(id, reason) {

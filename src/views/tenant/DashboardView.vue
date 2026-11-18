@@ -1,5 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { payRoute } from '@/lib/payRoute'
 import {
   Wallet, CalendarClock, MapPin, ArrowUpRight, Receipt, AlertCircle, Phone, Mail, MessageCircle, Zap, ShieldCheck,
   Clock, Banknote, ArrowDownLeft, Smartphone,
@@ -7,8 +9,6 @@ import {
 import ListRow from '@/components/admin/ListRow.vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
-import BaseModal from '@/components/BaseModal.vue'
-import PayRentForm from '@/components/PayRentForm.vue'
 import PushPrompt from '@/components/PushPrompt.vue'
 
 // Only what a tenant needs at a glance: what they owe, their lease, their home.
@@ -122,6 +122,13 @@ const whatsapp = computed(() => {
 
 // "Pay now": an existing unpaid charge, or (new tenant / time ended) one month's rent that isn't charged yet
 const paying = ref(null)
+const router = useRouter()
+watch(paying, (p) => {
+  if (!p) return
+  router.push(payRoute(p))
+  paying.value = null
+})
+const debtDays = computed(() => (daysLeft.value !== null && daysLeft.value < 0 ? -daysLeft.value : 0))
 const thisMonthLabel = `Rent for ${now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
 const canPayNow = computed(() => Boolean(nextDue.value || firstRent.value))
 function payNow() {
@@ -137,19 +144,15 @@ const sentences = computed(() => {
   list.push(
     'Your rental month starts counting the moment you pay.',
     'Pay at least 60% of the rent to start your month.',
-    'Pay with MTN or Airtel Mobile Money. It is confirmed automatically.',
-    'Recharge early and every paid month is added on top of your time.',
+    'Pay with MTN or Airtel Mobile Money straight to your landlord.',
+    'Unpaid days after your month ends are debt days: they come out of your next month.',
   )
+  if (debtDays.value) list.unshift(`You have ${debtDays.value} debt day${debtDays.value === 1 ? '' : 's'}. Pay now so they stop growing.`)
   return list
 })
 const sentenceIndex = ref(0)
 const sentenceTimer = setInterval(() => (sentenceIndex.value = (sentenceIndex.value + 1) % sentences.value.length), 4500)
 onBeforeUnmount(() => clearInterval(sentenceTimer))
-
-async function onPaid() {
-  paying.value = null
-  await Promise.all([rental.reload('payments'), rental.reload('notifications')])
-}
 
 const greeting = (() => {
   const h = new Date().getHours()
@@ -273,7 +276,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         <p class="mt-4 text-sm text-slate-500">Rental time</p>
         <p class="mt-0.5 text-2xl font-semibold tracking-tight" :class="endingSoon ? 'text-amber-700' : 'text-slate-900'">
           <template v-if="daysLeft === null">Not started</template>
-          <template v-else-if="daysLeft < 0">Ended</template>
+          <template v-else-if="daysLeft < 0"><span class="text-red-600">{{ debtDays }} debt day{{ debtDays === 1 ? '' : 's' }}</span></template>
           <template v-else>{{ timeLeft(daysLeft) }}</template>
         </p>
         <template v-if="tenant?.leaseEnd">
@@ -344,9 +347,10 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         <!-- Paid: count down to the end of the paid rental time -->
         <template v-else-if="tenant?.leaseEnd">
           <div class="mt-4 flex items-end gap-3">
-            <p class="countdown text-5xl leading-none font-bold tracking-tight tabular-nums">{{ Math.max(0, daysLeft) }}</p>
+            <p class="countdown text-5xl leading-none font-bold tracking-tight tabular-nums" :class="debtDays && '!text-red-600'">{{ debtDays || Math.max(0, daysLeft) }}</p>
             <p class="pb-1 text-sm leading-snug text-slate-600">
-              day{{ Math.max(0, daysLeft) === 1 ? '' : 's' }} left<br />
+              <template v-if="debtDays">debt day{{ debtDays === 1 ? '' : 's' }}</template>
+              <template v-else>day{{ Math.max(0, daysLeft) === 1 ? '' : 's' }} left</template><br />
               <span class="text-slate-400">{{ timeEnded ? 'Ended' : 'Ends' }} {{ formatDate(tenant.leaseEnd) }}</span>
             </p>
           </div>
@@ -357,7 +361,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
             <p class="mt-1.5 text-xs text-slate-500">Started {{ formatDate(tenant.leaseStart) }}</p>
           </div>
           <p class="mt-4 text-sm text-slate-600">
-            <template v-if="timeEnded">Your paid time has ended. Pay to continue: the new month runs on from {{ formatDate(tenant.leaseEnd) }}.</template>
+            <template v-if="timeEnded">Your month ended on {{ formatDate(tenant.leaseEnd) }}. Every day until you pay is a debt day, taken from your next month (it still runs from {{ formatDate(tenant.leaseEnd) }}).</template>
             <template v-else>Paid up to <strong class="font-semibold text-slate-900">{{ formatDate(tenant.leaseEnd) }}</strong>. Paying early adds a month on top.</template>
           </p>
         </template>
@@ -534,17 +538,6 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       </div>
     </section>
   </div>
-
-  <BaseModal :model-value="Boolean(paying)" title="Pay rent" @update:model-value="!$event && (paying = null)">
-    <PayRentForm
-      v-if="paying"
-      :payment="paying.recharge ? undefined : paying"
-      :recharge="paying.recharge"
-      :label="paying.label"
-      @paid="onPaid"
-      @cancel="paying = null"
-    />
-  </BaseModal>
 </template>
 
 <style scoped>

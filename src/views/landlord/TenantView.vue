@@ -3,11 +3,14 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Phone, Mail, DoorClosed, Wallet, CalendarClock, CalendarDays, Smartphone, UserCog, KeyRound, ReceiptText, ArrowLeft, Link2, LogOut, TriangleAlert,
+  HandCoins, Hash,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import { addMonths } from '@/utils/rentCycle'
 import BaseModal from '@/components/BaseModal.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
+import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 
 // Full page about ONE tenant: who they are, where they live, their rental time and rent.
 // Bottom tabs are hidden here (route meta focus); a back button returns to the list.
@@ -30,11 +33,16 @@ const months = computed(() => {
   const e = new Date(t.value.leaseEnd)
   return Math.max(1, Math.round((e - s) / (30.44 * 86400000)))
 })
+// The current rent month (see utils/rentCycle.js)
+const cycle = computed(() => (t.value ? rental.cycleFor(t.value.id) : { started: false }))
+const lastPaidOn = computed(() => (t.value ? rental.lastPaidOn(t.value.id) : null))
+const nextEnd = computed(() => (cycle.value.started ? addMonths(new Date(`${cycle.value.end}T00:00:00`), 1) : null))
 const used = computed(() => {
-  if (!t.value?.leaseStart || !t.value?.leaseEnd) return null
-  const total = daysUntil(t.value.leaseEnd) - daysUntil(t.value.leaseStart)
-  return total > 0 ? Math.min(100, Math.max(0, Math.round(((total - left.value) / total) * 100))) : 100
+  const c = cycle.value
+  if (!c.started || !c.fullDays) return 0
+  return Math.min(100, Math.max(0, Math.round(((c.fullDays - Math.max(0, c.daysLeft)) / c.fullDays) * 100)))
 })
+const showPay = ref(false)
 const account = computed(() =>
   !t.value ? null : t.value.userId
     ? { text: 'Uses the Renta app', icon: Smartphone, cls: 'bg-emerald-50 text-emerald-700' }
@@ -118,20 +126,52 @@ async function endTenancy() {
         </div>
       </div>
 
-      <!-- Rental time -->
-      <div class="rounded-2xl border border-slate-200 p-4">
-        <div class="flex items-center justify-between gap-3">
-          <p class="flex items-center gap-2 text-sm font-medium text-slate-700"><CalendarClock class="size-4 text-slate-400" /> Rental time</p>
-          <p class="text-sm font-semibold" :class="left !== null && left <= 30 ? 'text-amber-700' : 'text-slate-900'">{{ timeLeft(left) }}</p>
+      <!-- This rent month: paid on, ends, debt days, days paid for -->
+      <div class="overflow-hidden rounded-2xl border" :class="cycle.debtDays ? 'border-red-200' : 'border-slate-200'">
+        <div class="flex items-center justify-between gap-3 px-4 pt-4">
+          <p class="flex items-center gap-2 text-sm font-medium text-slate-700"><CalendarClock class="size-4 text-slate-400" /> {{ cycle.debtDays ? 'Rent due' : 'This rent month' }}</p>
+          <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="!cycle.started ? 'bg-slate-100 text-slate-600' : cycle.debtDays ? 'bg-red-50 text-red-700' : left <= 7 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
+            {{ !cycle.started ? 'Not started' : timeLeft(left) }}
+          </span>
         </div>
-        <div v-if="used !== null" class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-700" :style="{ width: `${used}%` }" />
-        </div>
-        <div class="mt-2 flex justify-between text-xs text-slate-500">
-          <span>From {{ formatDate(t.leaseStart) }}</span>
-          <span>{{ months ? `${months} month${months === 1 ? '' : 's'}` : '' }}</span>
-          <span>To {{ formatDate(t.leaseEnd) }}</span>
-        </div>
+
+        <p v-if="!cycle.started" class="px-4 pt-2 pb-4 text-sm text-slate-500">Nothing paid yet. When you record their first payment, you choose the date it was paid and their first month starts that day.</p>
+
+        <template v-else>
+          <div v-if="!cycle.debtDays" class="mx-4 mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-700" :style="{ width: `${used}%` }" />
+          </div>
+          <dl class="mt-3 grid grid-cols-2 gap-px bg-slate-100 text-sm">
+            <div class="bg-white p-3">
+              <dt class="text-xs text-slate-500">Rent paid on</dt>
+              <dd class="mt-0.5 font-semibold text-slate-900">{{ lastPaidOn ? formatDate(lastPaidOn) : '—' }}</dd>
+            </div>
+            <div class="bg-white p-3">
+              <dt class="text-xs text-slate-500">{{ cycle.debtDays ? 'Month ended' : 'Month ends' }}</dt>
+              <dd class="mt-0.5 font-semibold" :class="cycle.debtDays ? 'text-red-600' : 'text-slate-900'">{{ formatDate(cycle.end) }}</dd>
+            </div>
+            <div class="bg-white p-3">
+              <dt class="text-xs text-slate-500">Debt days</dt>
+              <dd class="mt-0.5 font-semibold" :class="cycle.debtDays || cycle.lateDays ? 'text-red-600' : 'text-emerald-700'">
+                <template v-if="cycle.debtDays">{{ cycle.debtDays }} unpaid now</template>
+                <template v-else-if="cycle.lateDays">{{ cycle.lateDays }} (paid late)</template>
+                <template v-else>None</template>
+              </dd>
+            </div>
+            <div class="bg-white p-3">
+              <dt class="text-xs text-slate-500">Days paid for</dt>
+              <dd class="mt-0.5 font-semibold text-slate-900">
+                {{ cycle.paidDays }} day{{ cycle.paidDays === 1 ? '' : 's' }}
+                <span v-if="cycle.lateDays" class="block text-[11px] font-normal text-slate-500">{{ cycle.fullDays }} − {{ cycle.lateDays }} debt days</span>
+                <span v-else class="block text-[11px] font-normal text-slate-500">one full month</span>
+              </dd>
+            </div>
+          </dl>
+          <p v-if="cycle.debtDays" class="bg-red-50 px-4 py-2.5 text-xs leading-relaxed text-red-800">
+            {{ t.name.split(' ')[0] }} owes {{ cycle.debtDays }} day{{ cycle.debtDays === 1 ? '' : 's' }}. When they pay, these days come off their next month: it still ends {{ formatDate(nextEnd) }}.
+          </p>
+          <p v-else class="px-4 pb-3 pt-2 text-xs text-slate-500">Renting since {{ formatDate(t.leaseStart) }} · {{ months ? `${months} month${months === 1 ? '' : 's'} paid` : '' }}</p>
+        </template>
       </div>
 
       <!-- Details -->
@@ -152,6 +192,10 @@ async function endTenancy() {
           <Wallet class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Rent</dt>
           <dd class="font-medium text-slate-900">{{ formatUGX(house?.rent) }} a month</dd>
         </div>
+        <div v-if="t.payCode" class="flex items-center gap-3 py-3">
+          <Hash class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Mobile money reason</dt>
+          <dd class="font-mono font-semibold tracking-wider text-brand-700">{{ t.payCode }}</dd>
+        </div>
         <div class="flex items-center gap-3 py-3">
           <ReceiptText class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Last month paid</dt>
           <dd class="font-medium text-slate-900">{{ lastPaid ? formatPeriod(lastPaid.period) : 'Not yet' }}</dd>
@@ -167,7 +211,10 @@ async function endTenancy() {
 
       <!-- Actions -->
       <div class="grid gap-2.5 pt-1">
-        <button v-if="!t.userId" type="button" class="btn-primary h-12 w-full rounded-2xl text-[15px]" @click="connect">
+        <button type="button" class="btn-primary h-12 w-full rounded-2xl text-[15px]" @click="showPay = true">
+          <HandCoins class="size-5" /> Record payment
+        </button>
+        <button v-if="!t.userId" type="button" class="btn-secondary h-12 w-full rounded-2xl text-[15px]" @click="connect">
           <Link2 class="size-5" /> Connect tenant
         </button>
         <button type="button" class="btn-secondary h-12 w-full rounded-2xl border-red-200 text-[15px] text-red-600 hover:bg-red-50" @click="endOpen = true; error = ''">
@@ -178,6 +225,7 @@ async function endTenancy() {
 
     <template v-if="t">
       <ConnectCodeModal v-if="showCode" v-model="showCode" :tenant-id="t.id" />
+      <RecordPaymentModal v-model="showPay" :tenant-id="t.id" />
 
       <!-- Connect a tenant without a smartphone: their phone number becomes their login -->
       <BaseModal v-model="accessOpen" title="Connect tenant" width="max-w-md">

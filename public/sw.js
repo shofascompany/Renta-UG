@@ -4,7 +4,7 @@
 // Pages are always fetched fresh when online, so the app is never out of date.
 // Money, sign-in and database calls are never cached.
 
-const VERSION = 'renta-v3'
+const VERSION = 'renta-v4'
 const SHELL = ['/offline.html', '/icon-192.png', '/favicon.svg']
 
 self.addEventListener('install', (event) => {
@@ -63,6 +63,8 @@ self.addEventListener('push', (event) => {
       badge: '/badge-96.png', // small status-bar icon (Android always shows this one in a single colour)
       timestamp: Date.now(),
       vibrate: [120, 60, 120],
+      silent: false, // the phone's normal notification sound
+      requireInteraction: false, // pops up, then goes to the notification centre by itself
       tag: data.tag, // same tag replaces an older notification instead of stacking
       renotify: Boolean(data.tag),
       data: { url: data.url || '/tenant/notifications' },

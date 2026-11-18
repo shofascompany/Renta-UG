@@ -67,10 +67,10 @@ const monthsAhead = computed(() => rental.payments.filter((x) => x.status === 'p
 
 // By network
 const networks = computed(() => {
-  const groups = { 'MTN Mobile Money': 0, 'Airtel Money': 0, Cash: 0, Other: 0 }
+  const groups = { 'MTN Mobile Money': 0, 'Airtel Money': 0, 'Mobile money': 0, Cash: 0, Other: 0 }
   for (const r of rental.payment_receipts) {
     const m = r.method ?? ''
-    const k = /cash/i.test(m) ? 'Cash' : /mtn/i.test(m) ? 'MTN Mobile Money' : /airtel/i.test(m) ? 'Airtel Money' : 'Other'
+    const k = /cash/i.test(m) ? 'Cash' : /mtn/i.test(m) ? 'MTN Mobile Money' : /airtel/i.test(m) ? 'Airtel Money' : /mobile|momo/i.test(m) ? 'Mobile money' : 'Other'
     groups[k] += r.amount
   }
   return Object.entries(groups).filter(([, v]) => v).map(([label, value]) => ({ label, value }))

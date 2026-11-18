@@ -183,6 +183,11 @@ function startAgain() {
             <button :data-busy="Boolean(busy)" type="button" class="btn-primary mt-5 h-12 w-full rounded-2xl" :disabled="busy || expired || code.length !== LENGTH" @click="submit">
               {{ busy ? 'Checking…' : 'Verify and continue' }}
             </button>
+            <p class="mt-3 text-center text-xs leading-relaxed text-slate-500">
+              By creating your account you agree to the
+              <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink> and
+              <RouterLink to="/privacy" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
+            </p>
 
             <div class="mt-4 flex items-center justify-between gap-3 text-sm">
               <button type="button" class="inline-flex items-center gap-1.5 font-medium text-brand-700 disabled:text-slate-400" :disabled="resendIn > 0 || busy" @click="resend">

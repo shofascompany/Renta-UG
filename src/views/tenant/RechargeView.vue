@@ -1,18 +1,18 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Sparkles } from '@lucide/vue'
-import { api } from '@/lib/api'
+import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Sparkles, ChevronRight } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate } from '@/utils/format'
-import PayRentForm from '@/components/PayRentForm.vue'
+import { addMonths as addM } from '@/utils/rentCycle'
+import { payRoute } from '@/lib/payRoute'
 
-// Recharge: pay rent in advance in ONE mobile money payment. Nothing is chosen for the tenant:
-// they pick how many months, then the number that pays. Unpaid rent is always cleared first.
-// The server works out the exact amount; the "paid up to" date follows the rental-time rules
-// (each paid month adds one month on top of the time they already have, or from today if none).
+// Recharge: pay rent in advance in ONE mobile money payment, sent straight to the landlord.
+// The tenant picks how many months; unpaid rent is always cleared first. The "paid up to" date
+// follows the rent-cycle rules: each month runs on from where the last one ended (debt days are
+// taken from it), or from the day of the first payment.
 const router = useRouter()
-const { rental, tenant, property, dues } = useTenant()
+const { tenant, property, dues } = useTenant()
 
 const OPTIONS = [
   { m: 1, tag: '' },
@@ -22,54 +22,26 @@ const OPTIONS = [
   { m: 12, tag: 'Full year' },
 ]
 const months = ref(null)
-const quote = ref(null)
-const loading = ref(false)
-const error = ref('')
-let seq = 0
+const loading = false // totals are worked out here, nothing to wait for
+const error = ''
 
-const rent = computed(() => quote.value?.rent ?? property.value?.rent ?? 0)
+const rent = computed(() => property.value?.rent ?? 0)
 // Unpaid charges only: a month that isn't charged yet is the first of the months chosen below
-const owed = computed(() => quote.value?.outstanding ?? dues.value.reduce((s, d) => s + d.balance, 0))
-const priceFor = (m) => owed.value + rent.value * m
+const owed = computed(() => dues.value.reduce((s, d) => s + d.balance, 0))
 
-async function loadQuote() {
-  if (!months.value) return
-  const mine = ++seq
-  loading.value = true
-  error.value = ''
-  try {
-    const q = await api('/api/momo/recharge-quote', { months: months.value })
-    if (mine === seq) quote.value = q
-  } catch (e) {
-    if (mine === seq) error.value = e.message
-  } finally {
-    if (mine === seq) loading.value = false
-  }
-}
-watch(months, loadQuote)
-
-// Rental time after paying: unpaid months + the new months, added on top of the current end (or today)
-const addMonths = (d, n) => {
-  const x = new Date(d)
-  const day = x.getDate()
-  x.setDate(1)
-  x.setMonth(x.getMonth() + n)
-  x.setDate(Math.min(day, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate()))
-  return x
-}
-const startFrom = computed(() => {
-  const end = tenant.value?.leaseEnd ? new Date(`${tenant.value.leaseEnd}T00:00:00`) : null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return end && end > today ? end : today
+// Rental time after paying: runs on from the current end (late days are not given back), or from today
+const startFrom = computed(() => (tenant.value?.leaseEnd ? new Date(`${tenant.value.leaseEnd}T00:00:00`) : new Date()))
+const debtDays = computed(() => {
+  if (!tenant.value?.leaseEnd) return 0
+  const d = Math.round((new Date().setHours(0, 0, 0, 0) - startFrom.value.getTime()) / 86400000)
+  return Math.max(0, d)
 })
-const paidUntil = computed(() => (months.value ? addMonths(startFrom.value, months.value + dues.value.length) : null))
+const paidUntil = computed(() => (months.value ? addM(startFrom.value, months.value + dues.value.length) : null))
 const currentEnd = computed(() => tenant.value?.leaseEnd)
-const total = computed(() => (months.value ? (quote.value && !loading.value ? quote.value.total : priceFor(months.value)) : 0))
+const total = computed(() => (months.value ? owed.value + rent.value * months.value : 0))
 
-async function onPaid() {
-  await Promise.all([rental.reload('payments'), rental.reload('notifications'), rental.reload('tenants')])
-  router.push('/tenant/payments')
+function continueToPay() {
+  router.push(payRoute({ recharge: { total: total.value }, label: `Recharge · ${months.value} month${months.value === 1 ? '' : 's'}` }))
 }
 </script>
 
@@ -145,23 +117,26 @@ async function onPaid() {
             <CalendarCheck2 class="mt-0.5 size-4.5 shrink-0" />
             <span>Your rental time will run up to <strong class="font-semibold">{{ formatDate(paidUntil) }}</strong>.</span>
           </p>
+          <p v-if="debtDays" class="mt-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            You have <strong>{{ debtDays }} debt day{{ debtDays === 1 ? '' : 's' }}</strong> since your month ended on {{ formatDate(currentEnd) }}. They are taken from the first month you pay now.
+          </p>
           <p v-if="error" class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
         </div>
       </section>
     </Transition>
 
     <!-- 2. Pay -->
-    <section v-if="months && quote && !error" class="rise mt-6">
+    <section v-if="months" class="rise mt-6">
       <h2 class="section-title">2 · Pay with mobile money</h2>
-      <div class="sheet p-5">
-        <PayRentForm :key="months" :recharge="{ months, total: loading ? 0 : quote.total }" @paid="onPaid" @cancel="router.push('/tenant')" />
-      </div>
+      <button type="button" class="btn-primary h-13 w-full rounded-2xl text-[15px]" @click="continueToPay">
+        <Smartphone class="size-5" /> Choose your SIM and pay {{ formatUGX(total) }} <ChevronRight class="size-4.5" />
+      </button>
     </section>
 
     <!-- Trust -->
     <ul class="mt-6 grid gap-2.5 text-sm text-slate-600 sm:grid-cols-3">
       <li class="flex items-center gap-2.5 rounded-2xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70"><Smartphone class="size-4.5 shrink-0 text-brand-600" /> MTN &amp; Airtel</li>
-      <li class="flex items-center gap-2.5 rounded-2xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70"><ShieldCheck class="size-4.5 shrink-0 text-brand-600" /> Verified automatically</li>
+      <li class="flex items-center gap-2.5 rounded-2xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70"><ShieldCheck class="size-4.5 shrink-0 text-brand-600" /> Confirmed by your landlord</li>
       <li class="flex items-center gap-2.5 rounded-2xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70"><CalendarCheck2 class="size-4.5 shrink-0 text-brand-600" /> Time added on top</li>
     </ul>
   </div>

@@ -70,6 +70,10 @@ async function signOut() {
         </div>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         <button :data-busy="Boolean(busy)" type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Saving…' : 'Save password & continue' }}</button>
+        <p class="text-center text-xs leading-relaxed text-slate-500">
+          By continuing you agree to the <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink>
+          and <RouterLink to="/privacy" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>, including the landlord duties.
+        </p>
       </form>
 
       <p class="mt-8 text-center text-xs text-slate-400">

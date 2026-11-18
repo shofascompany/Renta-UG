@@ -158,6 +158,10 @@ async function signOut() {
             <Loader2 v-if="busy" class="size-4 animate-spin" />
             {{ busy ? 'Finishing…' : 'Finish setup' }}
           </button>
+          <p class="text-center text-xs leading-relaxed text-slate-500">
+            By finishing you agree to the <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink>
+            and <RouterLink to="/privacy" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
+          </p>
         </form>
 
         <p class="mt-8 text-center text-xs text-slate-400">

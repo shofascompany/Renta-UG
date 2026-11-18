@@ -39,6 +39,10 @@ const routes = [
   // New account: type the 6-character code from the email, then go straight to the dashboard
   { path: '/verify-email', name: 'verify-email', component: () => import('@/views/VerifyEmailView.vue'), meta: { guest: true } },
 
+  // Forgot password: enter the email → the app emails a link → choose a new password → back to sign in
+  { path: '/forgot-password', name: 'forgot-password', component: () => import('@/views/ForgotPasswordView.vue'), meta: { guest: true } },
+  { path: '/reset-password', name: 'reset-password', component: () => import('@/views/ResetPasswordView.vue'), meta: { public: true } },
+
   // Landlord's first sign-in: choose their own password (shown only until they do).
   { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue'), meta: { role: 'landlord' } },
 
@@ -57,6 +61,8 @@ const routes = [
       { path: 'home', name: 'tenant-home', component: () => import('@/views/tenant/MyHomeView.vue') },
       { path: 'payments', name: 'tenant-payments', component: () => import('@/views/tenant/PaymentsView.vue') },
       { path: 'recharge', name: 'tenant-recharge', component: () => import('@/views/tenant/RechargeView.vue') },
+      // Mobile money straight to the landlord: choose the SIM, then the steps (?sim=mtn)
+      { path: 'pay', name: 'tenant-pay', component: () => import('@/views/tenant/PayView.vue'), meta: { focus: true } },
       { path: 'leave', name: 'tenant-leave', component: () => import('@/views/tenant/LeaveView.vue'), meta: { focus: true } },
       { path: 'notifications', name: 'tenant-notifications', component: () => import('@/views/tenant/NotificationsView.vue') },
       ...settingsRoutes('tenant'),

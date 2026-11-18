@@ -1,4 +1,5 @@
-<script setup>
+﻿<script setup>
+import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search, Trash2, Users, Smartphone, UserCog, TriangleAlert, UserX } from '@lucide/vue'
@@ -92,10 +93,7 @@ async function removeAccount() {
       <div class="grid grid-cols-4 rounded-2xl bg-slate-100 p-1 text-sm lg:w-[26rem]">
         <button v-for="f in [['current', 'Renting'], ['overdue', 'Overdue'], ['former', 'Former'], ['accounts', 'Accounts']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="show === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="show = f[0]">{{ f[1] }}</button>
       </div>
-      <select v-if="show !== 'accounts'" v-model="landlordFilter" class="input lg:w-56">
-        <option value="">All landlords</option>
-        <option v-for="l in rental.landlords" :key="l.id" :value="l.id">{{ l.name }}</option>
-      </select>
+      <BaseSelect v-if="show !== 'accounts'" v-model="landlordFilter" class="lg:w-56" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name }))]" />
     </div>
 
     <!-- Tenants -->

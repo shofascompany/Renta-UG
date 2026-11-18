@@ -62,6 +62,10 @@ const UPDATE = [
   '35_consistency.sql',
   '36_part_payments.sql',
   '37_email_verification.sql',
+  '39_sms_confirmations.sql',
+  '40_app_installs.sql',
+  '41_manual_mobile_money.sql',
+  '42_tenant_own_details.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

@@ -1,4 +1,5 @@
-<script setup>
+﻿<script setup>
+import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, ref } from 'vue'
 import { Search, Download, ArrowDownLeft, Banknote, Smartphone, Wallet, Receipt } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
@@ -69,14 +70,8 @@ function exportCsv() {
       <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm lg:w-72">
         <button v-for="f in [['all', 'All'], ['mobile', 'Mobile'], ['cash', 'Cash']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="method === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="method = f[0]">{{ f[1] }}</button>
       </div>
-      <select v-model="month" class="input lg:w-48">
-        <option value="">All months</option>
-        <option v-for="m in months" :key="m" :value="m">{{ monthLabel(m) }}</option>
-      </select>
-      <select v-model="landlordFilter" class="input lg:w-52">
-        <option value="">All landlords</option>
-        <option v-for="l in rental.landlords" :key="l.id" :value="l.id">{{ l.name }}</option>
-      </select>
+      <BaseSelect v-model="month" class="lg:w-48" :options="[{ value: '', label: 'All months' }, ...months.map((m) => ({ value: m, label: monthLabel(m) }))]" />
+      <BaseSelect v-model="landlordFilter" class="lg:w-52" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name }))]" />
     </div>
 
     <div class="sheet">

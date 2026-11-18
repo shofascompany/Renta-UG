@@ -4,5 +4,5 @@ export const SITE = {
   url: 'https://rentaug.netlify.app',
   // Shown on the Privacy and Delete-account pages when set (add VITE_SUPPORT_EMAIL in Netlify)
   supportEmail: import.meta.env.VITE_SUPPORT_EMAIL || '',
-  updated: '15 November 2026',
+  updated: '17 November 2026', // date of the current Privacy policy and Terms
 }

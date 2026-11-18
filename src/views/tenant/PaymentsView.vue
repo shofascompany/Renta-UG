@@ -1,15 +1,17 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
-  CheckCircle2, Receipt, Wallet, X, Zap, ArrowDownLeft, Clock, AlertCircle, Smartphone, Banknote, ChevronRight, Copy, Check, CalendarDays,
+  CheckCircle2, Receipt, Wallet, X, Zap, ArrowDownLeft, Clock, AlertCircle, Smartphone, Banknote, Copy, Check, CalendarDays,
 } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
-import PayRentForm from '@/components/PayRentForm.vue'
+import { useRouter } from 'vue-router'
+import { payRoute } from '@/lib/payRoute'
 
 const { rental, id, property, payments, dues, balance, firstRent, notStarted } = useTenant()
+const router = useRouter()
 
 // Nothing is charged yet (new tenant / time ended): paying starts a new month at the house's rent
 const thisMonthLabel = `Rent for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
@@ -49,7 +51,13 @@ async function sendCash() {
   }
 }
 
+// "Pay" opens the mobile money page (choose SIM → steps)
 const paying = ref(null)
+watch(paying, (p) => {
+  if (!p) return
+  router.push(payRoute(p))
+  paying.value = null
+})
 const justPaid = ref(false)
 const filter = ref('all') // all | paid | unpaid
 
@@ -108,7 +116,7 @@ const tips = computed(() => {
   else list.push({ icon: CheckCircle2, text: 'You are all paid up. Recharge any time to pay months ahead.' })
   list.push(
     { icon: Zap, text: 'Recharge early: each payment adds a full month on top of the time you already have.' },
-    { icon: Smartphone, text: 'Pay with MTN or Airtel Mobile Money. Your rent updates as soon as the payment goes through.' },
+    { icon: Smartphone, text: 'Pay with MTN or Airtel Mobile Money straight to your landlord. Your rent updates when they confirm it.' },
     { icon: Receipt, text: 'Every payment gets a receipt. Tap any month below to see its details.' },
     { icon: CalendarDays, text: 'Your rental time starts the day you pay and runs one month for every month paid.' },
   )
@@ -118,11 +126,6 @@ const tipIndex = ref(0)
 const tipTimer = setInterval(() => (tipIndex.value = (tipIndex.value + 1) % tips.value.length), 4000)
 onBeforeUnmount(() => clearInterval(tipTimer))
 
-async function onPaid() {
-  paying.value = null
-  justPaid.value = true
-  await Promise.all([rental.reload('payments'), rental.reload('notifications')])
-}
 </script>
 
 <template>
@@ -161,20 +164,24 @@ async function onPaid() {
 
     <!-- Cash reported by the tenant -->
     <section v-if="myCash.length" class="rise mt-6" style="--d: 60ms">
-      <h2 class="section-title">Cash payments</h2>
+      <h2 class="section-title">Payments to your landlord</h2>
       <div class="sheet">
         <ul class="divide-y divide-slate-100">
           <ListRow
             v-for="c in myCash"
             :key="c.id"
             :chevron="false"
-            title="Cash"
+            :title="c.method === 'mobile_money' ? `Mobile money${c.network ? ` · ${{ mtn: 'MTN', airtel: 'Airtel' }[c.network]}` : ''}` : 'Cash'"
             :subtitle="`${formatDate(c.paidOn)}${c.status === 'rejected' && c.rejectReason ? ` · ${c.rejectReason}` : ''}`"
             :value="formatUGX(c.status === 'confirmed' ? c.confirmedAmount : c.amount)"
-            :value-sub="c.status === 'pending' ? 'waiting' : c.status === 'confirmed' ? 'confirmed' : 'not confirmed'"
+            :value-sub="c.status === 'pending' ? 'being reviewed' : c.status === 'confirmed' ? 'confirmed' : 'not confirmed'"
             :value-class="c.status === 'confirmed' ? 'text-emerald-700' : c.status === 'rejected' ? 'text-red-600' : 'text-amber-700'"
           >
-            <template #icon><span class="icon-disc disc-amber"><Banknote class="size-5" /></span></template>
+            <template #icon>
+              <span class="icon-disc" :class="c.method === 'mobile_money' ? 'disc-emerald' : 'disc-amber'">
+                <Smartphone v-if="c.method === 'mobile_money'" class="size-5" /><Banknote v-else class="size-5" />
+              </span>
+            </template>
           </ListRow>
         </ul>
       </div>
@@ -419,9 +426,6 @@ async function onPaid() {
       </Transition>
     </Teleport>
 
-    <BaseModal :model-value="Boolean(paying)" title="Pay rent" @update:model-value="!$event && (paying = null)">
-      <PayRentForm v-if="paying" :payment="paying.recharge ? undefined : paying" :recharge="paying.recharge" :label="paying.label" @paid="onPaid" @cancel="paying = null" />
-    </BaseModal>
   </div>
 </template>
 

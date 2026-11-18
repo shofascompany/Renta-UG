@@ -79,6 +79,9 @@ async function reject() {
   }
 }
 
+const NET = { mtn: 'MTN', airtel: 'Airtel' }
+const methodText = (c) => (c.method === 'mobile_money' ? `Mobile money${c.network ? ` · ${NET[c.network]}` : ''}` : 'Cash')
+
 const statusStyle = {
   pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
   confirmed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
@@ -101,8 +104,9 @@ const statusText = (c) =>
     <ul v-if="items.length" class="divide-y divide-slate-100">
       <li v-for="c in items" :key="c.id" class="px-4 py-4 sm:px-5">
         <div class="flex items-start gap-3.5">
-          <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-            <Banknote class="size-5" />
+          <span class="flex size-10 shrink-0 items-center justify-center rounded-xl" :class="c.method === 'mobile_money' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
+            <Smartphone v-if="c.method === 'mobile_money'" class="size-5" />
+            <Banknote v-else class="size-5" />
           </span>
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -121,6 +125,8 @@ const statusText = (c) =>
               {{ houseOf(c) ?? '—' }}<template v-if="showLandlord"> · {{ landlordOf(c) }}</template>
             </p>
             <p class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span class="font-medium text-slate-700">{{ methodText(c) }}</span>
+              <span v-if="c.method === 'mobile_money' && tenantOf(c)?.payCode">Reason <strong class="font-mono text-slate-700">{{ tenantOf(c).payCode }}</strong></span>
               <span>Paid {{ formatDate(c.paidOn) }}</span>
               <span class="flex items-center gap-1">
                 <component :is="c.submittedRole === 'tenant' ? Smartphone : UserCog" class="size-3.5" />
@@ -150,12 +156,15 @@ const statusText = (c) =>
     <p v-else class="px-5 py-10 text-center text-sm text-slate-500">{{ empty }}</p>
 
     <!-- Confirm -->
-    <BaseModal :model-value="Boolean(confirming)" title="Confirm cash payment" width="max-w-md" @update:model-value="!$event && (confirming = null)">
+    <BaseModal :model-value="Boolean(confirming)" center title="Confirm payment" width="max-w-md" @update:model-value="!$event && (confirming = null)">
       <form v-if="confirming" class="space-y-4" @submit.prevent="confirm">
         <div class="rounded-xl bg-slate-50 p-4 text-sm">
           <p class="font-medium text-slate-900">{{ tenantOf(confirming)?.name }}</p>
           <p class="mt-0.5 text-slate-500">
-            {{ confirming.submittedRole === 'tenant' ? 'Reported' : 'Recorded' }} {{ formatUGX(confirming.amount) }} paid on {{ formatDate(confirming.paidOn) }}
+            {{ confirming.submittedRole === 'tenant' ? 'Reported' : 'Recorded' }} {{ formatUGX(confirming.amount) }} · {{ methodText(confirming) }} · {{ formatDate(confirming.paidOn) }}
+          </p>
+          <p v-if="confirming.method === 'mobile_money'" class="mt-1 text-slate-500">
+            Look for <strong class="text-slate-900">{{ formatUGX(confirming.amount) }}</strong> with the reason <strong class="font-mono text-slate-900">{{ tenantOf(confirming)?.payCode }}</strong> on your phone.
           </p>
           <p class="mt-0.5 text-slate-500">Unpaid rent: <strong class="text-slate-900">{{ formatUGX(owedBy(confirming)) }}</strong></p>
           <p class="mt-2 text-xs text-slate-500">It tops up their rent: unpaid months first, then anything extra pays the next months ahead.</p>
@@ -163,7 +172,7 @@ const statusText = (c) =>
         <div>
           <label class="label" for="cr-amount">Amount actually received (UGX)</label>
           <input id="cr-amount" v-model="amount" class="input" inputmode="numeric" required />
-          <p class="mt-1 text-xs text-slate-500">Correct it if the cash received was different. It's credited to the oldest unpaid rent first.</p>
+          <p class="mt-1 text-xs text-slate-500">Correct it if what you received was different. It's credited to the oldest unpaid rent first, and the tenant gets an SMS.</p>
         </div>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         <div class="flex justify-end gap-2">
@@ -174,7 +183,7 @@ const statusText = (c) =>
     </BaseModal>
 
     <!-- Reject -->
-    <BaseModal :model-value="Boolean(rejecting)" title="Reject cash payment" width="max-w-md" @update:model-value="!$event && (rejecting = null)">
+    <BaseModal :model-value="Boolean(rejecting)" center title="Reject payment" width="max-w-md" @update:model-value="!$event && (rejecting = null)">
       <form v-if="rejecting" class="space-y-4" @submit.prevent="reject">
         <p class="text-sm text-slate-600">
           {{ formatUGX(rejecting.amount) }} from {{ tenantOf(rejecting)?.name }} will not be added to their rent. They will be notified.

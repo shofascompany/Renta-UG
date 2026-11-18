@@ -10,7 +10,7 @@ Rental management platform with three kinds of account:
 
 Landlords and tenants use the same login page; the app sends each to their own area based on the account type.
 
-Stack: Vue 3, Vite, Vue Router, Pinia, Tailwind CSS v4, Lucide icons, **Supabase** (auth + Postgres + realtime), and a small Express server for **mobile money** (Flutterwave) and **phone notifications** (Web Push).
+Stack: Vue 3, Vite, Vue Router, Pinia, Tailwind CSS v4, Lucide icons, **Supabase** (auth + Postgres + realtime), and a small Express server for **phone notifications** (Web Push) and account management.
 
 ## Setup
 
@@ -23,7 +23,7 @@ Stack: Vue 3, Vite, Vue Router, Pinia, Tailwind CSS v4, Lucide icons, **Supabase
 
 ### 2. Environment
 
-Copy `.env.example` to `.env` and fill in the Supabase keys, the phone-notification (VAPID) keys and, for real payments, the Flutterwave keys.
+Copy `.env.example` to `.env` and fill in the Supabase keys, and the phone-notification (VAPID) keys.
 
 ### 3. Run
 
@@ -49,13 +49,6 @@ The main admin login is created by the database setup itself ([`database/12_main
 
 **Security (row level security):** landlords only ever see their own properties, tenants and payments. Tenants only see their own records, may only mark notifications read, and can never mark rent as paid. The main admin can read everything but can't change landlords' data. Suspended landlords can't sign in.
 
-## Mobile money (MTN / Airtel)
-
-Tenants pay rent with **MTN MoMo** or **Airtel Money** through **Flutterwave**. The server sends the payment prompt to the tenant's phone, then confirms it with Flutterwave (by polling every 15 s and via webhook). Only then does it mark the rent paid and send a "Payment received" notification.
-
-- **Test mode** (no `FLW_SECRET_KEY`): no real money moves; payments approve themselves after ~8 seconds.
-- **Real payments:** create a Flutterwave business account, then set `FLW_SECRET_KEY` and `FLW_WEBHOOK_HASH` in `.env`. Point the webhook at `https://<your-server>/api/momo/webhook`. Money is collected into the Flutterwave account and settled to the company's bank or mobile money account (set in Flutterwave → Settlements).
-
 ## Notifications
 
 - **End-of-stay reminders:** a database job (`pg_cron`) runs every day at 09:00 Kampala time. During the last 7 days of a lease it sends the tenant one reminder per day ("3 days left in your stay…").
@@ -67,7 +60,6 @@ Tenants pay rent with **MTN MoMo** or **Airtel Money** through **Flutterwave**. 
 ```
 database/                  SQL: one file per table, then functions, RLS policies, realtime
 server/index.js            Express API: mobile money, landlord accounts, first sign-in
-server/momo.js             MTN / Airtel via Flutterwave (or test mode)
 server/push.js             Sends notifications to phones (Web Push)
 public/sw.js               Service worker: shows notifications on the phone
 src/

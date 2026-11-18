@@ -1,22 +1,27 @@
-<script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { UserPlus, Smartphone, PhoneOff } from '@lucide/vue'
+﻿<script setup>
+import { computed, ref, watch } from 'vue'
+import { UserPlus, DoorOpen, AtSign, User, Phone, Info, Contact } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { formatUGX } from '@/utils/format'
 import BaseModal from './BaseModal.vue'
+import BaseSelect from './BaseSelect.vue'
 
-// Landlord: register a tenant. Always a FRESH tenant — nothing from any earlier stay is brought back,
-// even if this person rented before (their old stays stay untouched in Records).
+// Landlord adds a tenant with just TWO things: their EMAIL or PHONE NUMBER (one box) and the house / room.
+// Everything else (their own name and details) comes from the tenant when they connect with the code.
+// `managed`: a tenant WITHOUT a smartphone (they never fill anything in), so their phone number is asked
+// for here: it is how they get their SMS and, later, their app access.
 const props = defineProps({
-  prefillId: { type: String, default: null }, // a former stay: only their name / phone / email are copied in
-  propertyId: { type: String, default: null }, // house / room picked already (e.g. from a rental's room list)
+  prefillId: { type: String, default: null }, // a former stay: their name / email is copied in
+  propertyId: { type: String, default: null }, // house / room picked already
+  managed: { type: Boolean, default: false },
 })
 const open = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['saved'])
 
 const rental = useRentalStore()
-
-const blank = () => ({ email: '', name: '', phone: '', propertyId: '', leaseStart: '', leaseEnd: '', managedByLandlord: false })
-const form = reactive(blank())
+const who = ref('') // email or phone number (managed: their name)
+const phone = ref('')
+const propertyId = ref('')
 const saving = ref(false)
 const error = ref('')
 
@@ -25,58 +30,67 @@ const vacant = computed(() =>
     .filter((p) => !rental.tenantForProperty(p.id))
     .sort((a, b) => rental.placeName(a.id).localeCompare(rental.placeName(b.id), undefined, { numeric: true })),
 )
-const propertyName = (id) => (rental.propertyById(id) ? rental.placeName(id) : 'a removed property')
 
-// Reset each time the form opens
+// Vacant places as dropdown options, grouped under their rental business
+const placeOptions = computed(() =>
+  vacant.value.map((p) => ({
+    value: p.id,
+    label: p.name,
+    group: (p.rentalId && rental.rentals.find((r) => r.id === p.rentalId)?.name) || undefined,
+    sub: p.rent ? `${formatUGX(p.rent)} / month` : 'Rent not set',
+    hint: p.rent ? formatUGX(p.rent) : '',
+  })),
+)
 watch(
   open,
   (v) => {
     if (!v) return
-    Object.assign(form, blank())
     error.value = ''
+    phone.value = ''
     const pre = props.prefillId && rental.tenantById(props.prefillId)
-    if (pre) {
-      Object.assign(form, {
-        name: pre.name ?? '',
-        phone: pre.phone ?? '',
-        email: pre.email && !pre.email.endsWith('@phone-signin.example.com') ? pre.email : '',
-      })
-    }
-    if (props.propertyId && vacant.value.some((p) => p.id === props.propertyId)) form.propertyId = props.propertyId
+    who.value = !pre ? '' : props.managed ? pre.name ?? '' : pre.email && !pre.email.endsWith('@phone-signin.example.com') ? pre.email : pre.phone ?? ''
+    if (pre && props.managed) phone.value = pre.phone ?? ''
+    propertyId.value = props.propertyId && vacant.value.some((p) => p.id === props.propertyId) ? props.propertyId : ''
   },
   { immediate: true },
 )
 
-// A person can only live in ONE house / room at a time: same email or same phone = already renting
+const isEmail = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(who.value.trim()))
+const isPhone = (v) => /^(?:\+?256|0)?7\d{8}$/.test(String(v).replace(/[\s\-().]/g, ''))
+const looksLikeEmail = computed(() => who.value.includes('@'))
+// "john.mukasa@gmail.com" → "John Mukasa" until the tenant connects and their own name replaces it
+const nameFromEmail = (e) => e.split('@')[0].replace(/[._\-+\d]+/g, ' ').trim() || 'New tenant'
+
+// A person can only live in ONE place at a time (same email, or same phone for managed tenants)
 const last9 = (v) => (v ?? '').replace(/\D/g, '').slice(-9)
 const alreadyRenting = computed(() => {
-  const email = form.managedByLandlord ? '' : form.email.trim().toLowerCase()
-  const phone = last9(form.phone)
-  return rental.currentTenants.find(
-    (t) => (email && t.email && t.email.toLowerCase() === email) || (phone.length === 9 && last9(t.phone) === phone),
-  )
+  const email = isEmail.value ? who.value.trim().toLowerCase() : ''
+  const p = last9(props.managed ? phone.value : isPhone(who.value) ? who.value : '')
+  return rental.currentTenants.find((t) => (email && t.email?.toLowerCase() === email) || (p.length === 9 && last9(t.phone) === p))
 })
 
 async function save() {
   error.value = ''
-  if (form.managedByLandlord) {
-    if (!/^(?:\+?256|0)?[1-9]\d{8}$/.test(form.phone.replace(/[\s\-().]/g, ''))) {
-      error.value = 'Enter a valid phone number, e.g. 0772 123456. The tenant will sign in with it later.'
-      return
-    }
-    form.email = '' // not needed for a tenant without a smartphone
+  const value = who.value.trim()
+  if (props.managed && value.length < 2) return (error.value = "Enter the tenant's name.")
+  if (!props.managed && !isEmail.value && !isPhone(value)) {
+    return (error.value = looksLikeEmail.value ? 'That email address does not look right.' : 'Enter their email or phone number, e.g. 0772 123456.')
   }
-  if (!form.managedByLandlord && !form.email.trim() && !form.phone.trim()) {
-    error.value = 'Enter their phone number or email. Their connection code only works for an account with the same phone number or email.'
-    return
+  if (props.managed && !/^(?:\+?256|0)?7\d{8}$/.test(phone.value.replace(/[\s\-().]/g, ''))) {
+    return (error.value = 'Enter their phone number, e.g. 0772 123456. Their SMS goes to it.')
   }
-  if (alreadyRenting.value) {
-    error.value = `This person already rents ${propertyName(alreadyRenting.value.propertyId)}. A tenant can only be in one house or room at a time. End that tenancy first.`
-    return
-  }
+  if (!propertyId.value) return (error.value = 'Choose the house or room.')
+  if (alreadyRenting.value) return (error.value = `${alreadyRenting.value.name} already rents ${rental.placeName(alreadyRenting.value.propertyId)}. End that tenancy first.`)
   saving.value = true
   try {
-    const tenant = await rental.addTenant({ ...form })
+    const tenant = await rental.addTenant({
+      // Until they connect: a stand-in name (their own name replaces it)
+      name: props.managed ? value : isEmail.value ? nameFromEmail(value) : 'New tenant',
+      email: !props.managed && isEmail.value ? value.toLowerCase() : null,
+      phone: props.managed ? phone.value.trim() : isEmail.value ? null : value,
+      propertyId: propertyId.value,
+      managedByLandlord: props.managed,
+    })
     open.value = false
     emit('saved', tenant)
   } catch (e) {
@@ -88,69 +102,53 @@ async function save() {
 </script>
 
 <template>
-  <BaseModal v-model="open" title="Add tenant">
+  <BaseModal v-model="open" center width="max-w-md" :title="managed ? 'Add tenant without a smartphone' : 'Add tenant'">
     <form class="space-y-4" @submit.prevent="save">
-      <!-- Does the tenant have a smartphone? -->
-      <div class="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1" role="radiogroup" aria-label="Does the tenant have a smartphone?">
-        <button
-          v-for="opt in [[false, 'Has a smartphone', Smartphone], [true, 'No smartphone', PhoneOff]]"
-          :key="String(opt[0])"
-          type="button"
-          role="radio"
-          :aria-checked="form.managedByLandlord === opt[0]"
-          class="flex h-10 items-center justify-center gap-2 rounded-lg text-sm font-medium transition"
-          :class="form.managedByLandlord === opt[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-          @click="form.managedByLandlord = opt[0]"
-        >
-          <component :is="opt[2]" class="size-4" /> {{ opt[1] }}
-        </button>
-      </div>
-      <p v-if="form.managedByLandlord" class="-mt-1 rounded-lg border border-slate-200 p-3 text-xs leading-relaxed text-slate-600">
-        <strong class="text-slate-900">You'll manage this tenant.</strong> No email or password is needed: just their phone number.
-        You record their cash payments and keep their rent and notices. When they get a smartphone, give them app access and they sign in with this number.
-        Only you and Renta UG see this.
-      </p>
-
-      <div v-if="!form.managedByLandlord">
-        <label class="label" for="tf-email">Email</label>
-        <input id="tf-email" v-model="form.email" type="email" class="input" placeholder="tenant@example.com" autocomplete="off" />
-      </div>
-
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="label" for="tf-name">Full name</label>
-          <input id="tf-name" v-model="form.name" class="input" data-cap="words" autocomplete="name" required />
+      <div>
+        <label class="label" for="tf-who">{{ managed ? 'Full name' : 'Email or phone number' }}</label>
+        <div class="relative">
+          <component :is="managed ? User : looksLikeEmail ? AtSign : /^[\d+\s]/.test(who) ? Phone : Contact" class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
+          <input
+            id="tf-who"
+            v-model="who"
+            class="input h-12 pl-10 text-base"
+            :placeholder="managed ? 'e.g. Sarah Nakato' : 'e.g. john@gmail.com or 0772 123456'"
+            :data-cap="managed ? 'words' : 'off'"
+            autocomplete="off"
+            autofocus
+            required
+          />
         </div>
-        <div>
-          <label class="label" for="tf-phone">Phone<span v-if="form.managedByLandlord" class="text-red-500"> *</span></label>
-          <input id="tf-phone" v-model="form.phone" type="tel" class="input" placeholder="0772 123456" :required="form.managedByLandlord" />
+      </div>
+
+      <div v-if="managed">
+        <label class="label" for="tf-phone">Phone number</label>
+        <div class="relative">
+          <Phone class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
+          <input id="tf-phone" v-model="phone" type="tel" class="input h-12 pl-10 text-base" placeholder="0772 123456" data-cap="off" required />
         </div>
       </div>
 
       <div>
         <label class="label" for="tf-prop">House or room</label>
-        <select id="tf-prop" v-model="form.propertyId" class="input" required>
-          <option value="" disabled>{{ vacant.length ? 'Select a vacant house or room' : 'No vacant houses' }}</option>
-          <option v-for="p in vacant" :key="p.id" :value="p.id">{{ rental.placeName(p.id) }}</option>
-        </select>
+        <BaseSelect id="tf-prop" v-model="propertyId" :options="placeOptions" :icon="DoorOpen" placeholder="Choose a vacant house or room" empty-text="No vacant houses or rooms" required />
       </div>
 
-      <p v-if="alreadyRenting" class="-mt-1 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-        {{ alreadyRenting.name }} already rents {{ propertyName(alreadyRenting.propertyId) }}. A tenant can only be in one place at a time.
+      <p class="flex items-start gap-2.5 rounded-2xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+        <Info class="mt-0.5 size-4 shrink-0 text-brand-600" />
+        <span v-if="managed">You'll manage this tenant: you record their payments and they get an SMS for each one. Give them app access later if they get a smartphone.</span>
+        <span v-else>Next you get a <strong>connection code</strong>. It only works for the tenant with this email or phone number. They sign up, enter the code and add their own name and details.</span>
       </p>
 
-      <p v-if="!form.managedByLandlord" class="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
-        After saving you'll get a <strong>connection code</strong> (valid 20 minutes). It only works for an account with the <strong>same phone number or email</strong> you enter here. Their rental time starts when they first pay.
-      </p>
+      <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
 
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-
-      <div class="flex justify-end gap-2 pt-2">
-        <button type="button" class="btn-secondary" @click="open = false">Cancel</button>
-        <button :data-busy="Boolean(saving)" type="submit" class="btn-primary" :disabled="saving || Boolean(alreadyRenting)">
-          <UserPlus class="size-4" /> {{ saving ? 'Saving…' : 'Add tenant' }}
+      <div class="grid grid-cols-2 gap-2 pt-1">
+        <button type="button" class="btn-secondary h-11" @click="open = false">Cancel</button>
+        <button :data-busy="Boolean(saving)" type="submit" class="btn-primary h-11" :disabled="saving">
+          <UserPlus class="size-4" /> {{ saving ? 'Adding…' : 'Add tenant' }}
         </button>
       </div>
     </form>
   </BaseModal>
 </template>
+

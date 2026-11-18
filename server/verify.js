@@ -8,6 +8,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, t
 import { HttpError } from './admin.js'
 import { sendMail } from './mailer.js'
 import { verificationEmail } from './emailTemplates.js'
+import { checkDeliverable } from './emailCheck.js'
 
 export const CODE_MINUTES = 20
 const CODE_LENGTH = 6
@@ -59,8 +60,9 @@ export async function start(db, body) {
   if (name.length < 2) throw new HttpError(400, 'Enter your full name.')
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new HttpError(400, 'Enter a valid email address.')
   if (password.length < 8) throw new HttpError(400, 'Your password needs at least 8 characters.')
+  await checkDeliverable(email) // typos like gmial.com, or a domain that can't get mail
 
-  const { data: taken, error: tErr } = await db.from('profiles').select('id').eq('email', email).maybeSingle()
+  const { data: taken, error: tErr } = await db.from('profiles').select('id').ilike('email', email.replace(/[\\%_]/g, '\\$&')).limit(1).maybeSingle() // same email in any letter case
   if (tErr) throw tErr
   if (taken) throw new HttpError(409, 'An account with this email already exists. Please sign in instead.')
 

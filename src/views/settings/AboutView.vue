@@ -11,13 +11,15 @@ const auth = useAuthStore()
 const tips = computed(() =>
   auth.isLandlord
     ? [
-        'Share your property code with new tenants so they can connect to their house.',
-        'Confirm cash payments from the Payments page so tenants get a receipt.',
+        'Give each new tenant their connection code so they can connect to their house.',
+        'Add your MTN or Airtel number in Payments → Mobile money numbers so tenants can pay you.',
+        'Confirm payments from the Payments page: the tenant gets a notification and an SMS.',
         'Use Records to look back at former tenants and their payment history.',
       ]
     : [
-        'Pay rent with MTN MoMo or Airtel Money from the Payments page.',
-        'Every payment gives you a receipt you can view any time.',
+        'Pay rent with MTN or Airtel Mobile Money from the Payments page, straight to your landlord.',
+        'Use your own payment word as the reason, so your landlord knows it is you.',
+        'Every confirmed payment is kept in your payment history.',
         'Turn on notifications so you never miss a rent reminder.',
       ],
 )

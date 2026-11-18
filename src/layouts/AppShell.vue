@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  LayoutDashboard, Home, CreditCard, Bell, Building2, Users, Wallet, Send, LogOut, Menu, X, Briefcase, Archive, Inbox,
-  Settings, Banknote, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server, Download,
+  LayoutDashboard, Home, CreditCard, Bell, Building2, Users, Wallet, Send, LogOut, X,Briefcase, Archive, Inbox,
+  Settings, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server, Download,
 } from '@lucide/vue'
 import PageSkeleton from '@/components/PageSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -12,6 +12,7 @@ import { useSignOut } from '@/composables/useSignOut'
 import Logo from '@/components/Logo.vue'
 import ConnectLandlord from '@/components/ConnectLandlord.vue'
 import MoveOutScreen from '@/components/MoveOutScreen.vue'
+import NotificationToast from '@/components/NotificationToast.vue'
 
 const auth = useAuthStore()
 const rental = useRentalStore()
@@ -351,6 +352,7 @@ const logout = useSignOut()
         </RouterLink>
       </div>
     </nav>
+    <NotificationToast />
   </div>
 </template>
 

@@ -171,41 +171,6 @@ export async function giveTenantAppAccess(db, landlordId, tenantId) {
   return { ok: true, phone: t.phone }
 }
 
-// A tenant signs themselves up with a phone number instead of an email.
-// The login gets a private placeholder email; they then sign in with the phone number + password.
-export async function signUpTenantByPhone(db, body) {
-  const name = String(body?.name ?? '').trim()
-  const phone = String(body?.phone ?? '').trim()
-  const password = String(body?.password ?? '')
-  if (!name) throw new HttpError(400, 'Enter your full name.')
-  if (last9(phone).length < 9) throw new HttpError(400, 'Enter a valid phone number.')
-  if (password.length < 8) throw new HttpError(400, 'Your password needs at least 8 characters.')
-
-  const { data: others, error: oErr } = await db.from('profiles').select('id, phone').not('phone', 'is', null)
-  check(oErr)
-  if ((others ?? []).some((p) => last9(p.phone) === last9(phone))) {
-    throw new HttpError(400, 'This phone number is already used by another Renta account.')
-  }
-
-  const email = `phone-${last9(phone)}-${randomBytes(4).toString('hex')}@${PHONE_ONLY_EMAIL_DOMAIN}`
-  const { data: created, error: cErr } = await db.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: name },
-  })
-  if (cErr) throw new HttpError(400, cErr.message)
-
-  const { error: pErr } = await db
-    .from('profiles')
-    .upsert({ id: created.user.id, email, full_name: name, phone, role: 'tenant', must_change_password: false })
-  if (pErr) {
-    await db.auth.admin.deleteUser(created.user.id)
-    check(pErr)
-  }
-  return { ok: true }
-}
-
 // Tenant's first sign-in (after app access was given): add their email and choose a password.
 export async function completeTenantAccount(db, user, profile, body) {
   if (profile?.role !== 'tenant' || !profile.must_change_password) {
@@ -257,24 +222,36 @@ export async function archiveAndClear(db, meId, body) {
   return { archiveId: data.archive_id, counts: data.counts, accountsDeleted: (data.user_ids?.length ?? 0) - failed.length, failed: failed.length }
 }
 
-export async function deleteUser(db, meId, id) {
+// opts.force (main admin's Danger zone, typed confirmation): delete ANY landlord or tenant account.
+//   • an active landlord: their account and everything they own (houses, tenants, payments) is removed
+//   • a renting tenant: their tenancy is ended first (the house becomes vacant, history kept in Records)
+export async function deleteUser(db, meId, id, opts = {}) {
+  const force = opts?.force === true
   if (id === meId) throw new HttpError(400, 'You cannot delete the main admin account.')
   const { data: target, error } = await db.from('profiles').select('role, active').eq('id', id).maybeSingle()
   check(error)
   if (!target) throw new HttpError(404, 'User not found.')
   if (target.role === 'superadmin') throw new HttpError(400, 'The main admin account cannot be deleted.')
-  if (target.role === 'landlord' && target.active) {
+  if (target.role === 'landlord' && target.active && !force) {
     throw new HttpError(400, 'Suspend this landlord first. Only inactive landlords can be deleted.')
   }
   if (target.role === 'tenant') {
-    const { data: rental, error: rErr } = await db
+    const { data: stays, error: rErr } = await db
       .from('tenants')
-      .select('id')
+      .select('id, property_id')
       .eq('user_id', id)
       .not('property_id', 'is', null)
-      .maybeSingle()
     check(rErr)
-    if (rental) throw new HttpError(400, 'This tenant still has an active rental. Their landlord must end the tenancy first.')
+    if (stays?.length && !force) {
+      throw new HttpError(400, 'This tenant still has an active rental. Their landlord must end the tenancy first.')
+    }
+    for (const s of stays ?? []) {
+      const { error: eErr } = await db
+        .from('tenants')
+        .update({ property_id: null, last_property_id: s.property_id, ended_at: new Date().toISOString(), user_id: null })
+        .eq('id', s.id)
+      check(eErr)
+    }
   }
   const { error: delErr } = await db.auth.admin.deleteUser(id)
   if (delErr) throw new HttpError(400, delErr.message)

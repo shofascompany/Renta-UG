@@ -2,14 +2,16 @@
 import { computed, ref } from 'vue'
 import {
   CheckCircle2, Banknote, X, Search, FileDown, EllipsisVertical, CalendarDays, Check, ChevronDown,
-  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight,
+  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight, Smartphone,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useRentAnalytics, longMonth, downloadCSV } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
+import { NETWORKS } from '@/lib/networks'
 import BaseModal from '@/components/BaseModal.vue'
 import DropMenu from '@/components/admin/DropMenu.vue'
-import CashPaymentModal from '@/components/CashPaymentModal.vue'
+import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
+import PayAccountsModal from '@/components/PayAccountsModal.vue'
 import CashReviewList from '@/components/CashReviewList.vue'
 
 // Payments: this month at a glance, cash waiting for confirmation, then every rent charge grouped by month.
@@ -66,6 +68,8 @@ const cashOpen = computed(() => cashFor.value !== null)
 const toConfirm = computed(() => rental.pendingCash)
 const pendingCash = computed(() => rental.pendingCash)
 const cashHistoryOpen = ref(false)
+const numbersOpen = ref(false)
+const payAccounts = computed(() => rental.payAccountsOf())
 const cashHistory = computed(() => [...rental.cash_payments].sort((x, y) => y.createdAt.localeCompare(x.createdAt)))
 
 // Tap a charge → its details
@@ -105,17 +109,32 @@ function exportCSV() {
       <p class="mt-3 text-sm text-white/80">Collected this month</p>
       <p class="mt-0.5 text-[2rem] leading-tight font-bold tracking-tight tabular-nums sm:text-4xl">{{ formatUGX(a.thisMonth.value.collected) }}</p>
 
-      <div class="mt-6 sm:max-w-xs">
+      <div class="mt-6 grid gap-2.5 sm:grid-cols-2">
         <button type="button" class="pay-action pay-action-solid w-full" @click="cashFor = ''">
-          <span class="pay-ico bg-teal-600 text-white"><Banknote class="size-[1.15rem]" /></span>
+          <span class="pay-ico bg-teal-600 text-white"><HandCoins class="size-[1.15rem]" /></span>
           <span class="min-w-0 flex-1 text-left">
-            <span class="block truncate text-sm font-semibold">Record cash</span>
-            <span class="block truncate text-[11px] font-medium text-[#5b7a77]">Cash you received from a tenant</span>
+            <span class="block truncate text-sm font-semibold">Record payment</span>
+            <span class="block truncate text-[11px] font-medium text-[#5b7a77]">Cash or mobile money received</span>
           </span>
           <ChevronRight class="size-4 shrink-0 text-[#5b7a77]" />
         </button>
+        <button type="button" class="pay-action pay-action-glass w-full" @click="numbersOpen = true">
+          <span class="pay-ico bg-white/15 text-white"><Smartphone class="size-[1.15rem]" /></span>
+          <span class="min-w-0 flex-1 text-left">
+            <span class="block truncate text-sm font-semibold">Mobile money numbers</span>
+            <span class="block truncate text-[11px] font-medium text-white/70">{{ payAccounts.length ? payAccounts.map((a) => NETWORKS[a.network].short).join(' · ') : 'Add where tenants send rent' }}</span>
+          </span>
+          <ChevronRight class="size-4 shrink-0 text-white/70" />
+        </button>
       </div>
     </section>
+
+    <!-- No receiving number yet: tenants can't pay by mobile money -->
+    <button v-if="!payAccounts.length" type="button" class="flex w-full items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-left" @click="numbersOpen = true">
+      <span class="icon-tile tile-amber size-10"><Smartphone class="size-5" /></span>
+      <span class="min-w-0 flex-1 text-sm text-amber-900"><strong>Add your mobile money number.</strong> Tenants with the app can then pay you with MTN or Airtel Mobile Money.</span>
+      <ChevronRight class="size-4 shrink-0 text-amber-700" />
+    </button>
     <div v-if="flash" class="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5">
       <CheckCircle2 class="size-5 shrink-0 text-emerald-600" />
       <p class="flex-1 text-sm text-emerald-800">{{ flash }}</p>
@@ -124,13 +143,13 @@ function exportCSV() {
 
     <!-- Cash waiting for confirmation (only when there is some) -->
     <section v-if="pendingCash.length" class="rise" style="--d: 60ms">
-      <h2 class="section-title">Cash to confirm</h2>
+      <h2 class="section-title">Payments to confirm</h2>
       <div class="sheet border-amber-200">
         <div class="flex items-center gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-3 sm:px-5">
           <span class="icon-tile tile-amber size-10"><HandCoins class="size-5" /></span>
           <p class="min-w-0 flex-1 text-sm text-amber-900">
-            <strong>{{ pendingCash.length }}</strong> cash payment{{ pendingCash.length === 1 ? '' : 's' }} waiting.
-            <span class="text-amber-800/80">{{ toConfirm.length ? 'Check the amount and confirm.' : 'Cash you record counts straight away.' }}</span>
+            <strong>{{ pendingCash.length }}</strong> payment{{ pendingCash.length === 1 ? '' : 's' }} waiting.
+            <span class="text-amber-800/80">Check your phone or cash, then confirm. The tenant gets an SMS.</span>
           </p>
         </div>
         <div class="max-h-[24rem] overflow-y-auto">
@@ -180,7 +199,7 @@ function exportCSV() {
             </button>
             <button type="button" class="menu-item" @click="cashHistoryOpen = true; close()">
               <span class="menu-ico bg-amber-50 text-amber-700"><History class="size-4" /></span>
-              <span class="flex-1 text-left">Cash history<span class="block text-xs font-normal text-slate-400">All cash payments</span></span>
+              <span class="flex-1 text-left">Payment history<span class="block text-xs font-normal text-slate-400">Cash and mobile money</span></span>
             </button>
             <RouterLink to="/landlord/revenue" class="menu-item" @click="close()">
               <span class="menu-ico bg-sky-50 text-sky-700"><Banknote class="size-4" /></span>
@@ -269,19 +288,20 @@ function exportCSV() {
         </dl>
         <div class="grid gap-2" :class="charge_.status !== 'paid' && 'grid-cols-2'">
           <RouterLink :to="rental.tenantById(charge_.tenantId)?.propertyId ? `/landlord/tenants/${charge_.tenantId}` : `/landlord/properties/${charge_.propertyId}`" class="btn-secondary h-11">Open tenant</RouterLink>
-          <button v-if="charge_.status !== 'paid'" class="btn-primary h-11" @click="cashFromDetails"><Banknote class="size-4" /> Record cash</button>
+          <button v-if="charge_.status !== 'paid'" class="btn-primary h-11" @click="cashFromDetails"><HandCoins class="size-4" /> Record payment</button>
         </div>
       </div>
     </BaseModal>
 
     <!-- All cash payments -->
-    <BaseModal v-model="cashHistoryOpen" title="Cash history" width="max-w-lg">
+    <BaseModal v-model="cashHistoryOpen" title="Payment history" width="max-w-lg">
       <div class="-mx-5 -my-5">
-        <CashReviewList :items="cashHistory" empty="No cash payments yet." />
+        <CashReviewList :items="cashHistory" empty="No payments recorded yet." />
       </div>
     </BaseModal>
 
-    <CashPaymentModal :model-value="cashOpen" :tenant-id="cashFor || null" @update:model-value="!$event && (cashFor = null)" />
+    <RecordPaymentModal :model-value="cashOpen" :tenant-id="cashFor || null" @update:model-value="!$event && (cashFor = null)" />
+    <PayAccountsModal v-model="numbersOpen" />
   </div>
 </template>
 

@@ -4,7 +4,7 @@ import { ArrowLeft, Phone, Banknote, Smartphone, DoorOpen, CalendarClock, Wallet
 import { useRentalStore } from '@/stores/rental'
 import { timeLeft } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod, daysUntil } from '@/utils/format'
-import CashPaymentModal from '@/components/CashPaymentModal.vue'
+import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 
 // Mini account page for a tenant without a smartphone: just the essentials, run by the landlord.
 const props = defineProps({ id: String })
@@ -44,7 +44,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
         <p class="mt-0.5 text-4xl font-bold tracking-tight tabular-nums">{{ formatUGX(owed) }}</p>
         <p class="mt-1 text-sm text-white/70">{{ owed ? `${dues.length} unpaid month${dues.length === 1 ? '' : 's'}` : 'All paid up' }}</p>
         <div class="mt-6 grid grid-cols-2 gap-2.5">
-          <button class="hero-btn hero-btn-solid" @click="showCash = true"><Banknote class="size-4" /> Record cash</button>
+          <button class="hero-btn hero-btn-solid" @click="showCash = true"><Banknote class="size-4" /> Record payment</button>
           <a v-if="t.phone" :href="`tel:${t.phone}`" class="hero-btn hero-btn-glass"><Phone class="size-4" /> Call</a>
           <RouterLink v-else :to="`/landlord/properties/${t.propertyId}`" class="hero-btn hero-btn-glass">Details</RouterLink>
         </div>
@@ -110,7 +110,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
         <ChevronRight class="size-4 text-slate-300" />
       </RouterLink>
 
-      <CashPaymentModal v-model="showCash" :tenant-id="t.id" />
+      <RecordPaymentModal v-model="showCash" :tenant-id="t.id" />
     </template>
   </div>
 </template>

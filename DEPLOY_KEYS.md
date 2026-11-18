@@ -1,82 +1,82 @@
-# Renta UG: keys for GitHub + Netlify
+# Renta UG: deploy checklist + keys
 
-**Never put real keys on GitHub.** GitHub only gets the code. The keys go into **Netlify → Site configuration → Environment variables**, where only Netlify can read them.
+The code lives on GitHub (`shofascompany/Renta-UG`, branch `main`). Netlify builds the live site
+(`https://rentaug.netlify.app`) from it. **Keys never go to GitHub**: they live in Netlify's environment variables.
 
-- `.env`, `.env.production` and `.env.netlify` are already in `.gitignore`, so they are never uploaded.
-- `.env.netlify` (on your computer only) has every key below filled in, ready to paste into Netlify.
+| File (on your computer) | Goes to GitHub? | What it holds |
+|---|---|---|
+| `.env` | No (`.gitignore`) | Secret keys for `npm run server` on your computer |
+| `.env.netlify` | No (`.gitignore`) | Every key Netlify needs, ready to import |
+| `.env.production` | Yes, on purpose | Only PUBLIC values (Supabase address, anon key, public notification key), already built into the website |
+| `.env.example` | Yes | Empty template |
 
 ---
 
-## 1. Put the code on GitHub
+## Launch checklist (in this order)
 
-1. Create a **private** repository on github.com (for example `renta-ug`).
-2. Upload the project folder. Before uploading, check that these files are **not** in the list: `.env`, `.env.production`, `.env.netlify`. They contain your keys.
+### 1. Update the database first
+Supabase → **SQL Editor** → open `database/update_existing.sql` → paste all → **Run**.
+Safe to run again; keeps all data. The new app needs it (payments, mobile money numbers, rent months,
+error reports, health checks, adding tenants by email or phone, the fixed overdue reminders).
 
-## 2. Connect GitHub to Netlify
+### 2. Upload the code to GitHub
+GitHub Desktop → this repository → write a summary (e.g. "Mobile money, health checks, legal pages") →
+**Commit to main** → **Push origin**. Netlify starts building by itself.
 
-1. Netlify → **Add new site → Import an existing project → GitHub** → pick the repository.
-2. Build settings are read from `netlify.toml` (build command `npm run build`, publish folder `dist`). Leave them as they are.
-
-## 3. Add the keys in Netlify
-
+### 3. Keys in Netlify (once, and whenever a key changes)
 Netlify → your site → **Site configuration → Environment variables → Add a variable → Import from a .env file**.
-Open `.env.netlify` on your computer, copy everything, paste it in, keep **All scopes**, and save.
+Open `.env.netlify`, copy everything, paste, keep **All scopes**, import.
+Delete any old variables that are no longer used: `RELWORX_API_KEY`, `RELWORX_ACCOUNT_NO`, `PAYMENTS_TEST_MODE`,
+`PAYMENT_EMAIL_FALLBACK`, `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH`, `SSENTEZO_*`, `PAYMENT_PROVIDER`.
+
+### 4. Deploy
+Netlify → **Deploys → Trigger deploy → Deploy site** (needed after changing keys: `VITE_…` keys are built into the app).
+
+### 5. Check it is working
+1. Supabase → **Authentication → URL Configuration** → Site URL `https://rentaug.netlify.app`.
+2. Open `https://rentaug.netlify.app/admin2026` → **Health & settings** → **Run checks now** → all green
+   (SMS shows a warning until the Africa's Talking keys are added).
+3. Sign up a test tenant, add them as a landlord with their email, connect with the code, send a test payment and confirm it.
+
+---
+
+## The keys
 
 | Variable | What it is | Where to get it | Secret? |
 |---|---|---|---|
-| `VITE_SUPABASE_URL` | Your Supabase project address | Supabase → Project Settings → API | No |
-| `VITE_SUPABASE_ANON_KEY` | Public key the app uses in the browser | Supabase → Project Settings → API keys → `anon` / publishable | No (protected by the database rules) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Full-power key for the server functions | Supabase → Project Settings → API keys → `service_role` / secret | **YES: never share** |
-| `RELWORX_API_KEY` | Takes real MTN / Airtel payments | Relworx → Organizations → your organization → API keys | **YES** |
-| `RELWORX_ACCOUNT_NO` | Your Relworx business account number | Relworx dashboard (starts with `REL…`) | No |
-| `PAYMENTS_TEST_MODE` | Must be `false` on the live site | — | No |
-| `VITE_VAPID_PUBLIC_KEY` | Phone notifications (public half) | Made once with `npx web-push generate-vapid-keys` | No |
-| `VAPID_PRIVATE_KEY` | Phone notifications (private half) | Same command as above | **YES** |
-| `VAPID_SUBJECT` | Contact for phone notifications | `mailto:` + an email address you control | No |
-| `PAYMENT_EMAIL_FALLBACK` | Email sent to the payment provider when a tenant has none | Any company email | No |
-| `CLIENT_URL` | Your live address | `https://rentaug.netlify.app` | No |
-| `SMTP_USER` | The Gmail address that sends the sign-up codes | A Gmail account made for Renta UG | No |
-| `SMTP_PASS` | That Gmail's **App password** (16 letters) | Google Account → Security → 2-Step Verification on → *App passwords* | **YES** |
-| `MAIL_FROM` | (optional) Sender name shown in the email | e.g. `Renta UG <the same Gmail>` | No |
-| `VITE_SUPPORT_EMAIL` | Contact shown on the Privacy and Delete-account pages | A support email you read | No |
+| `VITE_SUPABASE_URL` | Supabase project address | Supabase → Project Settings → API | No |
+| `VITE_SUPABASE_ANON_KEY` | Public key used in the browser | Supabase → API keys → `anon` | No (protected by database rules) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Full-power key for server functions | Supabase → API keys → `service_role` | **YES** |
+| `VITE_VAPID_PUBLIC_KEY` | Phone notifications (public half) | `npx web-push generate-vapid-keys` | No |
+| `VAPID_PRIVATE_KEY` | Phone notifications (private half) | Same command | **YES** |
+| `VAPID_SUBJECT` | Contact for phone notifications | `mailto:` + your support email | No |
+| `CLIENT_URL` | Live address | `https://rentaug.netlify.app` | No |
+| `SMTP_USER` | Gmail that sends sign-up codes | Your Renta UG Gmail | No |
+| `SMTP_PASS` | That Gmail's **App password** | Google Account → Security → 2-Step Verification → App passwords | **YES** |
+| `MAIL_FROM` | Sender name on emails | `Renta UG <the same Gmail>` | No |
+| `VITE_SUPPORT_EMAIL` | Contact on Privacy / Terms / Delete-account pages | An email you read | No |
+| `AT_USERNAME` | Africa's Talking app username (`sandbox` = test, no real texts) | africastalking.com | No |
+| `AT_API_KEY` | Africa's Talking API key | Africa's Talking → Settings → API Key | **YES** |
+| `AT_SENDER_ID` | (optional) Sender name, e.g. `RentaUG` | Needs approval from Africa's Talking | No |
 
-**Text messages (SMS)**: when a landlord confirms (or rejects) a cash payment, the tenant gets an SMS, with or without a smartphone. Made with Africa's Talking (africastalking.com):
+`AT_…` are not set yet: SMS stays off until you add them (remove the `#` in `.env.netlify`, fill them in,
+import them in Netlify, redeploy).
 
-| Variable | What it is | Secret? |
-|---|---|---|
-| `AT_USERNAME` | Your Africa's Talking app username (use `sandbox` to test without sending real texts) | No |
-| `AT_API_KEY` | API key: Africa's Talking → Settings → API Key | **YES** |
-| `AT_SENDER_ID` | (optional) Name shown as the sender, e.g. `RentaUG`; needs approval from Africa's Talking | No |
+**Mobile money** needs no keys: each landlord adds their MTN / Airtel number in the app
+(**Payments → Mobile money numbers**). Tenants send money from their own phone; the landlord confirms it.
 
-Also run `database/39_sms_confirmations.sql` once in Supabase. A tenant is texted when there is a phone number on their tenant record or their app account.
-
-Instead of Gmail you can use Resend (resend.com): set `RESEND_API_KEY` and `MAIL_FROM` (on a domain you verified there).
-
-Optional, only if you ever switch from Relworx to Flutterwave: `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH`.
-
-## 4. Deploy
-
-Netlify → **Deploys → Trigger deploy → Deploy site**. The `VITE_…` keys are built into the app, so **redeploy every time you change one of them**.
-
-## 5. After the first deploy
-
-1. Supabase → **SQL Editor** → run `database/update_existing.sql` (once, and again after every app update that adds a database file).
-2. Supabase → **Authentication → URL Configuration** → set Site URL to `https://rentaug.netlify.app`.
-3. Relworx → webhook for **Request payment** → `https://rentaug.netlify.app/api/momo/relworx-webhook`.
-4. Relworx → **API Authorized IPs**: Netlify has no fixed address. If Relworx requires one, ask them to allow your account without an IP restriction.
-5. Open `https://rentaug.netlify.app/admin2026` → **Health & settings** and check that everything shows green.
+---
 
 ## What runs on Netlify
 
 | Netlify function | Job |
 |---|---|
-| `payments` | Pay rent / recharge with MTN or Airtel, check payments, Relworx webhook |
-| `payments-sweep` | Every minute: confirms payments still waiting |
-| `push-sweep` | Every minute: sends notifications to phones |
-| `signup` | Emails the 6-character sign-up code and creates the account when it is entered |
-| `admin` | Main admin: landlords, delete accounts, delete all users (with archive) |
-| `first-login`, `phone-sign-in`, `tenant-account` | Sign-in by email or phone, first sign-in, app access for tenants |
+| `push-sweep` | Every minute: phone notifications, and SMS when a landlord confirms a payment |
+| `health-check` | Every 20 minutes: database, sign-in, email, SMS, notifications, waiting payments, app errors |
+| `signup` | Emails the 6-character sign-up code and creates the account |
+| `admin` | Main admin: landlords, delete an account, delete all users (with archive), run checks now |
+| `first-login`, `phone-sign-in`, `tenant-account` | First sign-in, sign-in by phone, app access for tenants |
 
 ## If a key leaks
-
-Make a new one straight away (Supabase, Relworx or `npx web-push generate-vapid-keys`), update it in Netlify and in your local `.env`, then redeploy. The old key stops working as soon as it's replaced.
+Make a new one straight away (Supabase, Gmail app password, Africa's Talking, or `npx web-push generate-vapid-keys`),
+update it in Netlify and in `.env` / `.env.netlify`, then redeploy. The old key stops working once replaced.

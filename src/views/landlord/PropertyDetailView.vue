@@ -2,12 +2,13 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
-import CashPaymentModal from '@/components/CashPaymentModal.vue'
+import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 import {
-  ArrowLeft, MapPin, BedDouble, Bath, Phone, Mail, UserX, Smartphone, CheckCircle2, Building2, KeyRound, Banknote,
+  ArrowLeft, Phone, Mail, UserX, Smartphone, CheckCircle2, KeyRound, Banknote,
   LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight, UserRoundPlus,
 } from '@lucide/vue'
 import BaseModal from '@/components/BaseModal.vue'
+import TenantFormModal from '@/components/TenantFormModal.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import HeaderAction from '@/components/admin/HeaderAction.vue'
 import { useRentalStore } from '@/stores/rental'
@@ -106,6 +107,38 @@ const payments = computed(() => rental.payments.filter((p) => p.propertyId === p
 const balance = computed(() => payments.value.reduce((s, p) => s + p.balance, 0))
 const collected = computed(() => payments.value.reduce((s, p) => s + p.amountPaid, 0))
 const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
+
+// ── Add a tenant to this house ──
+const pickOpen = ref(false)
+const formOpen = ref(false)
+const pickError = ref('')
+const movingIn = ref('')
+// People who rented from you before and aren't renting anywhere now
+const returning = computed(() => rental.tenantRecords.filter((r) => r.status === 'former'))
+function openPick() {
+  pickError.value = ''
+  pickOpen.value = true
+}
+function newTenant() {
+  pickOpen.value = false
+  formOpen.value = true
+}
+async function moveIn(r) {
+  movingIn.value = r.personId
+  pickError.value = ''
+  try {
+    const email = r.email && !r.email.endsWith('@phone-signin.example.com') ? r.email : ''
+    await rental.readdTenant(r.latestEnded.id, { name: r.name, email, phone: r.phone ?? '', propertyId: props.id })
+    pickOpen.value = false
+  } catch (e) {
+    pickError.value = e.message
+  } finally {
+    movingIn.value = ''
+  }
+}
+function onTenantSaved(t) {
+  if (!t.managedByLandlord) showCode.value = true // has a smartphone: give them the connection code now
+}
 </script>
 
 <template>
@@ -178,7 +211,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
                 <span>App access given. {{ tenant.name.split(' ')[0] }} can now sign in with <strong>{{ accessGiven }}</strong>. No code needed.</span>
               </p>
               <div class="grid grid-cols-2 gap-2">
-                <button class="btn-secondary h-11" @click="showCash = true"><Banknote class="size-4" /> Cash</button>
+                <button class="btn-secondary h-11" @click="showCash = true"><Banknote class="size-4" /> Record payment</button>
                 <button class="btn-secondary h-11" @click="endTenancy"><LogOut class="size-4" /> End tenancy</button>
               </div>
             </div>
@@ -188,7 +221,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
             <span class="icon-disc disc-slate size-12 rounded-full"><UserX class="size-6" /></span>
             <p class="mt-3 font-semibold text-slate-900">This house is vacant</p>
             <p class="mt-1 text-sm text-slate-500">Add a tenant to start collecting rent.</p>
-            <RouterLink to="/landlord/tenants" class="add-pill mt-4"><UserRoundPlus class="size-[1.2rem]" stroke-width="2.25" /> Add a tenant</RouterLink>
+            <button type="button" class="add-pill mt-4" @click="openPick"><UserRoundPlus class="size-[1.2rem]" stroke-width="2.25" /> Add a tenant</button>
           </div>
 
           <button class="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-600 hover:text-red-700" @click="removeProperty">
@@ -226,8 +259,38 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
       </div>
 
       <template v-if="tenant">
-        <CashPaymentModal v-model="showCash" :tenant-id="tenant.id" />
+        <RecordPaymentModal v-model="showCash" :tenant-id="tenant.id" />
       </template>
+
+      <!-- Add a tenant to THIS house: someone from Records, or a new tenant. You stay on this page. -->
+      <BaseModal v-model="pickOpen" center width="max-w-md" :title="`Add a tenant · ${property.name}`">
+        <div class="space-y-4">
+          <template v-if="returning.length">
+            <p class="text-sm text-slate-500">Move someone back in, or add a new tenant.</p>
+            <ul class="max-h-[50dvh] space-y-2 overflow-y-auto overscroll-contain pr-0.5">
+              <li v-for="r in returning" :key="r.personId" class="person-card flex items-center gap-3 rounded-2xl p-3">
+                <span class="person-avatar">{{ initials(r.name) }}</span>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate font-semibold text-slate-900">{{ r.name }}</p>
+                  <p class="truncate text-xs text-slate-500">{{ r.phone || r.email || 'No contact' }}</p>
+                  <p class="truncate text-[11px] text-slate-400">Last in {{ rental.propertyById(r.latestEnded.lastPropertyId) ? rental.placeName(r.latestEnded.lastPropertyId) : 'a removed house' }}<template v-if="r.latestEnded.endedAt"> · left {{ formatDate(r.latestEnded.endedAt) }}</template></p>
+                </div>
+                <button type="button" class="btn-primary h-9 shrink-0 rounded-xl px-3 text-sm" :data-busy="movingIn === r.personId" :disabled="Boolean(movingIn)" @click="moveIn(r)">
+                  {{ movingIn === r.personId ? 'Adding…' : 'Move in' }}
+                </button>
+              </li>
+            </ul>
+          </template>
+          <div v-else class="flex flex-col items-center rounded-2xl bg-slate-50 px-5 py-8 text-center">
+            <span class="icon-disc disc-slate size-12 rounded-full"><UserX class="size-6" /></span>
+            <p class="mt-3 font-semibold text-slate-900">No tenants to add yet</p>
+            <p class="mt-1 text-sm text-slate-500">Add a new tenant for {{ property.name }}.</p>
+          </div>
+          <p v-if="pickError" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ pickError }}</p>
+          <button type="button" class="btn-primary h-12 w-full rounded-2xl" @click="newTenant"><UserRoundPlus class="size-5" /> Add a new tenant</button>
+        </div>
+      </BaseModal>
+      <TenantFormModal v-model="formOpen" :property-id="id" @saved="onTenantSaved" />
       <BaseModal v-model="editOpen" :title="parent ? 'Edit room' : 'Edit house'" width="max-w-md">
         <form class="space-y-4" @submit.prevent="saveEdit">
           <div>
@@ -281,6 +344,20 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
 </template>
 
 <style scoped>
+.person-card { background: var(--color-white); box-shadow: inset 0 0 0 1px var(--color-slate-200); }
+.person-avatar {
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(140deg, #14b8a6, #0f766e 60%, #0a3b38);
+}
 .step-dot {
   display: flex;
   width: 1.375rem;

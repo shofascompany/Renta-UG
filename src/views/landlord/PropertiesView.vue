@@ -1,4 +1,5 @@
-<script setup>
+﻿<script setup>
+import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Search, Building2, House, DoorOpen, HousePlus, Minus, ArrowLeft } from '@lucide/vue'
@@ -259,10 +260,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="label" for="ptype">Type</label>
-            <select id="ptype" v-model="house.type" class="input" required>
-              <option value="" disabled>Choose</option>
-              <option v-for="t in ['House', 'Apartment', 'Studio', 'Villa', 'Cottage', 'Commercial']" :key="t">{{ t }}</option>
-            </select>
+            <BaseSelect id="ptype" v-model="house.type" required :options="['House', 'Apartment', 'Studio', 'Villa', 'Cottage', 'Commercial'].map((t) => ({ value: t, label: t }))" />
           </div>
           <div>
             <label class="label" for="prent">Monthly rent (UGX)</label>
@@ -298,9 +296,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
           </div>
           <div class="col-span-2 sm:col-span-1">
             <label class="label" for="rtype">What you rent out</label>
-            <select id="rtype" v-model="biz.type" class="input">
-              <option v-for="t in ['Rooms', 'Apartments', 'Houses', 'Hostel rooms', 'Shops', 'Offices']" :key="t">{{ t }}</option>
-            </select>
+            <BaseSelect id="rtype" v-model="biz.type" :options="['Rooms', 'Apartments', 'Houses', 'Hostel rooms', 'Shops', 'Offices'].map((t) => ({ value: t, label: t }))" />
           </div>
         </div>
 

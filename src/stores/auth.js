@@ -229,8 +229,25 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    async resetPassword(email) {
-      must(await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin }))
+    // Forgot password, step 1: the Renta server emails a reset link (not Supabase).
+    async requestPasswordReset(email) {
+      await api('/api/password/forgot', { email })
+    },
+
+    // Forgot password, step 2: the link's one-time token proves the email is theirs. Save the new password,
+    // then end every session, so they sign in again with it.
+    async completePasswordReset(tokenHash, password) {
+      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+      if (error) throw new Error('This reset link has expired or was already used. Ask for a new one.')
+      const { error: updateError } = await supabase.auth.updateUser({ password })
+      if (updateError) {
+        await supabase.auth.signOut()
+        throw new Error(/different from the old/i.test(updateError.message) ? 'Choose a password different from your old one.' : updateError.message)
+      }
+      await disablePushForThisDevice()
+      await supabase.auth.signOut({ scope: 'global' })
+      this.session = null
+      this.profile = null
     },
 
     async signOut() {

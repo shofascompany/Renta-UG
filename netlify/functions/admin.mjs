@@ -1,12 +1,14 @@
 // Netlify Function: the main admin's landlord / account management on the live site.
 //   POST   /api/admin/landlords       → register a landlord (first sign-in without a password)
 //   PATCH  /api/admin/landlords/:id   → edit, reset password, suspend / reactivate
-//   DELETE /api/admin/users/:id       → delete an inactive account
+//   DELETE /api/admin/users/:id       → delete an account ({ force: true } = any account, Danger zone)
 //   POST   /api/admin/clear           → archive everything, then delete every landlord + tenant
+//   POST   /api/admin/health          → run every system check now
 // Same rules as the Express server (both use server/admin.js).
 // Needs SUPABASE_SERVICE_ROLE_KEY in Netlify → Site configuration → Environment variables (scope: Functions).
 import { createClient } from '@supabase/supabase-js'
 import { HttpError, requireSuperadmin, createLandlord, updateLandlord, deleteUser, archiveAndClear } from '../../server/admin.js'
+import { runHealthCheck, reportServerError } from '../../server/health.js'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -29,20 +31,24 @@ export default async (req) => {
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Works with both the original path (/api/admin/...) and the rewritten one (/.netlify/functions/admin/...)
-  const route = new URL(req.url).pathname.match(/\/(landlords|users|clear)(?:\/([^/]+))?\/?$/)
+  const route = new URL(req.url).pathname.match(/\/(landlords|users|clear|health)(?:\/([^/]+))?\/?$/)
   const [, resource, id] = route ?? []
 
   try {
     const me = await requireSuperadmin(db, req.headers.get('authorization'))
-    const body = req.method === 'DELETE' ? {} : await req.json().catch(() => ({}))
+    const body = await req.json().catch(() => ({}))
 
     if (req.method === 'POST' && resource === 'landlords' && !id) return json(await createLandlord(db, body))
     if (req.method === 'PATCH' && resource === 'landlords' && id) return json(await updateLandlord(db, id, body))
-    if (req.method === 'DELETE' && resource === 'users' && id) return json(await deleteUser(db, me.id, id))
+    if (req.method === 'DELETE' && resource === 'users' && id) return json(await deleteUser(db, me.id, id, body))
     if (req.method === 'POST' && resource === 'clear') return json(await archiveAndClear(db, me.id, body))
+    if (req.method === 'POST' && resource === 'health') return json(await runHealthCheck(db, process.env, 'manual'))
     return json({ error: 'Not found' }, 404)
   } catch (e) {
-    if (!(e instanceof HttpError)) console.error(e)
+    if (!(e instanceof HttpError)) {
+      console.error(e)
+      await reportServerError(db, `admin ${req.method} ${resource ?? ''}`, e)
+    }
     return json({ error: e.message || 'Server error' }, e.status || 500)
   }
 }

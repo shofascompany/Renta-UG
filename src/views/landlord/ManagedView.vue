@@ -59,10 +59,10 @@ const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('')
       <div v-else class="flex flex-col items-center px-6 py-14 text-center">
         <span class="icon-disc disc-slate size-12 rounded-full"><UserCog class="size-6" /></span>
         <p class="mt-3 font-semibold text-slate-900">{{ people.length ? 'No matches' : 'No managed accounts' }}</p>
-        <p class="mt-1 max-w-xs text-sm text-slate-500">When you add a tenant and choose "No smartphone", you run their account from here.</p>
+        <p class="mt-1 max-w-xs text-sm text-slate-500">Add a tenant without a smartphone here, and you run their account for them.</p>
       </div>
     </div>
 
-    <TenantFormModal v-model="adding" />
+    <TenantFormModal v-model="adding" managed />
   </div>
 </template>

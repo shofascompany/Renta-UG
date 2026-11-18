@@ -23,6 +23,14 @@
     <meta property="og:description" content="Pay rent with MTN and Airtel, watch your rental days count down, and manage houses, rooms and tenants." />
     <meta property="og:image" content="https://rentaug.netlify.app/icon-512.png" />
     <meta name="twitter:card" content="summary" />
+    <style>
+      /* Hide the Netlify Drawer / badge that Netlify injects in the bottom corner */
+      netlify-drawer, #netlify-drawer, [id^='netlify-drawer'], [class*='netlify-drawer'] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+    </style>
     <script>
       // Follow the device's dark mode before the page paints (avoids a white flash). See src/lib/theme.js.
       try {

@@ -2,6 +2,10 @@
   command = "npm run build"
   publish = "dist"
 
+# Same Node version on every deploy (Vite needs 20.19+)
+[build.environment]
+  NODE_VERSION = "22"
+
 [functions]
   directory = "netlify/functions"
 
@@ -17,13 +21,6 @@
 [[redirects]]
   from = "/api/auth/phone-sign-in"
   to = "/.netlify/functions/phone-sign-in"
-  status = 200
-  force = true
-
-# Tenant signs up with a phone number instead of an email (Netlify Function)
-[[redirects]]
-  from = "/api/auth/phone-sign-up"
-  to = "/.netlify/functions/phone-sign-up"
   status = 200
   force = true
 
@@ -54,16 +51,10 @@
   status = 200
   force = true
 
-# Mobile money rent payments: MTN / Airtel via Relworx (Netlify Function)
+# Forgot password: the app emails the reset link (Netlify Function)
 [[redirects]]
-  from = "/api/payments/*"
-  to = "/.netlify/functions/payments/:splat"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/momo/*"
-  to = "/.netlify/functions/payments/:splat"
+  from = "/api/password/*"
+  to = "/.netlify/functions/password/:splat"
   status = 200
   force = true
 

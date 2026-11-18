@@ -1,4 +1,5 @@
-<script setup>
+﻿<script setup>
+import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, reactive, ref } from 'vue'
 import { Send, CheckCircle2, BellOff, Megaphone, Wallet, CalendarClock, Wrench, Eye } from '@lucide/vue'
 import { useRentalStore, landlordSenderLine } from '@/stores/rental'
@@ -19,7 +20,7 @@ const activeTenants = computed(() => rental.currentTenants)
 const preview = computed(() => ({ title: landlordSenderLine(), body: form.body.trim() }))
 
 const templates = [
-  'Reminder: rent for this month is due on the 5th. You can pay with MTN MoMo or Airtel Money in the app.',
+  'Reminder: please pay your rent before your month ends. You can send it with MTN or Airtel Mobile Money in the app, or pay in cash.',
   'Please note that the water supply will be interrupted on Saturday from 8:00 AM to 2:00 PM for tank cleaning.',
   'The compound will be cleaned this weekend. Please keep the parking area clear.',
 ]
@@ -73,10 +74,7 @@ const sent = computed(() => {
         <form class="sheet space-y-4 p-5" @submit.prevent="send">
           <div>
             <label class="label" for="nto">To</label>
-            <select id="nto" v-model="form.to" class="input h-11 rounded-xl">
-              <option value="all">All current tenants ({{ activeTenants.length }})</option>
-              <option v-for="t in activeTenants" :key="t.id" :value="t.id">{{ t.name }}</option>
-            </select>
+            <BaseSelect id="nto" v-model="form.to" :options="[{ value: 'all', label: `All current tenants (${activeTenants.length})` }, ...activeTenants.map((t) => ({ value: t.id, label: t.name }))]" />
           </div>
           <div>
             <label class="label" for="nbody">Message</label>

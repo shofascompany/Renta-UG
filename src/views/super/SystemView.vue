@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Smartphone, Database, Bell, ShieldCheck, LogOut, RefreshCw, CircleCheck, CircleAlert, CircleX, Server, Users, Building2, Receipt,
-  Trash2, ChevronRight, Archive as ArchiveIcon,
+  Trash2, ChevronRight, Archive as ArchiveIcon, Activity, Bug, Search, UserX, Wand2,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
@@ -17,23 +17,23 @@ const rental = useRentalStore()
 const auth = useAuthStore()
 const signOut = useSignOut()
 
-const pay = ref(null)
+const pay = ref(null) // { landlords: n } with mobile money numbers
 const db = ref(null) // { ok, missing: [] }
 const checking = ref(false)
 
 async function check() {
   checking.value = true
-  try {
-    pay.value = await api('/api/payments/info')
-  } catch (e) {
-    pay.value = { error: e.message }
-  }
+  const { data: accts, error: aErr } = await supabase.from('landlord_pay_accounts').select('landlord_id')
+  pay.value = aErr ? { error: aErr.message } : { landlords: new Set((accts ?? []).map((a) => a.landlord_id)).size }
   // Newer parts of the database: if any is missing, update_existing.sql hasn't been run
   const parts = [
     ['rentals', 'Rental businesses'],
     ['move_out_requests', 'Requests to leave'],
     ['admin_audit', 'Activity log'],
-    ['cash_payments', 'Cash confirmation'],
+    ['cash_payments', 'Payment confirmation'],
+    ['landlord_pay_accounts', 'Mobile money numbers'],
+    ['error_reports', 'Error reports'],
+    ['health_checks', 'Health checks'],
   ]
   const missing = []
   for (const [table, label] of parts) {
@@ -48,11 +48,118 @@ onMounted(check)
 const payState = computed(() => {
   const v = pay.value
   if (!v) return { tone: 'wait', text: 'Checking…', sub: '' }
-  if (v.error) return { tone: 'bad', text: 'Payment server not reachable', sub: v.error }
-  if (!v.enabled) return { tone: 'bad', text: 'Online payments are off', sub: 'Add the Relworx key and account number to the server settings.' }
-  if (v.testMode) return { tone: 'warn', text: 'Test mode', sub: 'No real money moves. Switch PAYMENTS_TEST_MODE off for real payments.' }
-  return { tone: 'ok', text: `Live · ${v.provider === 'relworx' ? 'Relworx' : 'Flutterwave'}`, sub: `MTN & Airtel · ${Number(v.minAmount).toLocaleString()}–${Number(v.maxAmount).toLocaleString()} UGX per payment` }
+  if (v.error) return { tone: 'warn', text: 'Needs a database update', sub: v.error }
+  const total = rental.landlords.filter((l) => l.active).length
+  return v.landlords
+    ? { tone: 'ok', text: `Direct to landlords · ${v.landlords} of ${total} set up`, sub: 'Tenants send MTN or Airtel Mobile Money to their landlord, who confirms it.' }
+    : { tone: 'warn', text: 'No landlord has added a number yet', sub: 'Landlords add them in Payments → Mobile money numbers.' }
 })
+
+// ── Automatic checks (every 20 minutes, on the server) ──
+const checks = ref([]) // newest first
+const lastCheck = computed(() => checks.value[0] ?? null)
+const running = ref(false)
+const runError = ref('')
+async function loadChecks() {
+  const { data } = await supabase.from('health_checks').select('*').order('run_at', { ascending: false }).limit(24)
+  checks.value = data ?? []
+}
+async function runNow() {
+  running.value = true
+  runError.value = ''
+  try {
+    await api('/api/admin/health')
+    await loadChecks()
+  } catch (e) {
+    runError.value = e.message
+  } finally {
+    running.value = false
+  }
+}
+const STATUS_TONE = { ok: 'ok', warn: 'warn', fail: 'bad' }
+const when = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
+
+// ── Errors reported by the app and the server ──
+const errors = ref([])
+const errorFilter = ref('open') // open | all
+const openError = ref(null)
+async function loadErrors() {
+  let q = supabase.from('error_reports').select('*').order('last_seen', { ascending: false }).limit(100)
+  if (errorFilter.value === 'open') q = q.eq('status', 'open')
+  const { data } = await q
+  errors.value = data ?? []
+}
+async function setErrorStatus(e, status) {
+  const { error } = await supabase.from('error_reports').update({ status }).eq('id', e.id)
+  if (!error) {
+    openError.value = null
+    await loadErrors()
+  }
+}
+const SOURCE = { app: 'App', server: 'Server', health: 'System check' }
+watch(errorFilter, loadErrors)
+
+let live = null
+onMounted(() => {
+  loadChecks()
+  loadErrors()
+  live = supabase
+    .channel('admin-health')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'error_reports' }, () => loadErrors())
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'health_checks' }, () => loadChecks())
+    .subscribe()
+})
+onBeforeUnmount(() => live && supabase.removeChannel(live))
+
+// ── Danger zone: delete one account ──
+const accounts = ref([])
+const delOpen = ref(false)
+const delQuery = ref('')
+const delTarget = ref(null)
+const delConfirm = ref('')
+const delBusy = ref(false)
+const delError = ref('')
+const delDone = ref('')
+async function openDelete() {
+  delQuery.value = ''
+  delTarget.value = null
+  delConfirm.value = ''
+  delError.value = ''
+  delDone.value = ''
+  delOpen.value = true
+  const { data } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, phone, role, active, created_at')
+    .in('role', ['landlord', 'tenant'])
+    .order('created_at', { ascending: false })
+  accounts.value = data ?? []
+}
+const shownAccounts = computed(() => {
+  const q = delQuery.value.trim().toLowerCase()
+  return accounts.value
+    .filter((a) => !q || `${a.full_name ?? ''} ${a.email ?? ''} ${a.phone ?? ''}`.toLowerCase().includes(q))
+    .slice(0, 50)
+})
+const renting = (a) => a.role === 'tenant' && rental.tenants.some((t) => t.userId === a.id && t.propertyId)
+const ownsCount = (a) => rental.properties.filter((x) => x.landlordId === a.id).length
+const shownEmail = (e) => (String(e ?? '').endsWith('@phone-signin.example.com') ? 'Signs in with phone' : e)
+async function deleteAccount() {
+  delBusy.value = true
+  delError.value = ''
+  try {
+    const a = delTarget.value
+    await rental.deleteUser(a.id, { force: true })
+    rental.adminNote('delete_account', a.role, a.id, `Deleted the ${a.role} account of ${a.full_name || a.email}`)
+    delDone.value = `${a.full_name || a.email} was deleted.`
+    accounts.value = accounts.value.filter((x) => x.id !== a.id)
+    delTarget.value = null
+    delConfirm.value = ''
+  } catch (e) {
+    delError.value = e.message
+  } finally {
+    delBusy.value = false
+  }
+}
 const dbState = computed(() => {
   if (!db.value) return { tone: 'wait', text: 'Checking…', sub: '' }
   return db.value.ok
@@ -111,7 +218,7 @@ async function clearAll() {
     <h2 class="section-title">Services</h2>
     <div class="sheet divide-y divide-slate-100">
       <div v-for="row in [
-        { icon: Smartphone, tile: 'tile-amber', title: 'Mobile money payments', s: payState },
+        { icon: Smartphone, tile: 'tile-amber', title: 'Mobile money', s: payState },
         { icon: Database, tile: 'tile-sky', title: 'Database', s: dbState },
         { icon: Bell, tile: 'tile-violet', title: 'Phone notifications', s: pushOn ? { tone: 'ok', text: 'Set up', sub: 'People who allow notifications get them on their phones.' } : { tone: 'warn', text: 'Not set up', sub: 'Add the VAPID keys to switch on phone pop-ups.' } },
         { icon: Server, tile: 'tile-teal', title: 'Live data', s: rental.error ? { tone: 'bad', text: 'Problem loading', sub: rental.error } : { tone: 'ok', text: 'Connected', sub: 'Changes appear instantly on every device.' } },
@@ -124,6 +231,70 @@ async function clearAll() {
           </p>
           <p v-if="row.s.sub" class="mt-0.5 text-xs leading-relaxed text-slate-500">{{ row.s.sub }}</p>
         </div>
+      </div>
+    </div>
+
+    <!-- Automatic checks -->
+    <div class="mt-6 flex items-end justify-between gap-3">
+      <h2 class="section-title">Automatic checks · every 20 minutes</h2>
+      <button type="button" class="mb-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 disabled:opacity-50" :disabled="running" @click="runNow">
+        <RefreshCw class="size-3.5" :class="running && 'animate-spin'" /> {{ running ? 'Checking…' : 'Run checks now' }}
+      </button>
+    </div>
+    <div class="sheet overflow-hidden">
+      <div class="flex items-center gap-3.5 border-b border-slate-100 px-4 py-4 sm:px-5" :class="!lastCheck ? '' : lastCheck.ok ? 'bg-emerald-50/60' : 'bg-amber-50/60'">
+        <span class="icon-tile" :class="!lastCheck ? 'tile-slate' : lastCheck.ok ? 'tile-teal' : 'tile-amber'"><Activity class="size-[1.3rem]" /></span>
+        <div class="min-w-0 flex-1">
+          <p class="font-semibold text-slate-900">{{ !lastCheck ? 'No check has run yet' : lastCheck.ok ? 'Everything is working' : 'Something needs attention' }}</p>
+          <p class="text-xs text-slate-500">{{ lastCheck ? `Last checked ${when(lastCheck.run_at)}${lastCheck.trigger === 'manual' ? ' (by you)' : ''}` : 'The server checks every part of Renta UG every 20 minutes. Tap “Run checks now”.' }}</p>
+        </div>
+        <!-- Last runs, oldest → newest -->
+        <div v-if="checks.length > 1" class="hidden items-end gap-1 sm:flex" aria-label="Recent checks">
+          <span v-for="c in [...checks].reverse()" :key="c.id" class="h-5 w-1.5 rounded-full" :class="c.ok ? 'bg-emerald-400' : 'bg-amber-400'" :title="when(c.run_at)" />
+        </div>
+      </div>
+      <p v-if="runError" class="border-b border-slate-100 bg-red-50 px-5 py-2.5 text-sm text-red-700">{{ runError }}</p>
+      <ul v-if="lastCheck" class="divide-y divide-slate-100">
+        <li v-for="r in lastCheck.results" :key="r.key" class="flex items-start gap-3 px-4 py-3 sm:px-5">
+          <component :is="ICON[STATUS_TONE[r.status]]" class="mt-0.5 size-4.5 shrink-0" :class="TONE[STATUS_TONE[r.status]]" />
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-medium text-slate-900">{{ r.label }}</p>
+            <p class="text-xs leading-relaxed text-slate-500">{{ r.detail }}</p>
+          </div>
+          <span v-if="r.ms != null" class="shrink-0 text-[11px] text-slate-400 tabular-nums">{{ r.ms }} ms</span>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Errors from anywhere in the app or the server -->
+    <div class="mt-6 flex items-end justify-between gap-3">
+      <h2 class="section-title">Errors reported</h2>
+      <div class="mb-2.5 flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-xs">
+        <button v-for="f in [['open', 'Open'], ['all', 'All']]" :key="f[0]" class="h-7 rounded-lg px-3 font-medium" :class="errorFilter === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="errorFilter = f[0]">{{ f[1] }}</button>
+      </div>
+    </div>
+    <div class="sheet">
+      <ul v-if="errors.length" class="max-h-[28rem] divide-y divide-slate-100 overflow-y-auto">
+        <li v-for="e in errors" :key="e.id">
+          <button type="button" class="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 sm:px-5" @click="openError = e">
+            <span class="icon-disc shrink-0" :class="e.status !== 'open' ? 'disc-slate' : e.source === 'health' ? 'disc-amber' : 'disc-red'"><Bug class="size-5" /></span>
+            <div class="min-w-0 flex-1">
+              <p class="line-clamp-2 text-sm font-medium text-slate-900">{{ e.message }}</p>
+              <p class="mt-0.5 truncate text-xs text-slate-500">{{ SOURCE[e.source] }}<template v-if="e.area"> · {{ e.area }}</template> · {{ when(e.last_seen) }}</p>
+              <p class="mt-1 flex flex-wrap gap-1.5">
+                <span v-if="e.count > 1" class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{{ e.count }} times</span>
+                <span v-if="e.auto_fixed" class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"><Wand2 class="size-3" /> Fixed itself</span>
+                <span v-if="e.status !== 'open'" class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 capitalize">{{ e.status }}</span>
+              </p>
+            </div>
+            <ChevronRight class="mt-1 size-4 shrink-0 text-slate-300" />
+          </button>
+        </li>
+      </ul>
+      <div v-else class="flex flex-col items-center px-6 py-10 text-center">
+        <CircleCheck class="size-9 text-emerald-500" />
+        <p class="mt-2 font-medium text-slate-900">{{ errorFilter === 'open' ? 'No open errors' : 'No errors reported' }}</p>
+        <p class="mt-0.5 text-xs text-slate-500">Errors from any page or the server appear here straight away.</p>
       </div>
     </div>
 
@@ -171,6 +342,17 @@ async function clearAll() {
         </div>
       </div>
       <button type="button" class="btn mt-4 h-12 w-full rounded-2xl bg-red-600 text-white hover:bg-red-700" @click="openClear"><Trash2 class="size-4" /> Delete all users</button>
+
+      <div class="mt-5 flex items-start gap-3.5 border-t border-red-100 pt-5">
+        <span class="icon-tile tile-red"><UserX class="size-[1.3rem]" /></span>
+        <div class="min-w-0">
+          <p class="font-semibold text-slate-900">Delete an account</p>
+          <p class="mt-1 text-sm leading-relaxed text-slate-600">
+            Delete one landlord or tenant. A landlord's houses, tenants and payments go with them. A renting tenant's tenancy is ended first, so their house becomes vacant and their history stays in Records.
+          </p>
+        </div>
+      </div>
+      <button type="button" class="btn mt-4 h-12 w-full rounded-2xl border border-red-300 bg-white text-red-700 hover:bg-red-50" @click="openDelete"><UserX class="size-4" /> Choose an account to delete</button>
     </div>
 
     <h2 class="section-title mt-6">Your account</h2>
@@ -221,6 +403,80 @@ async function clearAll() {
           <button type="button" class="btn-secondary" @click="clearOpen = false">Cancel</button>
           <button :data-busy="Boolean(clearing)" type="submit" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="clearing || clearConfirm.trim().toUpperCase() !== PHRASE">
             {{ clearing ? 'Archiving & deleting…' : 'Delete all users' }}
+          </button>
+        </div>
+      </form>
+    </BaseModal>
+
+    <!-- One error -->
+    <BaseModal :model-value="Boolean(openError)" center title="Error details" width="max-w-lg" @update:model-value="!$event && (openError = null)">
+      <div v-if="openError" class="space-y-4">
+        <div class="rounded-2xl bg-red-50 p-4">
+          <p class="text-sm font-semibold text-red-900">{{ openError.message }}</p>
+          <p class="mt-1 text-xs text-red-800/80">{{ SOURCE[openError.source] }}<template v-if="openError.area"> · {{ openError.area }}</template></p>
+        </div>
+        <dl class="grid grid-cols-2 gap-3 text-sm">
+          <div><dt class="text-xs text-slate-500">First seen</dt><dd class="font-medium text-slate-900">{{ when(openError.first_seen) }}</dd></div>
+          <div><dt class="text-xs text-slate-500">Last seen</dt><dd class="font-medium text-slate-900">{{ when(openError.last_seen) }}</dd></div>
+          <div><dt class="text-xs text-slate-500">Times</dt><dd class="font-medium text-slate-900">{{ openError.count }}</dd></div>
+          <div><dt class="text-xs text-slate-500">Who</dt><dd class="font-medium text-slate-900 capitalize">{{ openError.user_role || 'Signed out' }}</dd></div>
+          <div v-if="openError.url" class="col-span-2"><dt class="text-xs text-slate-500">Page</dt><dd class="truncate font-mono text-xs text-slate-900">{{ openError.url }}</dd></div>
+          <div v-if="openError.user_agent" class="col-span-2"><dt class="text-xs text-slate-500">Device</dt><dd class="truncate text-xs text-slate-700">{{ openError.user_agent }}</dd></div>
+        </dl>
+        <p v-if="openError.auto_fixed" class="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"><Wand2 class="size-4" /> The app recovered from this by itself (it reloaded or retried). Kept here so you know it happened.</p>
+        <details v-if="openError.detail" class="rounded-xl bg-slate-50 p-3">
+          <summary class="cursor-pointer text-xs font-semibold text-slate-700">Technical details</summary>
+          <pre class="mt-2 max-h-56 overflow-auto text-[11px] leading-relaxed whitespace-pre-wrap text-slate-600">{{ openError.detail }}</pre>
+        </details>
+        <div v-if="openError.status === 'open'" class="grid grid-cols-2 gap-2">
+          <button class="btn-secondary h-11" @click="setErrorStatus(openError, 'ignored')">Ignore</button>
+          <button class="btn-primary h-11" @click="setErrorStatus(openError, 'fixed')"><CircleCheck class="size-4" /> Mark fixed</button>
+        </div>
+        <button v-else class="btn-secondary h-11 w-full" @click="setErrorStatus(openError, 'open')">Open again</button>
+      </div>
+    </BaseModal>
+
+    <!-- Delete one account -->
+    <BaseModal v-model="delOpen" center :title="delTarget ? 'Delete this account?' : 'Delete an account'" width="max-w-md">
+      <div v-if="!delTarget" class="space-y-3">
+        <p v-if="delDone" class="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><CircleCheck class="size-4" /> {{ delDone }}</p>
+        <div class="relative">
+          <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
+          <input v-model="delQuery" class="input h-11 pl-10" placeholder="Search name, email or phone" data-cap="off" />
+        </div>
+        <ul class="max-h-[50dvh] space-y-1.5 overflow-y-auto overscroll-contain">
+          <li v-for="a in shownAccounts" :key="a.id">
+            <button type="button" class="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 ring-slate-200 transition hover:bg-red-50 hover:ring-red-200" @click="delTarget = a; delConfirm = ''; delError = ''">
+              <span class="icon-disc shrink-0" :class="a.role === 'landlord' ? 'disc-brand' : 'disc-slate'"><component :is="a.role === 'landlord' ? Building2 : Users" class="size-5" /></span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium text-slate-900">{{ a.full_name || 'No name' }}</span>
+                <span class="block truncate text-xs text-slate-500">{{ shownEmail(a.email) }}{{ a.phone ? ` · ${a.phone}` : '' }}</span>
+              </span>
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize" :class="a.role === 'landlord' ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-600'">{{ a.role }}</span>
+            </button>
+          </li>
+          <li v-if="!shownAccounts.length" class="py-8 text-center text-sm text-slate-500">{{ accounts.length ? 'Nobody matches.' : 'Loading accounts…' }}</li>
+        </ul>
+      </div>
+      <form v-else class="space-y-4" @submit.prevent="deleteAccount">
+        <div class="rounded-2xl bg-red-50 p-4 text-sm text-red-900">
+          <p class="font-semibold">{{ delTarget.full_name || delTarget.email }} <span class="font-normal capitalize">· {{ delTarget.role }}</span></p>
+          <p class="mt-1 text-red-800">
+            <template v-if="delTarget.role === 'landlord'">Their account and {{ ownsCount(delTarget) }} house{{ ownsCount(delTarget) === 1 ? '' : 's' }}/room{{ ownsCount(delTarget) === 1 ? '' : 's' }}, with all tenants, payments and messages, are deleted.</template>
+            <template v-else-if="renting(delTarget)">They are renting now: their tenancy ends first and the house becomes vacant. Their history stays with the landlord.</template>
+            <template v-else>Their login is deleted. Records their landlord kept stay.</template>
+            <strong> This cannot be undone.</strong>
+          </p>
+        </div>
+        <div>
+          <label class="label" for="del-confirm">Type <strong class="text-red-600">DELETE</strong> to confirm</label>
+          <input id="del-confirm" v-model="delConfirm" class="input tracking-wide" autocomplete="off" data-cap="off" placeholder="DELETE" />
+        </div>
+        <p v-if="delError" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ delError }}</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" class="btn-secondary h-11" @click="delTarget = null">Back</button>
+          <button type="submit" class="btn h-11 bg-red-600 text-white hover:bg-red-700" :data-busy="delBusy" :disabled="delBusy || delConfirm.trim().toUpperCase() !== 'DELETE'">
+            {{ delBusy ? 'Deleting…' : 'Delete account' }}
           </button>
         </div>
       </form>

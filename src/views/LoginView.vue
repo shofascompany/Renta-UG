@@ -14,7 +14,7 @@ const route = useRoute()
 const email = ref('')
 const password = ref('')
 const error = ref('')
-const info = ref('')
+const info = ref(route.query.reset === '1' ? 'Your password was changed. Sign in with the new one.' : '')
 const busy = ref(false)
 
 // ── Live email / phone check ──
@@ -128,23 +128,6 @@ async function signIn() {
   }
 }
 
-async function forgot() {
-  error.value = ''
-  if (!email.value.trim()) {
-    error.value = 'Enter your email first.'
-    return
-  }
-  if (isPhone.value) {
-    error.value = 'To reset your password, enter your email address instead of your phone number.'
-    return
-  }
-  try {
-    await auth.resetPassword(email.value.trim())
-    info.value = 'Check your email for a password reset link.'
-  } catch (e) {
-    error.value = e.message
-  }
-}
 </script>
 
 <template>
@@ -205,9 +188,13 @@ async function forgot() {
           <div :class="firstLogin && 'pointer-events-none blur-[3px] select-none'" :aria-hidden="firstLogin">
             <div class="flex items-center justify-between">
               <label class="label" for="password">Password</label>
-              <button type="button" class="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700" :tabindex="firstLogin ? -1 : 0" @click="forgot">
+              <RouterLink
+                :to="{ name: 'forgot-password', query: email.includes('@') ? { email: email.trim() } : {} }"
+                class="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700"
+                :tabindex="firstLogin ? -1 : 0"
+              >
                 Forgot password?
-              </button>
+              </RouterLink>
             </div>
             <input
               id="password"

@@ -5,7 +5,8 @@ import { X } from '@lucide/vue'
 // Phones: a sheet that slides up from the bottom (thumb reach, drag the handle down to close).
 // Computers: a centred dialog.
 const open = defineModel({ type: Boolean, default: false })
-defineProps({ title: String, width: { type: String, default: 'max-w-lg' } })
+// center: a card in the middle of the screen on phones too (instead of a bottom sheet)
+const props = defineProps({ title: String, width: { type: String, default: 'max-w-lg' }, center: Boolean })
 
 function onKey(e) {
   if (e.key === 'Escape') open.value = false
@@ -29,7 +30,7 @@ onBeforeUnmount(() => {
 const drag = ref(0)
 let startY = null
 function down(e) {
-  if (window.innerWidth >= 640) return
+  if (window.innerWidth >= 640 || props.center) return
   startY = e.clientY
 }
 function move(e) {
@@ -47,11 +48,11 @@ function up() {
 <template>
   <Teleport to="body">
     <Transition name="sheet">
-      <div v-if="open" class="sheet-wrap fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-        <div class="sheet-backdrop absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" @click="open = false" />
+      <div v-if="open" class="sheet-wrap fixed inset-0 z-50 flex justify-center" :class="center ? 'is-center items-center p-4' : 'items-end sm:items-center sm:p-4'">
+        <div class="sheet-backdrop absolute inset-0 bg-slate-900/45 backdrop-blur-[3px]" @click="open = false" />
         <div
-          class="sheet-panel relative flex max-h-[92dvh] w-full flex-col rounded-t-[1.75rem] bg-white shadow-2xl sm:max-h-[88vh] sm:rounded-2xl"
-          :class="width"
+          class="sheet-panel relative flex w-full flex-col bg-white shadow-2xl"
+          :class="[width, center ? 'max-h-[88dvh] rounded-3xl' : 'max-h-[92dvh] rounded-t-[1.75rem] sm:max-h-[88vh] sm:rounded-2xl']"
           :style="drag ? { transform: `translateY(${drag}px)`, transition: 'none' } : null"
           role="dialog"
           aria-modal="true"
@@ -64,7 +65,7 @@ function up() {
             @pointerup="up"
             @pointercancel="up"
           >
-            <div class="mx-auto mt-2.5 h-1.5 w-11 rounded-full bg-slate-200 sm:hidden" />
+            <div v-if="!center" class="mx-auto mt-2.5 h-1.5 w-11 rounded-full bg-slate-200 sm:hidden" />
             <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 pt-3 pb-3.5 sm:pt-4">
               <h2 class="text-[17px] font-semibold text-slate-900 sm:text-base">{{ title }}</h2>
               <button class="flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 sm:size-8 sm:bg-transparent" aria-label="Close" @click="open = false">
@@ -102,7 +103,12 @@ function up() {
 .sheet-leave-to .sheet-panel {
   transform: translateY(100%);
 }
-/* computers: gentle zoom */
+/* centred card (and computers): gentle zoom */
+.is-center.sheet-enter-from .sheet-panel,
+.is-center.sheet-leave-to .sheet-panel {
+  transform: translateY(10px) scale(0.95);
+  opacity: 0;
+}
 @media (min-width: 640px) {
   .sheet-enter-from .sheet-panel,
   .sheet-leave-to .sheet-panel {

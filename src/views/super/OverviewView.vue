@@ -1,14 +1,14 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import {
-  Briefcase, Building2, Users, Wallet, TriangleAlert, Banknote, DoorOpen, Inbox, Megaphone, UserPlus, ArrowDownLeft,
-  ShieldCheck, Smartphone, Activity, ChevronRight, CircleCheck, BarChart3,
+  Briefcase, Building2, Users, Wallet, TriangleAlert, Banknote, Inbox, Megaphone, UserPlus, ArrowDownLeft,
+  ShieldCheck, Activity, ChevronRight, CircleCheck, BarChart3,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { usePlatformStats } from '@/composables/usePlatformStats'
 import { compactUGX } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate } from '@/utils/format'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import Panel from '@/components/admin/Panel.vue'
@@ -35,7 +35,8 @@ const attention = computed(() =>
       n: rental.landlords.filter((l) => l.active && !rental.properties.some((x) => x.landlordId === l.id)).length,
       title: 'Landlords not set up', sub: 'Registered but no properties yet',
     },
-    { to: '/admin2026/system', icon: Smartphone, tone: 'disc-amber', n: pay.value && !pay.value.enabled ? 1 : 0, title: 'Online payments are off', sub: 'Tenants can only pay cash' },
+    { to: '/admin2026/system', icon: TriangleAlert, tone: 'disc-red', n: health.value?.problems ?? 0, title: 'System check found problems', sub: 'Open Health & settings' },
+    { to: '/admin2026/system', icon: Activity, tone: 'disc-amber', n: health.value?.errors ?? 0, title: 'Errors reported', sub: 'From the app or the server' },
   ].filter((a) => a.n > 0),
 )
 
@@ -51,20 +52,29 @@ const quick = [
 const methodLabel = (m) => (/cash/i.test(m ?? '') ? 'Cash' : m || 'Mobile money')
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Tenant'
 
-// Online payments: on / test / off
-const pay = ref(null)
+// System health: the latest automatic check (every 20 minutes) + open error reports
+const health = ref(null)
 onMounted(async () => {
   try {
-    pay.value = await api('/api/payments/info')
+    const [{ data: last }, { count }] = await Promise.all([
+      supabase.from('health_checks').select('ok, results, run_at').order('run_at', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('error_reports').select('id', { head: true, count: 'exact' }).eq('status', 'open'),
+    ])
+    health.value = {
+      problems: (last?.results ?? []).filter((r) => r.status === 'fail').length,
+      warnings: (last?.results ?? []).filter((r) => r.status === 'warn').length,
+      errors: count ?? 0,
+      runAt: last?.run_at ?? null,
+    }
   } catch {
-    pay.value = { enabled: false, provider: 'unreachable' }
+    health.value = null
   }
 })
 const payText = computed(() => {
-  if (!pay.value) return 'Checking…'
-  if (pay.value.provider === 'unreachable') return 'Server not reachable'
-  if (!pay.value.enabled) return 'Off'
-  return pay.value.testMode ? 'Test mode' : `On · ${pay.value.provider === 'relworx' ? 'Relworx' : 'Flutterwave'}`
+  if (!health.value) return 'Checking…'
+  if (!health.value.runAt) return 'No check yet'
+  if (health.value.problems) return `${health.value.problems} problem${health.value.problems === 1 ? '' : 's'}`
+  return health.value.warnings ? `${health.value.warnings} warning${health.value.warnings === 1 ? '' : 's'}` : 'All working'
 })
 
 const greeting = (() => {
@@ -93,7 +103,7 @@ const greeting = (() => {
       <StatTile label="Landlords" :value="rental.landlords.length" :hint="`${activeLandlords} active`" :icon="Briefcase" to="/admin2026/landlords" />
       <StatTile label="Properties" :value="rental.properties.length" :hint="`${rental.rentals.length} rental business${rental.rentals.length === 1 ? '' : 'es'}`" :icon="Building2" tile="tile-sky" to="/admin2026/properties" />
       <StatTile label="Tenants" :value="currentTenants.length" :hint="`${connected} use the app`" :icon="Users" tile="tile-violet" to="/admin2026/tenants" />
-      <StatTile label="Online payments" :value="payText" hint="MTN & Airtel" :icon="Smartphone" tile="tile-amber" to="/admin2026/system" />
+      <StatTile label="System health" :value="payText" hint="Checked every 20 minutes" :icon="ShieldCheck" tile="tile-amber" to="/admin2026/system" />
     </div>
 
     <div class="grid gap-6 lg:grid-cols-5">
