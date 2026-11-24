@@ -54,7 +54,7 @@ async function submit() {
         required
         @input="onInput"
       />
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
       <button :data-busy="Boolean(busy)" type="submit" class="btn-primary mt-5 w-full" :disabled="busy || code.length !== 6">
         {{ busy ? 'Connecting…' : 'Connect' }}
       </button>

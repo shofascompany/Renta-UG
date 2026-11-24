@@ -7,8 +7,9 @@ import {
 import { useTenant } from '@/composables/useTenant'
 import { timeAgo } from '@/utils/format'
 import AppLink from '@/components/AppLink.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
-// Tenant inbox: a clean list (no cards), grouped by day. Tap → detail sheet with Copy / Share / Delete.
+// Tenant inbox, grouped by day. Tap → detail sheet with Copy / Share / Delete.
 const { rental, notifications, unread } = useTenant()
 const list = notifications
 
@@ -189,15 +190,13 @@ onBeforeUnmount(() => {
     <!-- List -->
     <div v-if="list.length" class="mt-2">
       <section v-for="g in groups" :key="g.label">
-        <h2 class="sticky top-16 z-10 -mx-4 bg-white/95 px-4 pt-5 pb-2 text-[11px] font-bold tracking-[0.14em] text-slate-400 uppercase backdrop-blur sm:mx-0 sm:px-0">
-          {{ g.label }}
-        </h2>
-        <ul class="-mx-4 sm:mx-0">
+        <h2 class="section-title mt-6">{{ g.label }}</h2>
+        <ul class="sheet nt-list">
           <li v-for="n in g.items" :key="n.id">
             <button
               type="button"
-              class="row group flex w-full items-start gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 sm:-mx-3 sm:w-[calc(100%+1.5rem)] sm:rounded-2xl sm:px-3"
-              :class="!n.read && 'row-unread'"
+              class="nt-row w-full text-left"
+              :class="!n.read && 'nt-unread'"
               @click="open(n)"
             >
               <span class="kind-icon" :class="kind(n).cls">
@@ -206,11 +205,11 @@ onBeforeUnmount(() => {
               <span class="row-body min-w-0 flex-1">
                 <span class="flex items-baseline justify-between gap-3">
                   <span class="truncate text-[15px]" :class="n.read ? 'font-medium text-slate-700' : 'font-semibold text-slate-900'">{{ sender(n) }}</span>
-                  <span class="shrink-0 text-xs" :class="n.read ? 'text-slate-400' : 'font-semibold text-brand-700'">{{ shortTime(n.createdAt) }}</span>
+                  <span class="nt-time shrink-0" :class="!n.read && 'nt-time-new'">{{ shortTime(n.createdAt) }}</span>
                 </span>
                 <span class="mt-0.5 flex items-start gap-3">
                   <span class="line-clamp-2 flex-1 text-sm leading-relaxed" :class="n.read ? 'text-slate-500' : 'text-slate-700'">{{ n.body }}</span>
-                  <span v-if="!n.read" class="mt-1.5 size-2 shrink-0 rounded-full bg-brand-600" aria-label="Unread" />
+                  <span v-if="!n.read" class="nt-dot mt-1.5" aria-label="Unread" />
                 </span>
               </span>
             </button>
@@ -220,12 +219,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Empty -->
-    <div v-else class="flex flex-col items-center px-6 py-20 text-center">
-      <span class="flex size-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-        <BellOff class="size-6" />
-      </span>
-      <p class="mt-4 font-semibold text-slate-900">No notifications yet</p>
-      <p class="mt-1 max-w-xs text-sm text-slate-500">Rent reminders, receipts and messages from your landlord will appear here.</p>
+    <div v-else class="sheet mt-6">
+      <EmptyState :icon="BellOff" title="No notifications yet" text="Rent reminders, receipts and messages from your landlord will appear here." />
     </div>
   </div>
 
@@ -290,9 +285,7 @@ onBeforeUnmount(() => {
             <div v-else class="px-2 pb-1">
               <p class="font-semibold text-slate-900">Delete this notification?</p>
               <p class="mt-0.5 text-sm text-slate-500">It will be removed from your notifications.</p>
-              <p v-if="error" class="mt-3 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700">
-                <AlertCircle class="mt-0.5 size-4 shrink-0" /> {{ error }}
-              </p>
+              <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
               <div class="mt-4 grid grid-cols-2 gap-2.5">
                 <button class="confirm-btn" :disabled="busy" @click="mode = 'view'; error = ''">Cancel</button>
                 <button :data-busy="Boolean(busy)" class="confirm-btn confirm-btn-danger" :disabled="busy" @click="remove">
@@ -309,11 +302,10 @@ onBeforeUnmount(() => {
     <Transition name="toast">
       <div
         v-if="toast"
-        class="fixed inset-x-0 bottom-24 z-[60] mx-auto flex w-max max-w-[90vw] items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium shadow-lg lg:bottom-8"
-        style="background: #0f172a; color: #fff"
+        class="nt-snack"
         role="status"
       >
-        <Check class="size-4" style="color: #34d399" /> {{ toast }}
+        <span class="menu-check"><Check class="size-3" stroke-width="3" /></span> {{ toast }}
       </div>
     </Transition>
   </Teleport>
@@ -333,7 +325,7 @@ onBeforeUnmount(() => {
   width: 18rem;
   height: 18rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.2), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.2), transparent 65%);
   animation: drift 16s ease-in-out infinite alternate;
 }
 @keyframes drift {
@@ -341,28 +333,6 @@ onBeforeUnmount(() => {
 }
 @media (prefers-reduced-motion: reduce) {
   .glow { animation: none; }
-}
-
-/* Unread rows: soft gradient wash */
-.row-unread {
-  background: linear-gradient(90deg, var(--color-brand-50) 0%, transparent 85%);
-}
-
-/* Hairline between rows, starting after the icon (inbox style) */
-li + li {
-  position: relative;
-}
-li + li::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 4.375rem;
-  right: 1rem;
-  height: 1px;
-  background: var(--color-slate-100);
-}
-@media (min-width: 640px) {
-  li + li::before { left: 3.375rem; right: 0; }
 }
 
 /* Kind icons: soft gradient discs */
@@ -412,8 +382,8 @@ li + li::before {
   background: var(--color-slate-100);
   transition: transform 0.15s ease;
 }
-.action-danger { color: #dc2626; }
-.action-danger .action-icon { background: #fee2e2; color: #dc2626; }
+.action-danger { color: var(--color-red-600); }
+.action-danger .action-icon { background: var(--color-red-50); color: var(--color-red-600); }
 
 .confirm-btn {
   display: inline-flex;

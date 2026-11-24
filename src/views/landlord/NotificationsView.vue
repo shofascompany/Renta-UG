@@ -94,12 +94,12 @@ const sent = computed(() => {
           </div>
 
           <!-- Exactly what the tenant will see -->
-          <div v-if="form.body.trim()" class="overflow-hidden rounded-xl border border-slate-200">
+          <div v-if="form.body.trim()" class="overflow-hidden rounded-2xl border border-slate-200">
             <p class="flex items-center gap-1.5 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase"><Eye class="size-3.5" /> Preview</p>
             <NotificationItem :notification="preview" preview />
           </div>
 
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <p v-if="flash" class="flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 class="mt-0.5 size-4 shrink-0" /> {{ flash }}</p>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary h-11 w-full" :disabled="busy || !activeTenants.length || !form.body.trim()">
             <Send class="size-4" /> {{ busy ? 'Sending…' : 'Send notice' }}

@@ -69,7 +69,7 @@ async function submit() {
             <label class="label" for="rp-confirm">Confirm new password</label>
             <input id="rp-confirm" v-model="confirm" :type="show ? 'text' : 'password'" class="input" minlength="8" required autocomplete="new-password" />
           </div>
-          <p v-if="error" class="text-sm text-red-600">
+          <p v-if="error" class="form-error" role="alert">
             {{ error }}
             <RouterLink v-if="/expired|already used/i.test(error)" to="/forgot-password" class="font-semibold underline">Get a new link</RouterLink>
           </p>

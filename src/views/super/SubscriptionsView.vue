@@ -7,6 +7,8 @@ import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, timeAgo } from '@/utils/format'
 import { NETWORKS, prettyPhone } from '@/lib/networks'
 import BaseModal from '@/components/BaseModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { askConfirm } from '@/composables/useConfirm'
 
 // Main admin: landlord subscriptions. Confirm payments, see who is paid up, add free days, set prices + numbers.
 const billing = useBillingStore()
@@ -43,18 +45,25 @@ const busyId = ref('')
 const msg = ref('')
 const err = ref('')
 async function confirmPay(p) {
-  if (!confirm(`Confirm ${formatUGX(p.amount)} from ${nameOf(p.landlordId)}?\n\nOnly confirm once you have seen the money from a line registered to ${p.senderName}.`)) return
-  busyId.value = p.id
-  err.value = ''
-  try {
-    const res = await billing.confirmPayment(p.id)
-    await rental.loadLandlords()
-    msg.value = `Confirmed. ${nameOf(p.landlordId)} is now subscribed until ${formatDate(res?.until)}.`
-  } catch (e) {
-    err.value = e.message
-  } finally {
-    busyId.value = ''
-  }
+  await askConfirm({
+    tone: 'brand',
+    title: `Confirm ${formatUGX(p.amount)}?`,
+    text: `From ${nameOf(p.landlordId)}. Their account opens straight away.`,
+    note: `Only confirm once you have seen the money from a line registered to ${p.senderName}.`,
+    confirm: 'Confirm payment',
+    working: 'Confirming…',
+    action: async () => {
+      busyId.value = p.id
+      err.value = ''
+      try {
+        const res = await billing.confirmPayment(p.id)
+        await rental.loadLandlords().catch(() => {}) // the payment is already confirmed: a failed refresh is not a failed payment
+        msg.value = `Confirmed. ${nameOf(p.landlordId)} is now subscribed until ${formatDate(res?.until)}.`
+      } finally {
+        busyId.value = ''
+      }
+    },
+  })
 }
 const rejecting = ref(null)
 const rejectReason = ref('')
@@ -152,12 +161,12 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
     </p>
 
     <template v-else>
-      <p v-if="msg" class="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{{ msg }}</p>
-      <p v-if="err" class="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ err }}</p>
+      <p v-if="msg" class="form-ok mb-4" role="status">{{ msg }}</p>
+      <p v-if="err" class="form-error mb-4" role="alert">{{ err }}</p>
 
       <!-- Figures -->
       <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <div v-for="k in kpis" :key="k.label" class="sheet p-4" :class="`kpi-${k.tone}`">
+        <div v-for="k in kpis" :key="k.label" class="sheet p-4 last:max-lg:col-span-2" :class="`kpi-${k.tone}`">
           <span class="kpi-ico"><component :is="k.icon" class="size-4" /></span>
           <p class="mt-3 text-xl font-bold tracking-tight text-slate-900 tabular-nums">{{ k.value }}</p>
           <p class="text-xs text-slate-500">{{ k.label }}</p>
@@ -167,7 +176,7 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
       <!-- Waiting payments -->
       <section class="mt-8">
         <h2 class="flex items-center gap-2 text-lg font-semibold text-slate-900"><Clock class="size-5 text-amber-600" /> Payments to confirm</h2>
-        <div v-if="!billing.pending.length" class="sheet mt-3 p-6 text-center text-sm text-slate-500">Nothing waiting. New payments appear here straight away.</div>
+        <div v-if="!billing.pending.length" class="sheet mt-3"><EmptyState compact kind="done" title="Nothing waiting" text="New payments appear here straight away." /></div>
         <div v-else class="mt-3 grid gap-3">
           <article v-for="p in billing.pending" :key="p.id" class="sheet flex flex-wrap items-center gap-4 p-4 sm:p-5">
             <span class="flex size-11 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold" :style="{ background: NETWORKS[p.network].gradient, color: NETWORKS[p.network].ink }">{{ NETWORKS[p.network].short.toUpperCase() }}</span>
@@ -230,7 +239,7 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
                   </span>
                 </td>
               </tr>
-              <tr v-if="!shown.length"><td colspan="5" class="px-5 py-8 text-center text-slate-500">No landlords here.</td></tr>
+              <tr v-if="!shown.length"><td colspan="5"><EmptyState compact kind="search" title="No landlords here" text="Try another name or filter." /></td></tr>
             </tbody>
           </table>
         </div>
@@ -276,7 +285,7 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
               </span>
             </li>
           </ul>
-          <p v-else class="mt-3 text-sm text-slate-500">No confirmed or rejected payments yet.</p>
+          <EmptyState v-else compact kind="money" title="No decisions yet" text="Payments you confirm or reject appear here." />
         </section>
       </div>
     </template>
@@ -319,5 +328,5 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
 .pill-wait { color: var(--color-amber-700); background: var(--color-amber-50); }
 .pill-bad { color: var(--color-red-700); background: var(--color-red-50); }
 .pill-sky { color: var(--color-sky-700); background: var(--color-sky-50); }
-.pill-gold { color: #713f12; background: #fef3c7; }
+.pill-gold { color: var(--color-amber-800); background: var(--color-amber-50); }
 </style>

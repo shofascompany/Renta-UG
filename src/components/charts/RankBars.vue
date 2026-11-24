@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Horizontal bars, largest first, value at the tip. One series → no legend (the card title names it).
 // `ramp` = colour each bar by its position on an ordinal scale (e.g. how late rent is).
@@ -29,6 +30,6 @@ const color = (i) => (props.ramp ? rampColors[Math.min(i, rampColors.length - 1)
         />
       </div>
     </li>
-    <li v-if="!shown.length" class="py-6 text-center text-sm text-slate-500">Nothing to show yet.</li>
+    <li v-if="!shown.length"><EmptyState compact kind="inbox" title="Nothing to show yet" /></li>
   </ul>
 </template>

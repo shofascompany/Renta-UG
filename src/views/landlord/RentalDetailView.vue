@@ -11,6 +11,8 @@ import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { askConfirm } from '@/composables/useConfirm'
 
 // One rental business: its rooms as rows. Rename a room, change its rent, put a tenant in it.
 const props = defineProps({ id: String })
@@ -59,13 +61,16 @@ async function saveRoom() {
 async function deleteRoom() {
   const r = rooms.value.find((x) => x.id === editing.value)
   if (r?.tenant) return (error.value = 'This room has a tenant. End their tenancy first.')
-  if (!confirm(`Delete ${r?.name}? Its rent history is deleted too.`)) return
-  try {
-    await rental.deleteProperty(editing.value)
-    editing.value = null
-  } catch (e) {
-    error.value = e.message
-  }
+  const ok = await askConfirm({
+    title: `Delete ${r?.name}?`,
+    text: "Its rent history is deleted too. This can't be undone.",
+    confirm: 'Delete room',
+    cancel: 'Keep it',
+    working: 'Deleting…',
+    icon: Trash2,
+    action: () => rental.deleteProperty(editing.value),
+  })
+  if (ok) editing.value = null
 }
 
 // ── Edit the rental ──
@@ -90,13 +95,16 @@ async function saveSettings() {
   }
 }
 async function removeRental() {
-  if (!confirm(`Delete "${biz.value.name}" and all its rooms? This can't be undone.`)) return
-  try {
-    await rental.deleteRental(props.id)
-    router.push('/landlord/properties')
-  } catch (e) {
-    error.value = e.message
-  }
+  const ok = await askConfirm({
+    title: `Delete ${biz.value.name}?`,
+    text: `The rental and all its rooms (${rooms.value.length}) are deleted. This can't be undone.`,
+    confirm: 'Delete rental',
+    cancel: 'Keep it',
+    working: 'Deleting…',
+    icon: Trash2,
+    action: () => rental.deleteRental(props.id),
+  })
+  if (ok) router.push('/landlord/properties')
 }
 
 // ── Add rooms ──
@@ -142,7 +150,7 @@ function onSaved(t) {
       <ArrowLeft class="size-4" /> My properties
     </RouterLink>
 
-    <div v-if="!biz" class="py-20 text-center text-sm text-slate-500">Rental not found.</div>
+    <div v-if="!biz" class="sheet"><EmptyState kind="missing" title="Rental not found" text="It may have been removed, or the link is old." to="/landlord/properties" action="My properties" /></div>
 
     <template v-else>
       <AdminHeader corner-wide :eyebrow="`${biz.type} · ${biz.location}`" :title="biz.name" :subtitle="`${rooms.length} ${biz.type.toLowerCase()} · ${occupied} occupied · ${formatUGX(monthly)} a month when full`">
@@ -196,11 +204,11 @@ function onSaved(t) {
             </template>
           </ListRow>
         </ul>
-        <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No rooms here.</p>
+        <EmptyState v-else kind="places" title="No rooms here" :text="rooms.length ? 'No room matches this filter.' : 'Add the rooms of this rental.'" />
       </div>
 
-      <p v-if="error && !editing && !settingsOpen && !adding" class="mt-3 text-sm text-red-600">{{ error }}</p>
-      <button class="mt-4 flex w-full items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-600 hover:text-red-700" @click="removeRental">
+      <p v-if="error && !editing && !settingsOpen && !adding" class="form-error mt-3" role="alert">{{ error }}</p>
+      <button type="button" class="danger-link mt-4" @click="removeRental">
         <Trash2 class="size-3.5" /> Delete this rental
       </button>
 
@@ -216,7 +224,7 @@ function onSaved(t) {
             <input id="room-rent" v-model="roomForm.rent" type="number" min="0" step="1000" class="input" required />
             <p class="mt-1 text-xs text-slate-500">New rent applies from the next rent charge.</p>
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex items-center justify-between gap-2 pt-1">
             <button type="button" class="text-sm font-medium text-red-600 hover:text-red-700" @click="deleteRoom">Delete room</button>
             <div class="flex gap-2">
@@ -242,7 +250,7 @@ function onSaved(t) {
             <label class="label" for="biz-rent">Same rent for every room (optional)</label>
             <input id="biz-rent" v-model="bizForm.sameRent" type="number" min="0" step="1000" class="input" placeholder="Leave empty to keep each room's rent" />
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex justify-end gap-2 pt-1">
             <button type="button" class="btn-secondary" @click="settingsOpen = false">Cancel</button>
             <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button>
@@ -272,7 +280,7 @@ function onSaved(t) {
             <input id="add-rent" v-model="addForm.rent" type="number" min="0" step="1000" class="input" required />
           </div>
           <p class="text-xs text-slate-500">You can rename any room afterwards.</p>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex justify-end gap-2 pt-1">
             <button type="button" class="btn-secondary" @click="adding = false">Cancel</button>
             <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Adding…' : `Add ${addForm.count}` }}</button>

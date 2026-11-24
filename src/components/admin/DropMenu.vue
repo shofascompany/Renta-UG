@@ -1,37 +1,23 @@
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { ref } from 'vue'
+import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
 
-// A button that opens a small menu under it. Closes on outside tap, Escape, or when an item calls close().
-//   <DropMenu align="right">
+// A button that opens a small menu next to it. Closes on outside tap, Escape, or when an item calls close().
+//   <DropMenu align="right" title="Show">
 //     <template #trigger="{ open }"> …button content… </template>
-//     <template #default="{ close }"> …items… </template>
+//     <template #default="{ close }"> …items: class "menu-item", optional "menu-ico" / "menu-sub"… </template>
 //   </DropMenu>
 const props = defineProps({
   align: { type: String, default: 'right' }, // which edge the menu lines up with
   width: { type: String, default: 'w-64' },
   label: { type: String, default: 'Open menu' },
+  title: { type: String, default: '' }, // small heading inside the menu
   triggerClass: { type: String, default: '' },
 })
 const open = ref(false)
 const root = ref(null)
-
-const close = () => (open.value = false)
-function outside(e) {
-  if (root.value && !root.value.contains(e.target)) close()
-}
-function key(e) {
-  if (e.key === 'Escape') close()
-}
-watch(open, (v) => {
-  if (v) {
-    document.addEventListener('pointerdown', outside, true)
-    document.addEventListener('keydown', key)
-  } else {
-    document.removeEventListener('pointerdown', outside, true)
-    document.removeEventListener('keydown', key)
-  }
-})
-onBeforeUnmount(close)
+const panel = ref(null)
+const { style, upwards, close } = useAnchoredMenu(open, root, panel, { align: props.align })
 </script>
 
 <template>
@@ -46,20 +32,13 @@ onBeforeUnmount(close)
     >
       <slot name="trigger" :open="open" />
     </button>
-    <Transition
-      enter-active-class="transition duration-150 ease-out"
-      enter-from-class="opacity-0 -translate-y-1 scale-95"
-      leave-active-class="transition duration-100 ease-in"
-      leave-to-class="opacity-0 -translate-y-1 scale-95"
-    >
-      <div
-        v-if="open"
-        class="absolute top-full z-40 mt-2 max-w-[calc(100vw-2rem)] origin-top overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_18px_40px_-14px_rgb(15_23_42/0.35)]"
-        :class="[width, props.align === 'left' ? 'left-0' : 'right-0']"
-        role="menu"
-      >
-        <slot :close="close" />
-      </div>
-    </Transition>
+    <Teleport to="body">
+      <Transition name="menu-pop">
+        <div v-if="open" ref="panel" class="menu-panel" :class="[width, upwards && 'menu-up', align === 'left' ? 'menu-from-left' : 'menu-from-right']" :style="style" role="menu" :aria-label="label">
+          <p v-if="title" class="menu-title">{{ title }}</p>
+          <div class="menu-scroll"><slot :close="close" /></div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>

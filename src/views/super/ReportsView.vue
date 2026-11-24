@@ -16,6 +16,7 @@ import Panel from '@/components/admin/Panel.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
 import RankBars from '@/components/charts/RankBars.vue'
 import SegmentBar from '@/components/charts/SegmentBar.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: platform statistics — money, collection, arrears, occupancy, growth, adoption, tenancies.
 // Everything is computed from live data, so the numbers always match the rest of the app.
@@ -211,7 +212,7 @@ function exportSummary() {
     <div class="mb-5 flex items-center justify-between gap-3">
       <h2 class="section-title !mb-0">Charts show the last</h2>
       <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm">
-        <button v-for="n in [3, 6, 12]" :key="n" type="button" class="h-9 rounded-xl px-4 font-medium transition" :class="range === n ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="range = n">{{ n }} months</button>
+        <button v-for="n in [3, 6, 12]" :key="n" type="button" class="h-9 rounded-xl px-3 font-medium whitespace-nowrap transition" :class="range === n ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="range = n">{{ n }} months</button>
       </div>
     </div>
 
@@ -287,13 +288,14 @@ function exportSummary() {
     <div class="grid gap-4 lg:grid-cols-3">
       <Panel class="lg:col-span-2" title="Where they heard about Renta UG" :subtitle="heard.error ? 'Run database/update_existing.sql to start collecting answers.' : `${heard.rows.length} answer${heard.rows.length === 1 ? '' : 's'} · ${heard.landlords} landlord${heard.landlords === 1 ? '' : 's'}, ${heard.tenants} tenant${heard.tenants === 1 ? '' : 's'}`">
         <RankBars v-if="heard.rows.length" :rows="heardRows" :format="(v) => `${v} (${pct(v, heard.rows.length)}%)`" :limit="8" />
-        <p v-else class="py-6 text-center text-sm text-slate-500">{{ heard.loading ? 'Loading…' : 'No answers were collected.' }}</p>
+        <div v-else-if="heard.loading" class="space-y-3"><div v-for="i in 4" :key="i" class="skeleton h-8 w-full rounded-xl" /></div>
+        <EmptyState v-else compact kind="inbox" title="No answers collected" />
       </Panel>
       <Panel title="“Somewhere else”" subtitle="What people typed in">
         <ul v-if="heardOther.length" class="space-y-2 text-sm">
           <li v-for="o in heardOther" :key="o.at" class="rounded-xl bg-slate-50 px-3.5 py-2.5 text-slate-700">{{ o.detail }}</li>
         </ul>
-        <p v-else class="py-6 text-center text-sm text-slate-500">Nothing typed in yet.</p>
+        <EmptyState v-else compact kind="messages" title="Nothing typed in yet" />
       </Panel>
     </div>
 

@@ -279,7 +279,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
             <input id="pbath" v-model="house.bathrooms" type="number" min="0" inputmode="numeric" class="input" required />
           </div>
         </div>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" class="btn-secondary" @click="step = null">Cancel</button>
           <button :data-busy="Boolean(saving)" type="submit" class="btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save house' }}</button>
@@ -349,7 +349,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
           </ul>
         </div>
 
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2 pt-1">
           <button type="button" class="btn-secondary" @click="step = null">Cancel</button>
           <button :data-busy="Boolean(saving)" type="submit" class="btn-primary" :disabled="saving">{{ saving ? 'Creating…' : `Create ${biz.rooms.length} ${biz.type.toLowerCase()}` }}</button>

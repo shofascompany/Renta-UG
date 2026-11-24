@@ -9,6 +9,7 @@ import { formatUGX, formatDate } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: every amount received on the platform (mobile money and confirmed cash), filterable + CSV.
 const rental = useRentalStore()
@@ -91,7 +92,7 @@ function exportCsv() {
           </template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No payments match.</p>
+      <EmptyState v-else kind="search" title="No payments match" text="Try another name or filter." />
       <button v-if="list.length > shown" type="button" class="w-full border-t border-slate-100 py-3.5 text-sm font-semibold text-brand-700 hover:bg-slate-50" @click="shown += 40">Show more ({{ list.length - shown }} left)</button>
     </div>
   </div>

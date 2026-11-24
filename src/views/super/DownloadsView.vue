@@ -68,7 +68,7 @@ const fmt = (n) => Number(n || 0).toLocaleString()
       <TriangleAlert class="mt-0.5 size-4 shrink-0" />
       <span>Downloads aren't set up yet. Run <strong>database/40_app_installs.sql</strong> in Supabase → SQL Editor, then refresh.</span>
     </p>
-    <p v-else-if="error" class="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+    <p v-else-if="error" class="form-error mb-4" role="alert">{{ error }}</p>
 
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <StatTile label="Total installs" :value="loading ? '…' : fmt(total)" hint="Android + iPhone" :icon="Download" tile="tile-violet" />

@@ -136,8 +136,8 @@ const whatsapp = computed(() => {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(var(--glass) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--glass) / 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(90deg, transparent 0%, #000 70%);
 }
@@ -148,7 +148,7 @@ const whatsapp = computed(() => {
   width: 20rem;
   height: 20rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.18), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.18), transparent 65%);
   animation: drift 16s ease-in-out infinite alternate;
 }
 

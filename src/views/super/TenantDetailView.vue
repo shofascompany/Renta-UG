@@ -10,6 +10,8 @@ import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EndTenancyModal from '@/components/EndTenancyModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: one tenant — their stay, money and messages; edit details or end the tenancy.
 const props = defineProps({ id: String })
@@ -32,7 +34,7 @@ const placeId = computed(() => t.value?.propertyId ?? t.value?.lastPropertyId)
 // ── Edit / end ──
 const dialog = ref(null)
 const form = reactive({ name: '', phone: '', email: '' })
-const reason = ref('')
+const endOpen = ref(false)
 const busy = ref(false)
 const error = ref('')
 function openEdit() {
@@ -53,11 +55,10 @@ async function run(fn) {
   }
 }
 const saveEdit = () => run(() => rental.adminUpdateTenant(props.id, form))
-const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value))
 </script>
 
 <template>
-  <div v-if="!t" class="py-20 text-center text-sm text-slate-500">Tenant not found.</div>
+  <div v-if="!t" class="sheet"><EmptyState kind="missing" title="Tenant not found" text="It may have been removed, or the link is old." to="/admin2026/tenants" action="All tenants" /></div>
 
   <div v-else>
     <SuperHero :eyebrow="t.propertyId ? 'Tenant · renting' : 'Tenant · moved out'" :title="t.name" :tone="t.propertyId ? 'violet' : 'amber'">
@@ -65,7 +66,7 @@ const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value
         <RouterLink to="/admin2026/tenants" class="back mb-4 inline-flex h-9 items-center gap-1 rounded-full pr-3.5 pl-2 text-sm font-medium"><ChevronLeft class="size-4" /> Tenants</RouterLink>
       </template>
       <button class="btn-primary" @click="openEdit"><Pencil class="size-4" /> Edit details</button>
-      <button v-if="t.propertyId" class="btn-secondary" @click="reason = ''; error = ''; dialog = 'end'"><DoorClosed class="size-4" /> End tenancy</button>
+      <button v-if="t.propertyId" class="btn-secondary" @click="endOpen = true"><DoorClosed class="size-4" /> End tenancy</button>
       <template #stats>
         <div class="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/80">
           <span v-if="t.phone" class="flex items-center gap-1.5"><Phone class="size-4" /> {{ t.phone }}</span>
@@ -117,7 +118,7 @@ const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value
           </div>
         </li>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">Nothing here yet.</p>
+      <EmptyState v-else :kind="tab === 'messages' ? 'messages' : tab === 'charges' ? 'time' : 'money'" :title="tab === 'messages' ? 'No messages yet' : tab === 'charges' ? 'No rent months yet' : 'No payments yet'" />
     </div>
 
     <!-- Edit -->
@@ -138,7 +139,7 @@ const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value
           </div>
         </div>
         <p class="text-xs text-slate-500">This changes the tenant record the landlord sees. It doesn't change the tenant's own sign-in details.</p>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="dialog = null">Cancel</button>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button>
@@ -147,25 +148,10 @@ const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value
     </BaseModal>
 
     <!-- End tenancy -->
-    <BaseModal :model-value="dialog === 'end'" title="End tenancy?" width="max-w-md" @update:model-value="!$event && (dialog = null)">
-      <div class="flex items-start gap-3 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">
-        <TriangleAlert class="mt-0.5 size-5 shrink-0 text-amber-600" />
-        <p><strong>{{ t.name }}</strong> leaves <strong>{{ rental.placeName(t.propertyId) }}</strong> now. The room becomes vacant, their history is kept in the landlord's Records, and both are told.</p>
-      </div>
-      <p v-if="owed" class="mt-3 text-sm text-slate-600">They still owe <strong>{{ formatUGX(owed) }}</strong>. It stays on their record.</p>
-      <div class="mt-4">
-        <label class="label" for="te-reason">Reason <span class="font-normal text-slate-400">(sent to both)</span></label>
-        <input id="te-reason" v-model="reason" class="input" maxlength="200" placeholder="e.g. Moved out on 10 Nov" />
-      </div>
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
-      <div class="mt-6 flex justify-end gap-2">
-        <button class="btn-secondary" @click="dialog = null">Cancel</button>
-        <button :data-busy="Boolean(busy)" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="busy" @click="endTenancy">{{ busy ? 'Ending…' : 'End tenancy' }}</button>
-      </div>
-    </BaseModal>
+    <EndTenancyModal v-model="endOpen" :tenant="t" by="admin" />
   </div>
 </template>
 
 <style scoped>
-.back { --color-white: #fff; color: #fff; background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2); }
+.back { --color-white: #fff; color: #fff; background: rgb(var(--glass) / 0.14); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.2); }
 </style>

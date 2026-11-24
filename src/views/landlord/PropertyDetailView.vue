@@ -9,11 +9,14 @@ import {
   LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight, UserRoundPlus,
 } from '@lucide/vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EndTenancyModal from '@/components/EndTenancyModal.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import HeaderAction from '@/components/admin/HeaderAction.vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import EmptyState from '@/components/EmptyState.vue'
+import { askConfirm } from '@/composables/useConfirm'
 
 
 const props = defineProps({ id: String })
@@ -56,25 +59,25 @@ async function giveAccess() {
   }
 }
 
-async function endTenancy() {
-  if (!confirm(`End ${tenant.value.name}'s tenancy?\n\nThey move to Records with all their history kept, and this house becomes vacant. You can add them back any time.`)) return
-  try {
-    await rental.endTenancy(tenant.value.id)
-    router.push('/landlord/records')
-  } catch (e) {
-    alert(e.message)
-  }
+const endOpen = ref(false)
+const payAmount = ref(0)
+function recordPay(amount = 0) {
+  payAmount.value = amount
+  showCash.value = true
 }
 
 async function removeProperty() {
-  if (!confirm(`Delete "${property.value.name}"? This can't be undone.`)) return
-  try {
-    const back = parent.value ? `/landlord/rentals/${parent.value.id}` : '/landlord/properties'
-    await rental.deleteProperty(props.id)
-    router.push(back)
-  } catch (e) {
-    alert(e.message)
-  }
+  const back = parent.value ? `/landlord/rentals/${parent.value.id}` : '/landlord/properties'
+  const ok = await askConfirm({
+    title: `Delete ${property.value.name}?`,
+    text: "It is removed from your properties. This can't be undone.",
+    confirm: parent.value ? 'Delete room' : 'Delete house',
+    cancel: 'Keep it',
+    working: 'Deleting…',
+    icon: Trash2,
+    action: () => rental.deleteProperty(props.id),
+  })
+  if (ok) router.push(back)
 }
 
 const property = computed(() => rental.propertyById(props.id))
@@ -149,7 +152,7 @@ function onTenantSaved(t) {
       <ArrowLeft class="size-4" /> {{ parent ? parent.name : 'My properties' }}
     </RouterLink>
 
-    <div v-if="!property" class="py-20 text-center text-sm text-slate-500">House not found.</div>
+    <div v-if="!property" class="sheet"><EmptyState kind="missing" title="House not found" text="It may have been removed, or the link is old." to="/landlord/properties" action="My properties" /></div>
 
     <template v-else>
       <!-- House -->
@@ -204,7 +207,7 @@ function onTenantSaved(t) {
                     No smartphone? Manage this tenant yourself
                   </button>
                 </template>
-                <p v-if="switchError" class="text-xs text-red-600">{{ switchError }}</p>
+                <p v-if="switchError" class="field-error">{{ switchError }}</p>
               </template>
               <RouterLink v-if="tenant.managedByLandlord && !tenant.userId" :to="`/landlord/managed/${tenant.id}`" class="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">
                 <UserCog class="size-4 text-slate-500" /> <span class="flex-1">Open their account page</span> <ChevronRight class="size-4 text-slate-400" />
@@ -214,8 +217,8 @@ function onTenantSaved(t) {
                 <span>App access given. {{ tenant.name.split(' ')[0] }} can now sign in with <strong>{{ accessGiven }}</strong>. No code needed.</span>
               </p>
               <div class="grid grid-cols-2 gap-2">
-                <button class="btn-secondary h-11" @click="showCash = true"><Banknote class="size-4" /> Record payment</button>
-                <button class="btn-secondary h-11" @click="endTenancy"><LogOut class="size-4" /> End tenancy</button>
+                <button class="btn-secondary h-11" @click="recordPay(0)"><Banknote class="size-4" /> Record payment</button>
+                <button class="btn-secondary h-11" @click="endOpen = true"><LogOut class="size-4" /> End tenancy</button>
               </div>
             </div>
           </div>
@@ -227,7 +230,7 @@ function onTenantSaved(t) {
             <button type="button" class="add-pill mt-4" @click="openPick"><UserRoundPlus class="size-[1.2rem]" stroke-width="2.25" /> Add a tenant</button>
           </div>
 
-          <button class="mt-3 flex w-full items-center justify-center gap-1.5 py-2 text-xs font-medium text-red-600 hover:text-red-700" @click="removeProperty">
+          <button type="button" class="danger-link mt-3" @click="removeProperty">
             <Trash2 class="size-3.5" /> Delete this {{ parent ? 'room' : 'house' }}
           </button>
         </section>
@@ -256,14 +259,16 @@ function onTenantSaved(t) {
                 </div>
               </li>
             </ul>
-            <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No rent charges for this house yet.</p>
+            <EmptyState v-else kind="money" title="No rent history yet" text="Rent months for this place appear here." />
           </div>
         </section>
       </div>
 
       <template v-if="tenant">
-        <RecordPaymentModal v-model="showCash" :tenant-id="tenant.id" />
+        <RecordPaymentModal v-model="showCash" :tenant-id="tenant.id" :preset-amount="payAmount" />
       </template>
+      <!-- Outside the v-if: it stays open to say the room is vacant once the tenant has left -->
+      <EndTenancyModal v-model="endOpen" :tenant="tenant" @record="recordPay" />
 
       <!-- Add a tenant to THIS house: someone from Records, or a new tenant. You stay on this page. -->
       <BaseModal v-model="pickOpen" center width="max-w-md" :title="`Add a tenant · ${property.name}`">
@@ -289,7 +294,7 @@ function onTenantSaved(t) {
             <p class="mt-3 font-semibold text-slate-900">No tenants to add yet</p>
             <p class="mt-1 text-sm text-slate-500">Add a new tenant for {{ property.name }}.</p>
           </div>
-          <p v-if="pickError" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ pickError }}</p>
+          <p v-if="pickError" class="form-error" role="alert">{{ pickError }}</p>
           <button type="button" class="btn-primary h-12 w-full rounded-2xl" @click="newTenant"><UserRoundPlus class="size-5" /> Add a new tenant</button>
         </div>
       </BaseModal>
@@ -309,7 +314,7 @@ function onTenantSaved(t) {
             <input id="ed-rent" v-model="edit.rent" type="number" min="0" step="1000" class="input" required />
             <p class="mt-1 text-xs text-slate-500">New rent applies from the next rent charge.</p>
           </div>
-          <p v-if="editError" class="text-sm text-red-600">{{ editError }}</p>
+          <p v-if="editError" class="form-error" role="alert">{{ editError }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn-secondary" @click="editOpen = false">Cancel</button>
             <button :data-busy="Boolean(editBusy)" type="submit" class="btn-primary" :disabled="editBusy">{{ editBusy ? 'Saving…' : 'Save' }}</button>
@@ -332,7 +337,7 @@ function onTenantSaved(t) {
               <li class="flex gap-2.5"><span class="step-dot">2</span> They open Renta and sign in with this phone number.</li>
               <li class="flex gap-2.5"><span class="step-dot">3</span> They add their email and choose a password, then they're in.</li>
             </ol>
-            <p v-if="accessError" class="rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ accessError }}</p>
+            <p v-if="accessError" class="form-error" role="alert">{{ accessError }}</p>
             <div class="flex justify-end gap-2">
               <button class="btn-secondary" @click="accessOpen = false">Cancel</button>
               <button :data-busy="Boolean(accessBusy)" class="btn-primary" :disabled="accessBusy || !tenant.phone" @click="giveAccess">

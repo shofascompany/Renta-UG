@@ -88,14 +88,14 @@ async function save() {
       <div>
         <label class="label" for="pw-confirm">Confirm new password</label>
         <input id="pw-confirm" v-model="confirm" :type="show ? 'text' : 'password'" class="input" required autocomplete="new-password" />
-        <p v-if="mismatch" class="mt-1 text-xs text-red-600">Passwords do not match.</p>
+        <p v-if="mismatch" class="field-error mt-1">Passwords do not match.</p>
       </div>
 
       <button type="button" class="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-500 hover:text-slate-800" @click="show = !show">
         <component :is="show ? EyeOff : Eye" class="size-4" /> {{ show ? 'Hide passwords' : 'Show passwords' }}
       </button>
 
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
       <div class="flex justify-end pt-1">
         <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy || !valid">{{ busy ? 'Saving…' : 'Update password' }}</button>

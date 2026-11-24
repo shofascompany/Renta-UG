@@ -8,6 +8,7 @@ import { useRentAnalytics, downloadCSV, longMonth, periodOf } from '@/composable
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Every amount received, grouped by month. Tap a row for its details.
 const rental = useRentalStore()
@@ -144,10 +145,7 @@ function exportCSV() {
       </div>
     </section>
 
-    <div v-if="!groups.length" class="sheet mt-6 px-6 py-14 text-center">
-      <p class="font-semibold text-slate-900">{{ a.revenue.value.length ? 'No payments match' : 'No revenue yet' }}</p>
-      <p class="mt-1 text-sm text-slate-500">{{ a.revenue.value.length ? 'Try another search or filter.' : 'Payments from tenants appear here as they come in.' }}</p>
-    </div>
+    <div v-if="!groups.length" class="sheet mt-6"><EmptyState kind="money" :title="a.revenue.value.length ? 'No payments match' : 'No revenue yet'" :text="a.revenue.value.length ? 'Try another search or filter.' : 'Payments from tenants appear here as they come in.'" /></div>
 
     <!-- Details -->
     <BaseModal :model-value="Boolean(open)" title="Payment details" width="max-w-md" @update:model-value="!$event && (openId = null)">

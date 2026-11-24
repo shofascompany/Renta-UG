@@ -88,44 +88,24 @@ for (const [role, email, password] of accounts) {
   if (role === 'landlord') {
     const { data: t } = await sb.from('tenants').select('id, managed_by_landlord, user_id').not('property_id', 'is', null).limit(20)
     const tenant = t?.find((x) => !x.managed_by_landlord) ?? t?.[0]
-    const managed = t?.find((x) => x.managed_by_landlord && !x.user_id)
-    const { data: p } = await sb.from('properties').select('id').limit(1)
     for (const [path, name, dev, opt] of [
-      ['/landlord', 'landlord-overview', DESK], ['/landlord', 'landlord-overview-phone', PHONE],
-      ['/landlord/properties', 'landlord-properties', DESK], ['/landlord/tenants', 'landlord-tenants', DESK],
-      ['/landlord/tenants', 'landlord-tenants-phone', PHONE],
-      tenant && [`/landlord/tenants/${tenant.id}`, 'landlord-tenant', PHONE, { tall: true }],
-      managed && [`/landlord/managed/${managed.id}`, 'landlord-managed-account', PHONE, { tall: true }],
-      p?.[0] && [`/landlord/properties/${p[0].id}`, 'landlord-property', DESK],
-      ['/landlord/payments', 'landlord-payments', DESK], ['/landlord/payments', 'landlord-payments-phone', PHONE],
-      ['/landlord/revenue', 'landlord-transactions', DESK], ['/landlord/reports', 'landlord-reports', DESK],
-      ['/landlord/records', 'landlord-records', DESK], ['/landlord/managed', 'landlord-managed', PHONE],
-      ['/landlord/notifications', 'landlord-notices', PHONE], ['/landlord/inbox', 'landlord-inbox', PHONE],
-      ['/landlord/subscription', 'landlord-subscription', DESK], ['/landlord/subscription', 'landlord-subscription-phone', PHONE, { tall: true }],
-      ['/landlord/settings', 'landlord-settings', PHONE], ['/landlord/settings/help', 'help', PHONE, { tall: true }],
-      ['/landlord/settings/about', 'about', PHONE, { tall: true }],
+      ['/landlord', 'landlord-overview', DESK], ['/landlord/tenants', 'landlord-tenants', DESK],
+      tenant && [`/landlord/tenants/${tenant.id}`, 'landlord-tenant', PHONE],
+      ['/landlord/payments', 'landlord-payments', DESK], ['/landlord/subscription', 'landlord-subscription', DESK],
     ].filter(Boolean)) await shot(path, name, dev, opt)
   }
   if (role === 'tenant') {
     for (const [path, name, dev, opt] of [
-      ['/tenant', 'tenant-dashboard', PHONE, { tall: true }], ['/tenant', 'tenant-dashboard-desktop', DESK],
-      ['/tenant/payments', 'tenant-payments', PHONE, { tall: true }], ['/tenant/pay', 'tenant-pay', PHONE],
-      ['/tenant/recharge', 'tenant-recharge', PHONE, { tall: true }], ['/tenant/home', 'tenant-home', PHONE],
-      ['/tenant/notifications', 'tenant-notifications', PHONE], ['/tenant/settings', 'tenant-settings', PHONE],
+      ['/tenant', 'tenant-dashboard', PHONE], ['/tenant/payments', 'tenant-payments', PHONE], ['/tenant/pay', 'tenant-pay', PHONE],
     ]) await shot(path, name, dev, opt)
   }
   if (role === 'admin') {
-    const { data: l } = await sb.from('profiles').select('id').eq('role', 'landlord').eq('subscription_exempt', false).limit(1)
     for (const [path, name, dev] of [
       ['/admin2026/overview', 'admin-overview', DESK], ['/admin2026/landlords', 'admin-landlords', DESK],
-      l?.[0] && [`/admin2026/landlords/${l[0].id}`, 'admin-landlord', DESK],
-      ['/admin2026/tenants', 'admin-tenants', DESK], ['/admin2026/subscriptions', 'admin-subscriptions', DESK],
-      ['/admin2026/transactions', 'admin-transactions', DESK], ['/admin2026/reports', 'admin-reports', DESK],
-      ['/admin2026/activity', 'admin-activity', DESK], ['/admin2026/system', 'admin-system', DESK],
-      ['/admin2026/overview', 'admin-overview-phone', PHONE],
-    ].filter(Boolean)) await shot(path, name, dev)
+      ['/admin2026/subscriptions', 'admin-subscriptions', DESK],
+    ]) await shot(path, name, dev)
   }
-  await sb.auth.signOut().catch(() => {})
+  await sb.auth.signOut({ scope: 'local' }).catch(() => {}) // only this session, not the account's other devices
 }
 
 ws.close()

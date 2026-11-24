@@ -60,15 +60,15 @@ const whatYouGet = computed(() =>
           role="switch"
           :aria-checked="on"
           aria-label="Notifications on this device"
-          class="relative h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-wait disabled:opacity-60"
-          :class="on ? 'bg-brand-600' : 'bg-slate-300'"
+          class="switch"
+          :class="on && 'switch-on'"
           :disabled="busy"
           @click="toggle"
         >
-          <span class="absolute top-1 left-1 size-5 rounded-full bg-[#fff] shadow transition-transform" :class="on ? 'translate-x-5' : ''" />
+          <span class="switch-knob" />
         </button>
       </div>
-      <p v-if="error" class="mt-4 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-4" role="alert">{{ error }}</p>
     </div>
 
     <!-- Help for blocked / iPhone -->

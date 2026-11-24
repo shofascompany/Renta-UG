@@ -1,14 +1,15 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Inbox, Wallet, Banknote, ShieldCheck, UserPlus, Megaphone, ChevronRight } from '@lucide/vue'
+import { Inbox, Wallet, Banknote, Bug, Crown, DoorOpen, ShieldCheck, UserPlus, Megaphone, ChevronRight } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { timeAgo } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Inbox for landlords and the main admin: payments received, cash to confirm, tenants connecting,
-// sign-in alerts. A clean list (no cards), grouped by day. Tap → marked read (and opens its page).
+// sign-in alerts, grouped by day. Tap → marked read (and opens its page).
 const rental = useRentalStore()
 const auth = useAuthStore()
 const router = useRouter()
@@ -21,6 +22,9 @@ const kinds = {
   cash: { icon: Banknote, cls: 'disc-amber' },
   security: { icon: ShieldCheck, cls: 'disc-slate' },
   tenant: { icon: UserPlus, cls: 'disc-brand' },
+  move_out: { icon: DoorOpen, cls: 'disc-amber' },
+  subscription: { icon: Crown, cls: 'disc-amber' },
+  error: { icon: Bug, cls: 'disc-red' },
 }
 const kind = (n) => kinds[n.type] ?? { icon: Megaphone, cls: 'disc-sky' }
 const sender = (n) => (n.title ?? '').replace(/^[\p{Extended_Pictographic}️\s]+/u, '') || 'Renta UG'
@@ -65,28 +69,26 @@ function open(n) {
       :subtitle="unread ? `${unread} new` : auth.isSuperadmin ? 'Payments and alerts across all landlords' : 'Payments, cash to confirm, tenant connections and security alerts'"
     />
 
-    <div v-if="items.length" class="-mt-3 rounded-2xl border border-slate-200 bg-white px-4 pb-2 sm:px-5">
+    <div v-if="items.length">
       <section v-for="g in groups" :key="g.label">
-        <h2 class="sticky top-16 z-10 -mx-4 bg-white/95 px-4 pt-5 pb-2 text-[11px] font-bold tracking-[0.14em] text-slate-400 uppercase backdrop-blur sm:mx-0 sm:px-0">
-          {{ g.label }}
-        </h2>
-        <ul class="-mx-4 divide-y divide-slate-100 sm:mx-0">
+        <h2 class="section-title mt-6">{{ g.label }}</h2>
+        <ul class="sheet nt-list">
           <li v-for="n in g.items" :key="n.id">
             <button
               type="button"
-              class="flex w-full items-start gap-3.5 px-4 py-3.5 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 sm:rounded-2xl sm:px-3"
-              :class="!n.read && 'unread'"
+              class="nt-row w-full text-left"
+              :class="!n.read && 'nt-unread'"
               @click="open(n)"
             >
               <span class="icon-disc rounded-full" :class="kind(n).cls"><component :is="kind(n).icon" class="size-[1.15rem]" /></span>
               <span class="min-w-0 flex-1">
                 <span class="flex items-baseline justify-between gap-3">
                   <span class="truncate text-[15px]" :class="n.read ? 'font-medium text-slate-700' : 'font-semibold text-slate-900'">{{ sender(n) }}</span>
-                  <span class="shrink-0 text-xs" :class="n.read ? 'text-slate-400' : 'font-semibold text-brand-700'">{{ shortTime(n.createdAt) }}</span>
+                  <span class="nt-time shrink-0" :class="!n.read && 'nt-time-new'">{{ shortTime(n.createdAt) }}</span>
                 </span>
                 <span class="mt-0.5 flex items-start gap-3">
                   <span class="line-clamp-3 flex-1 text-sm leading-relaxed" :class="n.read ? 'text-slate-500' : 'text-slate-700'">{{ n.body }}</span>
-                  <span v-if="!n.read" class="mt-1.5 size-2 shrink-0 rounded-full bg-brand-600" aria-label="Unread" />
+                  <span v-if="!n.read" class="nt-dot mt-1.5" aria-label="Unread" />
                   <ChevronRight v-else-if="n.url" class="mt-0.5 size-4 shrink-0 text-slate-300" />
                 </span>
               </span>
@@ -96,16 +98,6 @@ function open(n) {
       </section>
     </div>
 
-    <div v-else class="flex flex-col items-center px-6 py-20 text-center">
-      <span class="icon-disc disc-slate size-14 rounded-full"><Inbox class="size-6" /></span>
-      <p class="mt-4 font-semibold text-slate-900">No messages yet</p>
-      <p class="mt-1 max-w-xs text-sm text-slate-500">Payments received, cash to confirm, tenant connections and security alerts appear here.</p>
-    </div>
+    <div v-else class="sheet"><EmptyState :icon="Inbox" title="No messages yet" text="Payments received, cash to confirm, tenant connections and security alerts appear here." /></div>
   </div>
 </template>
-
-<style scoped>
-.unread {
-  background: linear-gradient(90deg, var(--color-brand-50) 0%, transparent 85%);
-}
-</style>

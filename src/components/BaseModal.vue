@@ -1,3 +1,8 @@
+<script>
+// Open sheets and dialogs, front one last
+const stack = []
+</script>
+
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { X } from '@lucide/vue'
@@ -6,28 +11,36 @@ import { X } from '@lucide/vue'
 // Computers: a centred dialog.
 const open = defineModel({ type: Boolean, default: false })
 // center: a card in the middle of the screen on phones too (instead of a bottom sheet)
-const props = defineProps({ title: String, width: { type: String, default: 'max-w-lg' }, center: Boolean })
+const props = defineProps({ title: String, width: { type: String, default: 'max-w-lg' }, center: Boolean, top: Boolean, bare: Boolean })
 
+const drag = ref(0)
+// Several can be open at once (a question on top of a form): Escape closes the front one only, and the
+// page behind scrolls again only when the last one has closed.
+const me = {}
 function onKey(e) {
-  if (e.key === 'Escape') open.value = false
+  if (e.key === 'Escape' && stack.at(-1) === me) open.value = false
 }
-// Stop the page behind from scrolling while the sheet is open
-function lock(v) {
-  document.documentElement.style.overflow = v ? 'hidden' : ''
-}
-watch(open, (v) => {
-  if (v) window.addEventListener('keydown', onKey)
-  else window.removeEventListener('keydown', onKey)
-  lock(v)
-  drag.value = 0
-})
-onBeforeUnmount(() => {
+function leave() {
+  const i = stack.indexOf(me)
+  if (i >= 0) stack.splice(i, 1)
   window.removeEventListener('keydown', onKey)
-  lock(false)
-})
+  document.documentElement.style.overflow = stack.length ? 'hidden' : ''
+}
+watch(
+  open,
+  (v, was) => {
+    if (v) {
+      if (!stack.includes(me)) stack.push(me)
+      window.addEventListener('keydown', onKey)
+      document.documentElement.style.overflow = 'hidden'
+    } else if (was) leave()
+    drag.value = 0
+  },
+  { immediate: true },
+)
+onBeforeUnmount(leave)
 
 // Drag-to-close on the handle / header
-const drag = ref(0)
 let startY = null
 function down(e) {
   if (window.innerWidth >= 640 || props.center) return
@@ -48,10 +61,10 @@ function up() {
 <template>
   <Teleport to="body">
     <Transition name="sheet">
-      <div v-if="open" class="sheet-wrap fixed inset-0 z-50 flex justify-center" :class="center ? 'is-center items-center p-4' : 'items-end sm:items-center sm:p-4'">
+      <div v-if="open" class="sheet-wrap fixed inset-0 flex justify-center" :class="[top ? 'z-[70]' : 'z-50', center ? 'is-center items-center p-4' : 'items-end sm:items-center sm:p-4']">
         <div class="sheet-backdrop absolute inset-0 bg-slate-900/45 backdrop-blur-[3px]" @click="open = false" />
         <div
-          class="sheet-panel relative flex w-full flex-col bg-white shadow-2xl"
+          class="sheet-panel relative flex w-full flex-col overflow-hidden bg-white shadow-2xl"
           :class="[width, center ? 'max-h-[88dvh] rounded-3xl' : 'max-h-[92dvh] rounded-t-[1.75rem] sm:max-h-[88vh] sm:rounded-2xl']"
           :style="drag ? { transform: `translateY(${drag}px)`, transition: 'none' } : null"
           role="dialog"
@@ -59,6 +72,7 @@ function up() {
           :aria-label="title"
         >
           <div
+            v-if="!bare"
             class="shrink-0 touch-none select-none sm:touch-auto"
             @pointerdown="down"
             @pointermove="move"

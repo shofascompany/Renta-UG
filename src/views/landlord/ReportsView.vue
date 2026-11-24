@@ -77,11 +77,11 @@ function exportHouses() {
 <template>
   <div class="mx-auto max-w-6xl">
     <AdminHeader eyebrow="Statistics" title="Reports" subtitle="Your rental income, how tenants pay and where money is owed.">
-      <div class="range-switch flex rounded-lg border border-slate-200 bg-white p-0.5 text-sm">
+      <div class="range-switch flex rounded-xl border border-slate-200 bg-white p-0.5 text-sm">
         <button
           v-for="r in [6, 12]"
           :key="r"
-          class="h-9 flex-1 rounded-md px-3 font-medium transition"
+          class="h-full min-h-9 flex-1 rounded-[0.7rem] px-2 font-medium whitespace-nowrap transition"
           :class="range === r ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'"
           @click="range = r"
         >{{ r }} months</button>

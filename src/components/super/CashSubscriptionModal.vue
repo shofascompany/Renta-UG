@@ -153,7 +153,7 @@ async function save() {
           <div class="flex justify-between gap-3 py-2.5"><dt class="text-slate-500">Covers</dt><dd class="text-right font-medium text-slate-900">{{ formatDate(period.start) }} – {{ formatDate(period.end) }}</dd></div>
         </dl>
 
-        <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="grid grid-cols-2 gap-2">
           <button type="button" class="btn-secondary h-11" @click="emit('close')">Cancel</button>
           <button type="submit" class="btn-primary h-11" :data-busy="busy" :disabled="busy">{{ busy ? 'Saving…' : 'Confirm payment' }}</button>

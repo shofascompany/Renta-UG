@@ -4,6 +4,7 @@ import { CheckCircle2, Trash2, Pencil, Plus, Smartphone } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { NETWORKS, NETWORK_IDS, prettyPhone, validUgPhone, sendSteps } from '@/lib/networks'
 import BaseModal from './BaseModal.vue'
+import { askConfirm } from '@/composables/useConfirm'
 
 // Landlord: the numbers they receive rent on (one per network) and the name the network shows.
 // Tenants see these when they pay, with steps written automatically for each network.
@@ -48,12 +49,16 @@ async function save() {
   }
 }
 async function remove(a) {
-  if (!confirm(`Remove your ${NETWORKS[a.network].short} number? Tenants will no longer see it.`)) return
-  try {
-    await rental.deletePayAccount(a.id)
-  } catch (e) {
-    error.value = e.message
-  }
+  await askConfirm({
+    title: `Remove your ${NETWORKS[a.network].short} number?`,
+    text: 'Tenants will no longer see it when they pay.',
+    note: `${prettyPhone(a.phone)} · ${a.accountName}`,
+    confirm: 'Remove',
+    cancel: 'Keep it',
+    working: 'Removing…',
+    icon: Trash2,
+    action: () => rental.deletePayAccount(a.id),
+  })
 }
 const preview = computed(() =>
   editing.value && form.phone && form.accountName
@@ -105,14 +110,14 @@ const preview = computed(() =>
             <p class="mt-1 text-xs text-slate-500">Usually {{ NETWORKS[id].dial }}.</p>
           </div>
 
-          <details v-if="preview.length" class="rounded-xl bg-white p-3 text-xs text-slate-600 ring-1 ring-slate-200">
+          <details v-if="preview.length" class="disclosure rounded-xl bg-white p-3 text-xs text-slate-600 ring-1 ring-slate-200">
             <summary class="cursor-pointer font-medium text-slate-800">What tenants will see</summary>
             <ol class="mt-2 list-decimal space-y-1 pl-4">
               <li v-for="(s, i) in preview" :key="i">{{ s }}</li>
             </ol>
           </details>
 
-          <p v-if="error" class="rounded-xl bg-red-50 p-2.5 text-sm text-red-700">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="grid grid-cols-2 gap-2">
             <button type="button" class="btn-secondary h-10" @click="editing = null; error = ''">Cancel</button>
             <button type="submit" class="btn-primary h-10" :data-busy="busy" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button>

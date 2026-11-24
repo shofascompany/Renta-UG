@@ -1,13 +1,14 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Copy, Check, Phone, Send, Clock, ChevronRight, ShieldCheck, BadgeCheck, CircleAlert, User, Wallet, PiggyBank } from '@lucide/vue'
+import { ArrowLeft, ArrowRight, Copy, Check, Phone, Send, Clock, ChevronRight, ShieldCheck, BadgeCheck, CircleAlert, User, Wallet, PiggyBank, X } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import { nextCycle, coverage } from '@/utils/rentCycle'
 import { NETWORKS, NETWORK_IDS, prettyPhone, dialCodeOf, dialHref, sendSteps } from '@/lib/networks'
 import { copyText } from '@/lib/clipboard'
 import PaymentCoverage from '@/components/PaymentCoverage.vue'
+import BaseModal from '@/components/BaseModal.vue'
 
 // Tenant pays rent with mobile money, straight to the landlord's number. One page per step:
 //   1. /tenant/pay                       → the landlord's line to pay to (MTN or Airtel)
@@ -74,7 +75,16 @@ function back() {
   const i = STEPS.indexOf(step.value)
   if (i === 1) return go({ sim: undefined, step: undefined })
   if (i > 1) return go({ step: STEPS[i - 1] })
-  return window.history.state?.back ? router.back() : router.push('/tenant/payments')
+  return window.history.state?.back ? router.back() : router.push(PAYMENTS)
+}
+// ── Cancel: out of the payment, back to the Payments page (nothing has been submitted yet) ──
+const PAYMENTS = '/tenant/payments'
+const askCancel = ref(false)
+const leave = () => router.replace(PAYMENTS)
+function cancel() {
+  // On the last card they have said the money is sent: ask first, so a real payment isn't left unreported
+  if (step.value === 'confirm') askCancel.value = true
+  else leave()
 }
 function toSend() {
   amountTouched.value = true
@@ -220,6 +230,7 @@ async function submit() {
             <p class="font-medium text-slate-900">Mobile money isn't set up yet</p>
             <p class="mt-1">Your landlord hasn't added the number they receive money on. Pay them in cash for now, or ask them to add it in Renta.</p>
           </div>
+          <button type="button" class="btn-secondary mt-5 h-12 w-full rounded-2xl text-[15px]" @click="cancel"><X class="size-4.5" /> Cancel</button>
           <p class="mt-5 flex items-center justify-center gap-1.5 text-xs text-slate-400"><ShieldCheck class="size-3.5" /> Renta never asks for your PIN</p>
         </section>
 
@@ -252,11 +263,12 @@ async function submit() {
             <div v-if="quick.length" class="mt-2.5 flex flex-wrap gap-2">
               <button v-for="q in quick" :key="q.label" type="button" class="amt-chip" :class="amount === q.value && 'amt-chip-on'" @click="typed = String(q.value)">{{ q.label }} · {{ formatUGX(q.value) }}</button>
             </div>
-            <p v-if="amountTouched && !amountOk" class="mt-2 text-xs text-red-600">Enter at least UGX 500.</p>
+            <p v-if="amountTouched && !amountOk" class="field-error mt-2">Enter at least UGX 500.</p>
 
             <PaymentCoverage v-if="amountOk && tenant" class="mt-4" :tenant="tenant" :dues="dues" :rent="rent" :amount="amount" :before="waiting" />
 
             <button type="submit" class="btn-primary mt-5 h-12 w-full rounded-2xl text-[15px]">Continue with {{ amountOk ? formatUGX(amount) : 'this amount' }} <ArrowRight class="size-4.5" /></button>
+            <button type="button" class="btn-secondary mt-2.5 h-12 w-full rounded-2xl text-[15px]" @click="cancel"><X class="size-4.5" /> Cancel</button>
           </form>
         </section>
 
@@ -292,7 +304,7 @@ async function submit() {
               <p class="text-sm font-semibold text-slate-900">How to send</p>
               <ol class="mt-3 space-y-3">
                 <li v-for="(s, i) in steps" :key="i" class="flex gap-3 text-sm leading-relaxed text-slate-700">
-                  <span class="step-no" :style="{ background: net.soft, color: sim === 'mtn' ? '#5c4a00' : net.bg }">{{ i + 1 }}</span>
+                  <span class="step-no" :class="`net-${sim}`">{{ i + 1 }}</span>
                   <span class="pt-0.5">{{ s }}</span>
                 </li>
               </ol>
@@ -301,6 +313,7 @@ async function submit() {
           <div class="mt-5 grid gap-2.5">
             <a v-if="dial" :href="dialHref(dial)" class="dial-btn" :style="{ background: net.gradient, color: net.ink }"><Phone class="size-5" /> Dial {{ dial }}</a>
             <button type="button" class="btn-primary h-12 rounded-2xl text-[15px]" @click="go({ step: 'confirm' })">I've sent the money <ArrowRight class="size-4.5" /></button>
+            <button type="button" class="btn-secondary h-12 rounded-2xl text-[15px]" @click="cancel"><X class="size-4.5" /> Cancel</button>
           </div>
         </section>
 
@@ -315,7 +328,7 @@ async function submit() {
                 <User class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
                 <input id="from-name" v-model="name" class="input h-12 pl-10 text-base uppercase" placeholder="e.g. JOHN MUKASA" autocomplete="name" data-cap="characters" />
               </div>
-              <p v-if="touched && nameError" class="mt-1.5 text-xs text-red-600">{{ nameError }}</p>
+              <p v-if="touched && nameError" class="field-error mt-1.5">{{ nameError }}</p>
               <p v-else class="mt-1.5 text-xs text-slate-500">Exactly as the network shows them when money is sent from that line.</p>
             </div>
             <dl class="divide-y divide-slate-100 rounded-2xl bg-slate-50 px-4 text-sm">
@@ -323,15 +336,28 @@ async function submit() {
               <div class="flex justify-between gap-3 py-2.5"><dt class="text-slate-500">Sent to</dt><dd class="text-right font-medium text-slate-900">{{ net.short }} {{ prettyPhone(account.phone) }}</dd></div>
             </dl>
             <label class="flex items-start gap-3 rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
-              <input v-model="sentMoney" type="checkbox" class="mt-0.5 size-4 accent-brand-600" />
+              <input v-model="sentMoney" type="checkbox" class="size-5 accent-brand-600" />
               <span>I have sent this money, and the names above are exactly as registered on the line I used.</span>
             </label>
-            <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+            <p v-if="error" class="form-error" role="alert">{{ error }}</p>
             <button type="submit" class="btn-primary h-12 w-full rounded-2xl text-[15px]" :data-busy="busy" :disabled="busy"><Send class="size-4.5" /> {{ busy ? 'Submitting…' : 'Submit payment' }}</button>
+            <button type="button" class="btn-secondary h-12 w-full rounded-2xl text-[15px]" :disabled="busy" @click="cancel"><X class="size-4.5" /> Cancel</button>
           </form>
         </section>
       </Transition>
     </template>
+
+    <!-- Cancel on the last card: have they sent the money already? -->
+    <BaseModal v-model="askCancel" title="Cancel this payment?" center>
+      <p class="text-sm leading-relaxed text-slate-600">
+        If you have <strong class="text-slate-900">already sent</strong> {{ formatUGX(amount) }}, go back and submit it, so {{ landlordName }} can confirm it.
+        Cancelling here does not return money you have sent.
+      </p>
+      <div class="mt-5 grid gap-2.5 sm:grid-cols-2">
+        <button type="button" class="btn-primary h-12 rounded-2xl" @click="askCancel = false">Go back</button>
+        <button type="button" class="btn-secondary h-12 rounded-2xl" @click="leave">I haven't sent it, cancel</button>
+      </div>
+    </BaseModal>
   </div>
 </template>
 
@@ -345,7 +371,7 @@ async function submit() {
 .sim-chip { box-shadow: 0 8px 18px -10px rgb(0 0 0 / 0.45); letter-spacing: 0.02em; }
 .copy-btn { display: inline-flex; height: 2.5rem; flex-shrink: 0; align-items: center; gap: 0.4rem; border-radius: 0.8rem; padding: 0 0.85rem; font-size: 0.8rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); transition: background-color 0.15s ease, transform 0.1s ease; }
 .copy-btn:active { transform: scale(0.96); }
-.copy-done { color: #047857; background: #d1fae5; }
+.copy-done { color: var(--color-emerald-700); background: var(--color-emerald-50); }
 .step-no { display: flex; width: 1.6rem; height: 1.6rem; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
 .dial-btn { display: inline-flex; height: 3rem; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; letter-spacing: 0.02em; box-shadow: 0 10px 22px -14px rgb(0 0 0 / 0.6); transition: transform 0.12s ease; }
 .dial-btn:active { transform: scale(0.98); }

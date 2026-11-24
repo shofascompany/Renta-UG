@@ -105,7 +105,7 @@ async function send() {
         <textarea id="lv-details" v-model="details" rows="3" maxlength="600" class="input" placeholder="e.g. I'm moving out at the end of the month" />
       </section>
 
-      <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
       <button type="submit" class="btn-primary h-13 w-full rounded-2xl text-[15px]" :data-busy="busy" :disabled="busy || !ready">
         <Send class="size-5" /> {{ busy ? 'Sending request…' : 'Send request' }}

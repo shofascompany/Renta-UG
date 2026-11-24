@@ -13,6 +13,35 @@
 --
 -- Safe to run more than once.
 
+-- ── One-time recalculation for current tenants: paid up to = start + months fully paid ──
+-- ONLY the very first time (before the function below exists). On a database that already has it this must
+-- never run again: it would wipe part-payment days and replace 30-day months with calendar months (52).
+do $$
+begin
+  if to_regprocedure('public.extend_rental_time()') is null then
+    update public.tenants t
+    set lease_start = s.start_day,
+        lease_end = case when s.paid_months > 0 then (s.start_day + make_interval(months => s.paid_months))::date end
+    from (
+      select tn.id,
+             coalesce(
+               tn.lease_start,
+               (select min((p.paid_at at time zone 'Africa/Kampala')::date) from public.payments p where p.tenant_id = tn.id and p.status = 'paid'),
+               (tn.created_at at time zone 'Africa/Kampala')::date
+             ) as start_day,
+             (select count(*)::int from public.payments p where p.tenant_id = tn.id and p.status = 'paid') as paid_months
+      from public.tenants tn
+      where tn.property_id is not null
+    ) s
+    where t.id = s.id;
+
+    -- New tenants start with no rental time until they pay
+    update public.tenants set lease_start = null
+    where property_id is not null and lease_end is null
+      and not exists (select 1 from public.payments p where p.tenant_id = tenants.id and p.status = 'paid');
+  end if;
+end $$;
+
 -- ── Rental time grows with every fully paid month ──
 create or replace function public.extend_rental_time() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -33,28 +62,6 @@ drop trigger if exists payments_extend_rental_time on public.payments;
 create trigger payments_extend_rental_time
   after insert or update of status on public.payments
   for each row execute function public.extend_rental_time();
-
--- ── One-time recalculation for current tenants: paid up to = start + months fully paid ──
-update public.tenants t
-set lease_start = s.start_day,
-    lease_end = case when s.paid_months > 0 then (s.start_day + make_interval(months => s.paid_months))::date end
-from (
-  select tn.id,
-         coalesce(
-           tn.lease_start,
-           (select min((p.paid_at at time zone 'Africa/Kampala')::date) from public.payments p where p.tenant_id = tn.id and p.status = 'paid'),
-           (tn.created_at at time zone 'Africa/Kampala')::date
-         ) as start_day,
-         (select count(*)::int from public.payments p where p.tenant_id = tn.id and p.status = 'paid') as paid_months
-  from public.tenants tn
-  where tn.property_id is not null
-) s
-where t.id = s.id;
-
--- New tenants start with no rental time until they pay
-update public.tenants set lease_start = null
-where property_id is not null and lease_end is null
-  and not exists (select 1 from public.payments p where p.tenant_id = tenants.id and p.status = 'paid');
 
 -- ── Connection code: must match the account's email or phone ──
 create or replace function public.redeem_connect_code(p_code text) returns uuid

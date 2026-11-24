@@ -5,3 +5,6 @@ dist
 !.env.example
 *.log
 .DS_Store
+
+# Throwaway browser profile used to take screenshots: never commit a browser profile (it can hold sign-ins)
+docs/_profile/

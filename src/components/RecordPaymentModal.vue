@@ -163,8 +163,8 @@ async function save() {
             :key="id"
             type="button"
             class="flex h-11 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold ring-1 transition"
-            :class="network === id ? 'ring-2' : 'bg-white text-slate-600 ring-slate-200'"
-            :style="network === id ? { background: NETWORKS[id].soft, color: id === 'mtn' ? '#5c4a00' : NETWORKS[id].bg, '--tw-ring-color': NETWORKS[id].bg } : null"
+            :class="network === id ? `net-${id} ring-2` : 'bg-white text-slate-600 ring-slate-200'"
+            :style="network === id ? { '--tw-ring-color': NETWORKS[id].bg } : null"
             @click="network = id"
           >
             <span class="size-2.5 rounded-full" :style="{ background: NETWORKS[id].bg }" /> {{ NETWORKS[id].short }}
@@ -219,7 +219,7 @@ async function save() {
         </p>
       </template>
 
-      <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
       <div class="grid grid-cols-2 gap-2 pt-1">
         <button type="button" class="btn-secondary h-11" @click="open = false">Cancel</button>
@@ -266,7 +266,7 @@ async function save() {
   align-items: center;
   justify-content: center;
   border-radius: 0.95rem;
-  background: rgb(255 255 255 / 0.18);
+  background: rgb(var(--glass) / 0.18);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
 }
 .done-ring { animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }

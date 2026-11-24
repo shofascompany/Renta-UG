@@ -98,7 +98,7 @@ onBeforeUnmount(() => clearInterval(timer))
         <p v-else class="text-sm text-slate-500">This code has expired. Click <strong>New code</strong>.</p>
       </div>
 
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
 
       <div class="mt-5 flex gap-2">
         <button class="btn-secondary flex-1" :disabled="busy" @click="generate">

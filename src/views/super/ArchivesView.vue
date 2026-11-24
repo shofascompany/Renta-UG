@@ -8,6 +8,7 @@ import { formatUGX, formatDate } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin only: saved copies of everything landlords and tenants entered before "Delete all users".
 // /admin2026/archives       → the list
@@ -110,7 +111,7 @@ function download() {
     </SuperHero>
 
     <div v-if="loading" class="space-y-3"><div v-for="i in 4" :key="i" class="skeleton h-14 w-full rounded-2xl" /></div>
-    <p v-else-if="error" class="sheet p-5 text-sm text-red-600">{{ error }}</p>
+    <p v-else-if="error" class="form-error" role="alert">{{ error }}</p>
     <template v-else-if="archive">
       <div class="mb-4 flex gap-2 overflow-x-auto pb-1">
         <button
@@ -139,7 +140,7 @@ function download() {
             </template>
           </ListRow>
         </ul>
-        <p v-else class="px-5 py-12 text-center text-sm text-slate-500">Nothing here.</p>
+        <EmptyState v-else :kind="query ? 'search' : 'archive'" :title="query ? 'Nothing matches' : 'Nothing here'" :text="query ? 'Try another word.' : 'This part of the archive is empty.'" />
         <button v-if="rows.length > shown" type="button" class="w-full border-t border-slate-100 py-3.5 text-sm font-semibold text-brand-700 hover:bg-slate-50" @click="shown += 50">Show more ({{ rows.length - shown }} left)</button>
       </div>
     </template>
@@ -152,7 +153,7 @@ function download() {
         <RouterLink to="/admin2026/system" class="back mb-4 inline-flex h-9 items-center gap-1 rounded-full pr-3.5 pl-2 text-sm font-medium"><ChevronLeft class="size-4" /> Health & settings</RouterLink>
       </template>
     </SuperHero>
-    <p v-if="listError" class="sheet mb-4 p-4 text-sm text-red-600">{{ listError }}</p>
+    <p v-if="listError" class="form-error mb-4" role="alert">{{ listError }}</p>
     <div class="sheet">
       <div v-if="list === null" class="space-y-3 p-5"><div v-for="i in 3" :key="i" class="skeleton h-12 w-full" /></div>
       <ul v-else-if="list.length" class="divide-y divide-slate-100">
@@ -168,13 +169,13 @@ function download() {
           <template #icon><span class="icon-tile tile-sky"><Archive class="size-[1.3rem]" /></span></template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No archives yet. One is made automatically when you delete all users.</p>
+      <EmptyState v-else kind="archive" title="No archives yet" text="One is made automatically when you delete all users." />
     </div>
   </div>
 </template>
 
 <style scoped>
-.back { --color-white: #fff; color: #fff; background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2); }
+.back { --color-white: #fff; color: #fff; background: rgb(var(--glass) / 0.14); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.2); }
 .tab-on {
   --color-white: #fff;
   background: linear-gradient(135deg, #0284c7, #0c4a6e);

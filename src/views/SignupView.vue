@@ -77,7 +77,7 @@ async function submit() {
             </div>
             <p class="mt-1 text-xs text-slate-500">At least 8 characters, with letters and numbers.</p>
           </div>
-          <p v-if="error" class="text-sm text-red-600">
+          <p v-if="error" class="form-error" role="alert">
             {{ error }}
             <RouterLink v-if="/already exists/i.test(error)" to="/login" class="font-semibold underline">Sign in</RouterLink>
           </p>

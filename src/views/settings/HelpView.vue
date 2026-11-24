@@ -6,6 +6,7 @@ import { useBillingStore } from '@/stores/billing'
 import { formatUGX } from '@/utils/format'
 import SettingsSubpage from '@/components/SettingsSubpage.vue'
 import AppLink from '@/components/AppLink.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Help & support: step-by-step guides and answers for the signed-in kind of account, with a search
 // box, plus the ways to reach Renta UG. Replaces the old welcome / guided tours.
@@ -344,7 +345,7 @@ const shown = computed(() => {
       </div>
     </section>
 
-    <p v-if="!shown.length" class="sheet p-6 text-center text-sm text-slate-500">Nothing matches “{{ query }}”. Try another word, or contact us below.</p>
+    <div v-if="!shown.length" class="sheet"><EmptyState kind="search" :title="`Nothing matches “${query}”`" text="Try another word, or contact us below." /></div>
 
     <!-- Contact -->
     <section>

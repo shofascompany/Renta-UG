@@ -75,9 +75,16 @@ create trigger profiles_landlord_billing before insert or update of role on publ
   for each row execute function public.landlord_billing_defaults();
 
 -- Existing landlords: code + free trial from today (one at a time so codes stay unique)
+-- Never again once the free trial is removed (47 adds trial_removed_at): it would open unpaid accounts
 do $$
 declare r record;
 begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'billing_settings' and column_name = 'trial_removed_at'
+  ) then
+    return;
+  end if;
   for r in select id from public.profiles where role = 'landlord' and (billing_code is null or subscription_until is null) loop
     update public.profiles
     set billing_code = coalesce(billing_code, public.new_billing_code()),

@@ -53,18 +53,16 @@ function dismiss() {
   <div
     v-if="status === 'off' && (always || !dismissed)"
     class="flex flex-col gap-4 sm:flex-row sm:items-center"
-    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'card border-brand-200 p-5'"
+    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'sheet p-5'"
   >
     <div class="flex flex-1 items-start gap-4">
-      <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-        <BellRing class="size-5" />
-      </div>
+      <span class="icon-tile tile-teal"><BellRing class="size-5" /></span>
       <div>
-        <p class="text-sm font-medium text-slate-900">Get notifications on this phone</p>
+        <p class="font-semibold text-slate-900">Get notifications on this phone</p>
         <p class="mt-0.5 text-sm text-slate-500">
           {{ auth.isTenant ? 'Rent reminders, payment receipts and messages from your landlord' : 'Confirmations when tenants pay' }}, even when the app is closed.
         </p>
-        <p v-if="error" class="mt-1 text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error mt-1" role="alert">{{ error }}</p>
       </div>
     </div>
     <div class="flex shrink-0 gap-2">
@@ -77,11 +75,9 @@ function dismiss() {
   <div
     v-else-if="status === 'needs-install' && (always || !dismissed)"
     class="flex items-start gap-4"
-    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'card border-brand-200 p-5'"
+    :class="flat ? 'rounded-2xl bg-brand-50/60 px-4 py-3.5' : 'sheet p-5'"
   >
-    <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-      <Share class="size-5" />
-    </div>
+    <span class="icon-tile tile-sky"><Share class="size-5" /></span>
     <div class="flex-1 text-sm">
       <p class="font-medium text-slate-900">Want notifications on your iPhone?</p>
       <p class="mt-0.5 text-slate-500">
@@ -92,10 +88,10 @@ function dismiss() {
   </div>
 
   <!-- Status (Notifications page only) -->
-  <p v-else-if="always && status === 'on'" class="flex items-center gap-2 text-sm text-emerald-700">
+  <p v-else-if="always && status === 'on'" class="flex items-center gap-2.5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
     <CheckCircle2 class="size-4" /> Notifications are on for this device.
   </p>
-  <p v-else-if="always && status === 'denied'" class="flex items-start gap-2 text-sm text-slate-600">
+  <p v-else-if="always && status === 'denied'" class="flex items-start gap-2.5 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
     <BellOff class="mt-0.5 size-4 shrink-0" />
     Notifications are blocked for this site. Allow them in your browser or phone settings (Site settings → Notifications) to get alerts on this device.
   </p>

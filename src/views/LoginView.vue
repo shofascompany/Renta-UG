@@ -207,7 +207,7 @@ async function signIn() {
           <template v-if="tenantFirst">Welcome to Renta! Your landlord has set up your account. Next, add your email and create your password.</template>
           <template v-else>Welcome to Renta! After this first sign-in you'll create your own password.</template>
         </p>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <p v-if="info" class="text-sm text-emerald-700">{{ info }}</p>
         <button
           type="submit"

@@ -74,7 +74,7 @@ const details = computed(() => [
         <p class="mt-1 text-xs text-slate-500">Optional. Used so {{ auth.isLandlord ? 'tenants' : 'your landlord' }} can reach you.</p>
       </div>
 
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <p v-if="saved" class="flex items-center gap-2 text-sm text-emerald-700">
         <CheckCircle2 class="size-4" /> Your details were saved.
       </p>

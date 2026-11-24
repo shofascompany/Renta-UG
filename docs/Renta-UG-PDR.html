@@ -4,129 +4,129 @@
 <meta charset="utf-8" />
 <title>Renta UG · Product Description &amp; Requirements (PDR)</title>
 <style>
-  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
-  @page :first { margin: 0; }
+  @page { size: A4 portrait; margin: 19mm 17mm 20mm;
+    @top-left { content: "Renta UG"; font: 700 8.5pt "Segoe UI", Arial, sans-serif; color: #0f766e; }
+    @top-right { content: "Product Description & Requirements"; font: 8.5pt "Segoe UI", Arial, sans-serif; color: #5b6b78; }
+    @bottom-left { content: "rentaug.netlify.app"; font: 8.5pt "Segoe UI", Arial, sans-serif; color: #5b6b78; }
+    @bottom-right { content: counter(page); font: 700 9pt "Segoe UI", Arial, sans-serif; color: #0f766e; } }
+  @page :first { margin: 0; @top-left { content: none; } @top-right { content: none; } @bottom-left { content: none; } @bottom-right { content: none; } }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  :root { --teal: #0f766e; --teal-d: #0a3b38; --teal-l: #effaf8; --line: #d5ebe7; --ink: #0f172a; --muted: #64748b; --amber: #b45309; }
-  body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: var(--ink); font-size: 10.2pt; line-height: 1.58; margin: 0; }
+  :root { --teal: #0f766e; --deep: #0a3b38; --soft: #f0faf8; --line: #d7e9e6; --ink: #14212b; --muted: #5b6b78; }
+  body { margin: 0; font-family: "Segoe UI", Roboto, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.46; }
 
-  /* Cover */
-  .cover { height: 297mm; position: relative; color: #fff; overflow: hidden; page-break-after: always;
-    background: radial-gradient(120mm 90mm at 100% 0%, rgba(94,234,212,.28), transparent 70%), radial-gradient(110mm 80mm at 0% 100%, rgba(250,204,21,.14), transparent 70%), linear-gradient(160deg, #0a3b38 0%, #0f766e 60%, #14918a 100%); }
-  .cover-shot { margin: 16pt 0 0; border-radius: 12pt; overflow: hidden; border: 1px solid rgba(255,255,255,.35); box-shadow: 0 18pt 40pt -18pt rgba(0,0,0,.7); }
-  .cover-shot img { display: block; width: 100%; }
-  .cover-in { position: absolute; inset: 0; padding: 30mm 22mm; display: flex; flex-direction: column; }
-  .badge { display: inline-block; font-size: 9pt; letter-spacing: .18em; text-transform: uppercase; font-weight: 700; color: #99f6e4; border: 1px solid rgba(153,246,228,.5); padding: 4pt 10pt; border-radius: 999px; }
-  .cover h1 { font-size: 46pt; line-height: 1.02; margin: 18pt 0 8pt; letter-spacing: -.02em; }
+  .cover { height: 296.8mm; color: #fff; padding: 26mm 20mm 18mm; display: flex; flex-direction: column; page-break-after: always; overflow: hidden;
+    background: radial-gradient(130mm 100mm at 100% 0%, rgba(94,234,212,.26), transparent 70%), linear-gradient(165deg, #082f2d 0%, #0f766e 75%, #14918a 100%); }
+  .eyebrow { font-size: 8.6pt; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #99f6e4; }
+  .cover h1 { font-size: 56pt; line-height: 1; letter-spacing: -.03em; margin: 5mm 0; }
   .cover h1 span { color: #5eead4; }
-  .cover .sub { font-size: 15pt; color: #ccfbf1; max-width: 130mm; }
-  .cover .meta { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; }
-  .cover .meta div { background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); border-radius: 10pt; padding: 9pt 11pt; font-size: 9pt; color: #ccfbf1; }
+  .cover .sub { font-size: 15pt; line-height: 1.4; color: #d5f7f1; max-width: 150mm; margin: 0 0 24mm; }
+  .cover .shot { border-radius: 4mm; overflow: hidden; border: 1px solid rgba(255,255,255,.35); aspect-ratio: 2000 / 1018; }
+  .cover .shot img { width: 100%; display: block; }
+  .cover .meta { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; border-top: 1px solid rgba(255,255,255,.3); padding-top: 5mm; font-size: 9.6pt; color: #d5f7f1; }
   .cover .meta b { display: block; color: #fff; font-size: 11pt; }
 
-  /* Headings */
-  h2 { font-size: 17pt; color: var(--teal-d); margin: 0 0 8pt; padding: 10pt 12pt; border-radius: 10pt; page-break-after: avoid;
-       background: linear-gradient(90deg, var(--teal-l), #fff); border-left: 6pt solid var(--teal); }
-  h2 .n { color: var(--teal); margin-right: 6pt; }
-  section { page-break-before: always; }
-  section.flow { page-break-before: auto; margin-top: 18pt; }
-  h3 { font-size: 11.6pt; margin: 14pt 0 4pt; color: var(--teal-d); page-break-after: avoid; }
-  p { margin: 4pt 0 7pt; }
-  ul, ol { margin: 4pt 0 8pt 15pt; padding: 0; }
-  li { margin: 2pt 0; }
-  b, strong { color: #0b2f2c; }
+  section { margin-top: 6.5mm; }
+  section.brk { page-break-before: always; margin-top: 0; }
+  h2 { font-size: 20pt; line-height: 1.2; letter-spacing: -.015em; margin: 0 0 3.5mm; padding-bottom: 2.5mm; border-bottom: .5mm solid var(--line); color: var(--deep); display: flex; align-items: center; gap: 4mm; break-after: avoid; break-inside: avoid; }
+  h2 .n { flex: none; min-width: 11mm; height: 11mm; padding: 0 2mm; border-radius: 3mm; background: linear-gradient(140deg, var(--teal), #14a095); color: #fff; font-size: 13pt; letter-spacing: 0; display: flex; align-items: center; justify-content: center; }
+  h3 { font-size: 12.4pt; margin: 5mm 0 2mm; color: var(--deep); break-after: avoid; }
+  p { margin: 0 0 3mm; orphans: 3; widows: 3; }
+  ul { margin: 0 0 3mm; padding: 0; list-style: none; }
+  ul > li { position: relative; padding-left: 5mm; margin: 0 0 1.6mm; break-inside: avoid; }
+  ul > li::before { content: ""; position: absolute; left: 0; top: 2.1mm; width: 1.8mm; height: 1.8mm; border-radius: 50%; background: var(--teal); }
+  ul ul { margin-top: 1.5mm; } ul ul > li::before { background: #8cc9c1; }
+  b, strong { color: var(--deep); }
+  code { font-family: Consolas, monospace; font-size: 9pt; color: var(--deep); background: #e9f5f3; padding: 0 1mm; border-radius: 1mm; }
+  .muted { color: var(--muted); font-size: 9.4pt; }
 
-  table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 6pt 0 12pt; font-size: 9.2pt; page-break-inside: avoid; border: 1px solid var(--line); border-radius: 8pt; overflow: hidden; }
-  th, td { padding: 5pt 7pt; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
-  tr:last-child td { border-bottom: 0; }
-  th { background: var(--teal); color: #fff; font-weight: 600; }
-  tr:nth-child(even) td { background: #f8fcfb; }
-  code { font-family: Consolas, monospace; font-size: 8.6pt; background: #eef6f5; color: var(--teal-d); padding: 0 3pt; border-radius: 3pt; }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 3mm; overflow: hidden; font-size: 9.8pt; margin: 2mm 0 4mm; break-inside: avoid; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th, td { text-align: left; vertical-align: top; padding: 1.45mm 3.4mm; border-bottom: 1px solid var(--line); line-height: 1.42; }
+  th { background: var(--deep); color: #fff; font-weight: 600; font-size: 9.4pt; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:nth-child(even) td { background: #f8fcfb; }
+  td:first-child { font-weight: 600; color: var(--deep); }
 
-  .box { border: 1px solid var(--line); background: var(--teal-l); border-radius: 10pt; padding: 9pt 12pt; margin: 9pt 0; page-break-inside: avoid; }
-  .box.warn { border-color: #fcd34d; background: #fffbeb; }
-  .box.red { border-color: #fecaca; background: #fef2f2; }
-  .box h4 { margin: 0 0 3pt; font-size: 10pt; color: var(--teal-d); }
-  .muted { color: var(--muted); font-size: 8.8pt; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
-  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9pt; }
-  .card { border: 1px solid var(--line); border-radius: 10pt; padding: 9pt 11pt; page-break-inside: avoid; background: #fff; }
-  .card h4 { margin: 0 0 3pt; color: var(--teal); font-size: 10pt; }
-  .card p { margin: 0; font-size: 9pt; color: #334155; }
-  .pill { display: inline-block; padding: 1pt 7pt; border-radius: 999px; font-size: 8.4pt; font-weight: 700; }
+  .box { border-left: 1.2mm solid var(--teal); background: var(--soft); border-radius: 0 3mm 3mm 0; padding: 3.5mm 4.5mm; margin: 4.5mm 0; break-inside: avoid; }
+  .box.warn { border-color: #d97706; background: #fffaf0; }
+  .box h4 { margin: 0 0 1mm; font-size: 10.8pt; color: var(--deep); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-bottom: 4mm; } .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; margin-bottom: 4mm; }
+  .card { border: 1px solid var(--line); border-radius: 3.5mm; padding: 4mm 4.5mm; background: var(--soft); break-inside: avoid; }
+  .card h4 { margin: 0 0 1mm; font-size: 11pt; color: var(--teal); }
+  .card p { margin: 0; font-size: 9.8pt; line-height: 1.45; color: #3b4a56; }
+  .big { text-align: center; padding: 3mm; margin: 0 0 3mm; } .big b { font-size: 16pt; }
+  .pill { display: inline-block; padding: .4mm 2.6mm; border-radius: 99px; font-size: 8.6pt; font-weight: 700; white-space: nowrap; }
   .p-ok { background: #d1fae5; color: #047857; } .p-part { background: #fef3c7; color: #92400e; } .p-no { background: #fee2e2; color: #b91c1c; } .p-off { background: #e2e8f0; color: #475569; }
 
-  /* Screens */
-  figure { margin: 10pt 0 12pt; page-break-inside: avoid; text-align: center; }
-  figcaption { font-size: 8.8pt; color: var(--muted); margin-top: 5pt; }
-  .browser { border-radius: 10pt; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 10pt 24pt -14pt rgba(15,23,42,.45); background: #fff; }
-  .browser .bar { height: 16pt; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4pt; padding: 0 8pt; }
-  .browser .bar i { width: 6pt; height: 6pt; border-radius: 50%; background: #cbd5e1; display: inline-block; }
-  .browser .bar span { margin-left: 8pt; font-size: 7.5pt; color: #64748b; background: #fff; border-radius: 4pt; padding: 1pt 8pt; }
-  .browser img { display: block; width: 100%; }
-  .phones { display: flex; justify-content: center; gap: 14pt; align-items: flex-start; }
-  .phone { width: 52mm; border-radius: 22pt; padding: 6pt; background: #0f172a; box-shadow: 0 14pt 28pt -16pt rgba(15,23,42,.7); }
-  .phone img { display: block; width: 100%; border-radius: 17pt; height: 100mm; object-fit: cover; object-position: top; }
-  .phone + figcaption, .phones figcaption { margin-top: 6pt; }
+  .steps { counter-reset: s; list-style: none; margin: 0 0 4mm; padding: 0; }
+  .steps > li { counter-increment: s; position: relative; padding: .7mm 0 0 11mm; min-height: 7.6mm; margin: 0 0 2.2mm; break-inside: avoid; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 7.4mm; height: 7.4mm; border-radius: 50%; background: var(--teal); color: #fff; font-size: 9.6pt; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 
-  .toc { columns: 2; column-gap: 18pt; font-size: 10pt; }
-  .toc li { break-inside: avoid; margin: 3pt 0; }
-  .steps { counter-reset: s; list-style: none; margin-left: 0; }
-  .steps li { counter-increment: s; position: relative; padding-left: 22pt; margin: 5pt 0; }
-  .steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 15pt; height: 15pt; border-radius: 50%; background: var(--teal); color: #fff; font-size: 8pt; font-weight: 700; text-align: center; line-height: 15pt; }
+  .toc { display: grid; grid-template-columns: 1fr 1fr; grid-auto-flow: column; grid-template-rows: repeat(12, auto); column-gap: 10mm; }
+  .toc a { display: flex; gap: 3mm; padding: 2.3mm 0; border-bottom: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+  .toc a i { font-style: normal; color: var(--muted); min-width: 6mm; } .toc a b { margin-left: auto; color: var(--teal); }
+
+  figure { margin: 0; }
+  .phones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5mm; justify-items: center; margin: 4mm 0 5mm; break-inside: avoid; }
+  .phone { width: 39mm; height: 80mm; border-radius: 5.5mm; padding: 1.5mm; background: #14212b; overflow: hidden; }
+  .phone img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; border-radius: 4.2mm; }
+  figcaption { text-align: center; font-size: 9pt; color: var(--muted); margin-top: 2mm; }
+  .bar30 { display: flex; height: 10mm; border-radius: 3mm; overflow: hidden; font-size: 9.2pt; font-weight: 700; color: #fff; }
+  .bar30 div { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .scale { display: grid; grid-template-columns: 1fr 1fr 1fr; font-size: 8.8pt; color: var(--muted); margin: 1.5mm 0 4mm; } .scale span:nth-child(2) { text-align: center; } .scale span:nth-child(3) { text-align: right; }
 </style>
 </head>
 <body>
 
 <!-- ═════════════ COVER ═════════════ -->
-<div class="cover"><div class="cover-in">
-  <span class="badge">Product Description &amp; Requirements</span>
+<div class="cover">
+  <span class="eyebrow">Product Description &amp; Requirements</span>
   <h1>Renta <span>UG</span></h1>
   <p class="sub">The complete guide to how Renta UG works: every role, page, rule, calculation, security control and deployment step.</p>
-  <div class="cover-shot"><img src="screens/landing.jpg" alt="Renta UG landing page" /></div>
+  <div class="shot"><img src="screens/landing.jpg" alt="Renta UG landing page" /></div>
   <div class="meta">
     <div><b>Version 1.0</b>November 2026</div>
     <div><b>rentaug.netlify.app</b>Web · Android · iPhone</div>
-    <div><b>Made in Uganda</b>0726 128782 · shofascompany@gmail.com</div>
+    <div><b>0740 378547</b>shofascompany@gmail.com</div>
   </div>
-</div></div>
-
+</div>
 <!-- ═════════════ CONTENTS ═════════════ -->
 <h2>Contents</h2>
-<ol class="toc">
-  <li>Summary and goals</li>
-  <li>Who uses Renta UG</li>
-  <li>The public website</li>
-  <li>Signing up and signing in</li>
-  <li>Landlord: setup and subscription</li>
-  <li>Landlord: every page</li>
-  <li>Tenant: every page</li>
-  <li>Main admin: the control panel</li>
-  <li>Money and time rules</li>
-  <li>Paid / Part paid / Not paid</li>
-  <li>Payments step by step</li>
-  <li>Receipts</li>
-  <li>Notifications and reminders</li>
-  <li>Who can do what (permissions)</li>
-  <li>Security and privacy</li>
-  <li>Data model</li>
-  <li>Technical architecture</li>
-  <li>Database updates</li>
-  <li>Deploying on Netlify</li>
-  <li>Testing and quality</li>
-  <li>Support guide and troubleshooting</li>
-  <li>Known limits and next steps</li>
-  <li>Glossary</li>
-</ol>
+<div class="toc">
+  <a href="#s1"><i>1</i><span>Summary and goals</span><b>3</b></a>
+  <a href="#s2"><i>2</i><span>Who uses Renta UG</span><b>4</b></a>
+  <a href="#s3"><i>3</i><span>The public website</span><b>4</b></a>
+  <a href="#s4"><i>4</i><span>Signing up and signing in</span><b>5</b></a>
+  <a href="#s5"><i>5</i><span>Landlord: setup and subscription</span><b>6</b></a>
+  <a href="#s6"><i>6</i><span>Landlord: every page</span><b>7</b></a>
+  <a href="#s7"><i>7</i><span>Tenant: every page</span><b>8</b></a>
+  <a href="#s8"><i>8</i><span>Main admin: the control panel</span><b>9</b></a>
+  <a href="#s9"><i>9</i><span>Money and time rules</span><b>10</b></a>
+  <a href="#s10"><i>10</i><span>Paid / Part paid / Not paid</span><b>11</b></a>
+  <a href="#s11"><i>11</i><span>Payments step by step</span><b>11</b></a>
+  <a href="#s12"><i>12</i><span>Receipts</span><b>12</b></a>
+  <a href="#s13"><i>13</i><span>Notifications and reminders</span><b>13</b></a>
+  <a href="#s14"><i>14</i><span>Who can do what (permissions)</span><b>14</b></a>
+  <a href="#s15"><i>15</i><span>Security and privacy</span><b>15</b></a>
+  <a href="#s16"><i>16</i><span>Data model</span><b>16</b></a>
+  <a href="#s17"><i>17</i><span>Technical architecture</span><b>17</b></a>
+  <a href="#s18"><i>18</i><span>Database updates</span><b>17</b></a>
+  <a href="#s19"><i>19</i><span>Deploying on Netlify</span><b>18</b></a>
+  <a href="#s20"><i>20</i><span>Testing and quality</span><b>19</b></a>
+  <a href="#s21"><i>21</i><span>Support guide and troubleshooting</span><b>19</b></a>
+  <a href="#s22"><i>22</i><span>Known limits and next steps</span><b>20</b></a>
+  <a href="#s23"><i>23</i><span>Glossary</span><b>20</b></a>
+</div>
 
 <div class="box" style="margin-top:14pt">
   <h4>About this document</h4>
-  It describes the system as built: what each part does, the rules it follows and how to run it. Screenshots are from the live build. Pages inside the app show each person's own data, so they are described in detail rather than pictured.
+  It describes the system as built: what each part does, the rules it follows and how to run it. The pictures are from the app build, run locally. Pages inside the app are described in sections 5 to 8.
 </div>
 
 <!-- ═════════════ 1 ═════════════ -->
-<section>
-<h2><span class="n">1</span>Summary and goals</h2>
+<section class="brk">
+<h2 id="s1"><span class="n">1</span>Summary and goals</h2>
 <p><b>Renta UG</b> is a rent management app for Uganda. Landlords keep their houses, rentals, rooms, tenants and rent in one clear account. Tenants pay from their phone with MTN Mobile Money or Airtel Money, straight to the landlord, and always know how many days they have left. Renta UG (the main admin) runs the platform and earns from landlord subscriptions.</p>
 <div class="grid3">
   <div class="card"><h4>Convenience</h4><p>Pay and confirm rent from a phone, any time. No middleman, no paperwork.</p></div>
@@ -146,8 +146,7 @@
   <li>It does not set or guarantee rent; landlords set rents and confirm what they receive.</li>
 </ul>
 <h3>Key numbers</h3>
-<table>
-  <tr><th>Item</th><th>Value</th></tr>
+<table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody>
   <tr><td>Rent month</td><td>30 days, always</td></tr>
   <tr><td>Subscription month / year</td><td>30 days / 365 days</td></tr>
   <tr><td>Connection code</td><td>6 characters, valid 20 minutes</td></tr>
@@ -155,20 +154,19 @@
   <tr><td>Paying ahead</td><td>Up to 24 months (recharge: 1–12 months)</td></tr>
   <tr><td>Small scale limit</td><td>10 houses and rooms (adjustable by the admin)</td></tr>
   <tr><td>Health checks</td><td>Every 20 minutes</td></tr>
-</table>
+</tbody></table>
 </section>
 
 <!-- ═════════════ 2 ═════════════ -->
-<section>
-<h2><span class="n">2</span>Who uses Renta UG</h2>
-<table>
-  <tr><th>Account</th><th>Created by</th><th>Signs in at</th><th>Main jobs</th></tr>
+<section class="brk">
+<h2 id="s2"><span class="n">2</span>Who uses Renta UG</h2>
+<table><thead><tr><th>Account</th><th>Created by</th><th>Signs in at</th><th>Main jobs</th></tr></thead><tbody>
   <tr><td><b>Landlord</b></td><td>The main admin (Landlords → Register)</td><td>/login (email or phone)</td><td>Properties, rentals, rooms, tenants, confirming and recording payments, notices, reports, records, subscription</td></tr>
   <tr><td><b>Tenant</b></td><td>Self sign-up, or app access given by the landlord</td><td>/login (email or phone)</td><td>Pay rent, see rental time and balance, receipts, notifications, request to leave</td></tr>
   <tr><td><b>Managed tenant</b></td><td>The landlord (no smartphone)</td><td>No app until given access</td><td>The landlord records their payments; they get messages on their phone</td></tr>
   <tr><td><b>Main admin</b></td><td>Set up once in the database</td><td>/admin2026</td><td>Everything across the platform</td></tr>
   <tr><td><b>Permanent account</b></td><td>The database (one fixed landlord)</td><td>/login</td><td>A landlord that is free for life and can never be deleted</td></tr>
-</table>
+</tbody></table>
 <h3>Typical journeys</h3>
 <div class="grid2">
   <div class="card"><h4>A new landlord</h4><p>Registered by Renta UG → signs in with email/phone → creates a password → says the business size → chooses a package → pays → Renta UG confirms → adds properties, rooms, mobile money numbers and tenants.</p></div>
@@ -178,12 +176,8 @@
 
 <!-- ═════════════ 3 ═════════════ -->
 <section>
-<h2><span class="n">3</span>The public website</h2>
+<h2 id="s3"><span class="n">3</span>The public website</h2>
 <p>The landing page explains Renta UG to visitors and leads to sign up or sign in. Public pages always show in light colours; dark mode applies inside the app only.</p>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app</span></div><img src="screens/landing.jpg" alt="Landing page" /></div>
-  <figcaption>Landing page on a computer: headline, the three promises (convenience, security, accuracy) and the two main buttons.</figcaption>
-</figure>
 <h3>Sections of the landing page</h3>
 <ul>
   <li><b>Hero:</b> "The easy way to pay rent", with Create free account / I already have an account.</li>
@@ -191,65 +185,18 @@
   <li><b>How to pay:</b> an animated phone shows choosing the line, sending, verification and the payment notification.</li>
   <li><b>Get the app</b> (install on Android / iPhone), <b>Questions</b> (FAQ) and the <b>footer</b> with contacts (call, WhatsApp, email), Privacy, Terms and Delete account.</li>
 </ul>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/landing-phone.jpg" alt="Landing on phone" /></div><figcaption>Landing page on a phone</figcaption></figure>
-  <figure><div class="phone"><img src="screens/landing-phone-momo.jpg" alt="How to pay on phone" /></div><figcaption>"Pay rent in four easy steps" on a phone</figcaption></figure>
-</div>
-</section>
-
-<section>
-<h2><span class="n">3</span>The public website: every section</h2>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app/#features</span></div><img src="screens/landing-features.jpg" alt="Features" /></div>
-  <figcaption>Features: what Renta UG does for landlords and tenants.</figcaption>
-</figure>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app/#momo</span></div><img src="screens/landing-momo.jpg" alt="How to pay" /></div>
-  <figcaption>How to pay: choose the SIM, send the money, payment verified, instant confirmation. The phone on the right plays each step.</figcaption>
-</figure>
-</section>
-
-<section>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app</span></div><img src="screens/landing-how.jpg" alt="For landlords and tenants" /></div>
-  <figcaption>How it works for landlords and for tenants, with a live preview of each.</figcaption>
-</figure>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app/#install</span></div><img src="screens/landing-install.jpg" alt="Get the app" /></div>
-  <figcaption>Get the app: install on Android or iPhone.</figcaption>
-</figure>
-</section>
-
-<section>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app/#faq</span></div><img src="screens/landing-faq.jpg" alt="Questions" /></div>
-  <figcaption>Questions: answers to what people ask most.</figcaption>
-</figure>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app</span></div><img src="screens/landing-footer.jpg" alt="Footer" /></div>
-  <figcaption>Footer: contacts (call, WhatsApp, email) and the legal pages.</figcaption>
-</figure>
-<h3>Public information pages</h3>
-<p>Privacy policy, Terms and Delete account open without signing in (app stores require them).</p>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/privacy-phone.jpg" alt="Privacy" /></div><figcaption>Privacy policy</figcaption></figure>
-  <figure><div class="phone"><img src="screens/terms-phone.jpg" alt="Terms" /></div><figcaption>Terms &amp; conditions</figcaption></figure>
-  <figure><div class="phone"><img src="screens/delete-account-phone.jpg" alt="Delete account" /></div><figcaption>Delete your account</figcaption></figure>
-</div>
 </section>
 
 <!-- ═════════════ 4 ═════════════ -->
-<section>
-<h2><span class="n">4</span>Signing up and signing in</h2>
+<section class="brk">
+<h2 id="s4"><span class="n">4</span>Signing up and signing in</h2>
 <div class="phones">
-  <figure><div class="phone"><img src="screens/login-phone.jpg" alt="Sign in" /></div><figcaption>Sign in: email or phone in one box</figcaption></figure>
-  <figure><div class="phone"><img src="screens/signup-phone.jpg" alt="Sign up" /></div><figcaption>Tenant sign-up</figcaption></figure>
+  <figure><div class="phone"><img src="screens/landing-phone.jpg" alt="Landing page" /></div><figcaption>Landing page</figcaption></figure>
+  <figure><div class="phone"><img src="screens/login-phone.jpg" alt="Sign in" /></div><figcaption>Sign in</figcaption></figure>
+  <figure><div class="phone"><img src="screens/signup-phone.jpg" alt="Tenant sign-up" /></div><figcaption>Tenant sign-up</figcaption></figure>
   <figure><div class="phone"><img src="screens/forgot-phone.jpg" alt="Forgot password" /></div><figcaption>Forgot password</figcaption></figure>
+  
 </div>
-<figure>
-  <div class="browser"><div class="bar"><i></i><i></i><i></i><span>rentaug.netlify.app/login</span></div><img src="screens/login-desktop.jpg" alt="Sign in on a computer" /></div>
-  <figcaption>Sign in on a computer.</figcaption>
-</figure>
 <h3>Tenant sign-up</h3>
 <ol class="steps">
   <li>Enter full name, email and a password (at least 8 characters).</li>
@@ -269,14 +216,11 @@
   <li>Forgot password: a reset link is emailed. A sign-in from a new device sends a security alert.</li>
   <li>The main admin signs in on a separate page, /admin2026.</li>
 </ul>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/admin-login-phone.jpg" alt="Main admin sign-in" /></div><figcaption>Main admin sign-in (/admin2026)</figcaption></figure>
-</div>
 </section>
 
 <!-- ═════════════ 5 ═════════════ -->
-<section>
-<h2><span class="n">5</span>Landlord: setup and subscription</h2>
+<section class="brk">
+<h2 id="s5"><span class="n">5</span>Landlord: setup and subscription</h2>
 <p>There is no free trial. A landlord uses Renta UG once a subscription payment is confirmed. Until then the setup runs <b>full screen</b>, with only Help, Inbox and Sign out at the top.</p>
 <ol class="steps">
   <li><b>Business size:</b> "How big is your rental business?" A large number box with − / + and quick choices (1–5, up to 10, 20, 50, 100+). A card shows the matching package and its monthly price live.</li>
@@ -286,11 +230,10 @@
   <li><b>Confirm:</b> the full names registered on the line used (at least two names), and a tick box.</li>
   <li><b>Waiting:</b> "Waiting for confirmation" with the details, Check now and Withdraw. When Renta UG confirms, a "Payment confirmed" screen opens the dashboard.</li>
 </ol>
-<table>
-  <tr><th>Package</th><th>Covers</th><th>Monthly (30 days)</th><th>Yearly (365 days)</th></tr>
+<table><thead><tr><th>Package</th><th>Covers</th><th>Monthly (30 days)</th><th>Yearly (365 days)</th></tr></thead><tbody>
   <tr><td>Small scale</td><td>Up to 10 houses and rooms</td><td>UGX 55,000</td><td>UGX 650,000</td></tr>
   <tr><td>Big scale</td><td>Any number</td><td>UGX 105,000</td><td>UGX 1,200,000</td></tr>
-</table>
+</tbody></table>
 <h3>Subscription page (after paying)</h3>
 <ul>
   <li><b>Status card:</b> package, "Active until …", days left and a meter; houses and rooms used out of the limit.</li>
@@ -307,10 +250,9 @@
 </section>
 
 <!-- ═════════════ 6 ═════════════ -->
-<section>
-<h2><span class="n">6</span>Landlord: every page</h2>
-<table>
-  <tr><th style="width:24%">Page</th><th>What it shows and does</th></tr>
+<section class="brk">
+<h2 id="s6"><span class="n">6</span>Landlord: every page</h2>
+<table><thead><tr><th style="width:24%">Page</th><th>What it shows and does</th></tr></thead><tbody>
   <tr><td><b>Overview</b> (dashboard)</td><td>This month's revenue, empty rooms, transactions shortcut, properties list, each tenant's rental time with a <span class="pill p-ok">Paid</span> / <span class="pill p-no">Not paid</span> badge, rent collected per rental or per month.</td></tr>
   <tr><td><b>Transactions</b></td><td>Every amount received grouped by month, filter Mobile / Cash, search, CSV download, payment details and <b>Download receipt</b> on every row.</td></tr>
   <tr><td><b>Reports</b></td><td>Charts of money collected month by month and per property.</td></tr>
@@ -326,15 +268,14 @@
   <tr><td><b>Inbox</b></td><td>Payments to confirm, requests to leave, subscription and security messages.</td></tr>
   <tr><td><b>Subscription</b></td><td>See section 5.</td></tr>
   <tr><td><b>Settings</b></td><td>Account details, password, notifications, Help &amp; support, About, Terms, Sign out.</td></tr>
-</table>
+</tbody></table>
 <div class="box warn"><h4>Delete tenant vs End tenancy</h4><b>End tenancy</b> frees the room and keeps the tenant and every payment in Records. <b>Delete tenant</b> removes the tenant and everything recorded for them, after a warning listing what goes and a tick box. The tenant's own login is kept, just no longer linked.</div>
 </section>
 
 <!-- ═════════════ 7 ═════════════ -->
-<section>
-<h2><span class="n">7</span>Tenant: every page</h2>
-<table>
-  <tr><th style="width:24%">Page</th><th>What it shows and does</th></tr>
+<section class="brk">
+<h2 id="s7"><span class="n">7</span>Tenant: every page</h2>
+<table><thead><tr><th style="width:24%">Page</th><th>What it shows and does</th></tr></thead><tbody>
   <tr><td><b>Connect</b></td><td>First time only: enter the landlord's 6-character code.</td></tr>
   <tr><td><b>Dashboard</b></td><td>Rent account with the paid status chip, amount paid, balance due, Pay now / Recharge, rental time (days left, ends, debt days), month-by-month coverage, the landlord's contacts (call, WhatsApp, email).</td></tr>
   <tr><td><b>Payments</b></td><td>Monthly rent, Pay now / Recharge, rotating tips, payments sent to the landlord with their status and receipts, <b>Complete your payment</b> card for a part-paid month, To pay list, payment history with filters; each month's details list every instalment.</td></tr>
@@ -343,7 +284,7 @@
   <tr><td><b>My home</b></td><td>House details, the landlord, request to leave.</td></tr>
   <tr><td><b>Notifications</b></td><td>Grouped by day; open one to copy, share (WhatsApp, text, email) or delete it.</td></tr>
   <tr><td><b>Settings</b></td><td>Account, password, notifications, Help &amp; support, About, Terms, Sign out.</td></tr>
-</table>
+</tbody></table>
 <h3>The pay flow in detail</h3>
 <ol class="steps">
   <li><b>Choose the line</b> the landlord added (MTN or Airtel).</li>
@@ -356,10 +297,9 @@
 </section>
 
 <!-- ═════════════ 8 ═════════════ -->
-<section>
-<h2><span class="n">8</span>Main admin: the control panel</h2>
-<table>
-  <tr><th style="width:24%">Page</th><th>What it shows and does</th></tr>
+<section class="brk">
+<h2 id="s8"><span class="n">8</span>Main admin: the control panel</h2>
+<table><thead><tr><th style="width:24%">Page</th><th>What it shows and does</th></tr></thead><tbody>
   <tr><td><b>Overview</b></td><td>Live totals for landlords, tenants and money; open errors.</td></tr>
   <tr><td><b>Activity</b></td><td>Everything that happens, in order, including the audit log of every admin change.</td></tr>
   <tr><td><b>Landlords</b></td><td>All landlords (the permanent account always first, gold). Register landlord (name, email, phone).</td></tr>
@@ -370,7 +310,7 @@
   <tr><td><b>Announcements</b></td><td>Message all tenants, all landlords, everyone, or one landlord and their tenants.</td></tr>
   <tr><td><b>Inbox</b></td><td>Alerts, including problems found by health checks.</td></tr>
   <tr><td><b>Health &amp; settings</b></td><td>Checks of every part every 20 minutes, app error reports, archives, and "delete all users" (archive first; the permanent account is kept).</td></tr>
-</table>
+</tbody></table>
 <h3>Recording a subscription paid in cash</h3>
 <ol class="steps">
   <li>Open the landlord (or Subscriptions → Paid cash).</li>
@@ -380,72 +320,10 @@
 </ol>
 </section>
 
-<!-- ═════════════ Screens inside the app (filled by `npm run screenshots`; missing ones are left out) ═════════════ -->
-<section class="gallery" data-gallery>
-<h2><span class="n">★</span>Screens inside the app: landlord</h2>
-<p class="muted">Taken from demo accounts with sample data.</p>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord</span></div><img src="screens/app-landlord-overview.jpg" alt="" /></div><figcaption>Overview: this month's revenue, empty rooms, properties and every tenant's rental time with Paid / Not paid.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/tenants</span></div><img src="screens/app-landlord-tenants.jpg" alt="" /></div><figcaption>Tenants: To pay, Paid? and filters.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/payments</span></div><img src="screens/app-landlord-payments.jpg" alt="" /></div><figcaption>Payments: record payments, payments to confirm and rent months.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/properties</span></div><img src="screens/app-landlord-properties.jpg" alt="" /></div><figcaption>Properties: rentals with rooms, houses and vacant ones.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/properties/…</span></div><img src="screens/app-landlord-property.jpg" alt="" /></div><figcaption>A house or room with its tenant and rent status.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/revenue</span></div><img src="screens/app-landlord-transactions.jpg" alt="" /></div><figcaption>Transactions: every amount received, with receipts.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/reports</span></div><img src="screens/app-landlord-reports.jpg" alt="" /></div><figcaption>Reports.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/records</span></div><img src="screens/app-landlord-records.jpg" alt="" /></div><figcaption>Records: former tenants and their history.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/landlord/subscription</span></div><img src="screens/app-landlord-subscription.jpg" alt="" /></div><figcaption>Subscription: status, paid subscription and control panel.</figcaption></figure>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-landlord-overview-phone.jpg" alt="" /></div><figcaption>Overview on a phone</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-tenant.jpg" alt="" /></div><figcaption>A tenant: status, Complete payment, Delete</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-payments-phone.jpg" alt="" /></div><figcaption>Payments on a phone</figcaption></figure>
-</div>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-landlord-managed.jpg" alt="" /></div><figcaption>No-smartphone accounts</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-managed-account.jpg" alt="" /></div><figcaption>A managed tenant's account</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-tenants-phone.jpg" alt="" /></div><figcaption>Tenants on a phone</figcaption></figure>
-</div>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-landlord-notices.jpg" alt="" /></div><figcaption>Send notices</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-inbox.jpg" alt="" /></div><figcaption>Inbox</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-landlord-subscription-phone.jpg" alt="" /></div><figcaption>Subscription on a phone</figcaption></figure>
-</div>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-landlord-settings.jpg" alt="" /></div><figcaption>Settings</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-help.jpg" alt="" /></div><figcaption>Help &amp; support</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-about.jpg" alt="" /></div><figcaption>About Renta UG</figcaption></figure>
-</div>
-</section>
-
-<section class="gallery" data-gallery>
-<h2><span class="n">★</span>Screens inside the app: tenant</h2>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-tenant-dashboard.jpg" alt="" /></div><figcaption>Dashboard: rent account, status, rental time</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-tenant-payments.jpg" alt="" /></div><figcaption>Payments: complete payment, history</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-tenant-pay.jpg" alt="" /></div><figcaption>Pay: choose the line</figcaption></figure>
-</div>
-<div class="phones">
-  <figure><div class="phone"><img src="screens/app-tenant-recharge.jpg" alt="" /></div><figcaption>Recharge months ahead</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-tenant-home.jpg" alt="" /></div><figcaption>My home</figcaption></figure>
-  <figure><div class="phone"><img src="screens/app-tenant-notifications.jpg" alt="" /></div><figcaption>Notifications</figcaption></figure>
-</div>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/tenant</span></div><img src="screens/app-tenant-dashboard-desktop.jpg" alt="" /></div><figcaption>The tenant dashboard on a computer.</figcaption></figure>
-</section>
-
-<section class="gallery" data-gallery>
-<h2><span class="n">★</span>Screens inside the app: main admin</h2>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/overview</span></div><img src="screens/app-admin-overview.jpg" alt="" /></div><figcaption>Control panel overview.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/landlords</span></div><img src="screens/app-admin-landlords.jpg" alt="" /></div><figcaption>Landlords (the permanent account first).</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/landlords/…</span></div><img src="screens/app-admin-landlord.jpg" alt="" /></div><figcaption>A landlord: subscription card with Record cash payment, properties, tenants, money.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/subscriptions</span></div><img src="screens/app-admin-subscriptions.jpg" alt="" /></div><figcaption>Subscriptions: confirm payments, paid cash, add days, prices and numbers.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/tenants</span></div><img src="screens/app-admin-tenants.jpg" alt="" /></div><figcaption>All tenants with paid status.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/transactions</span></div><img src="screens/app-admin-transactions.jpg" alt="" /></div><figcaption>Transactions.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/reports</span></div><img src="screens/app-admin-reports.jpg" alt="" /></div><figcaption>Statistics.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/activity</span></div><img src="screens/app-admin-activity.jpg" alt="" /></div><figcaption>Activity log.</figcaption></figure>
-<figure><div class="browser"><div class="bar"><i></i><i></i><i></i><span>/admin2026/system</span></div><img src="screens/app-admin-system.jpg" alt="" /></div><figcaption>Health &amp; settings.</figcaption></figure>
-</section>
-
 <!-- ═════════════ 9 ═════════════ -->
-<section>
-<h2><span class="n">9</span>Money and time rules</h2>
+<section class="brk">
+<h2 id="s9"><span class="n">9</span>Money and time rules</h2>
+<div class="card big"><b>Days = amount paid ÷ monthly rent × 30</b><p>rounded down to whole days</p></div>
 <div class="box"><h4>Rental time</h4>The period a tenant's rent covers (<code>lease_start</code> → <code>lease_end</code>). Only the database sets it, when money is confirmed. Nobody types dates.</div>
 <ul>
   <li><b>A rent month is always 30 days</b> (never 28, 29 or 31).</li>
@@ -456,36 +334,37 @@
   <li>Money is used on unpaid months first (oldest first), then on months ahead (up to 24).</li>
   <li>Months that counted under the earlier rule (a whole month at 60%) keep their month.</li>
 </ul>
-<table>
-  <tr><th>Example (rent UGX 300,000)</th><th>Result</th></tr>
+<h3>Example: rent of UGX 300,000, time ends 20 November</h3>
+<div class="bar30"><div style="background:#0f766e">UGX 150,000 · 15 days</div><div style="background:#14a095">UGX 150,000 · 15 days</div></div>
+<div class="scale"><span>20 Nov</span><span>5 Dec</span><span>20 Dec · full 30 days</span></div>
+<table><thead><tr><th>Example (rent UGX 300,000)</th><th>Result</th></tr></thead><tbody>
   <tr><td>Time ends 20 Nov; pays 150,000</td><td>+15 days → 5 Dec</td></tr>
   <tr><td>Then pays the remaining 150,000</td><td>+15 days → 20 Dec (exactly 20 Nov + 30 days)</td></tr>
   <tr><td>New tenant pays 100,000 on 24 Nov</td><td>Starts 24 Nov, +10 days → 4 Dec</td></tr>
   <tr><td>Time ended 1 Nov; pays 60,000 on 24 Nov</td><td>+6 days → 7 Nov; still 17 days behind (23 debt days)</td></tr>
   <tr><td>Pays 900,000 with nothing owed</td><td>3 months ahead = +90 days</td></tr>
   <tr><td>UGX 300,000 already waiting, then sends 150,000</td><td>Counted after the waiting payment: +15 days from its end</td></tr>
-</table>
+</tbody></table>
 <h3>Rent months in the database</h3>
 <p>Each rent month (a row in <code>payments</code>) records its rent, the amount paid, the days it has already given (<code>credited_days</code>) and whether it has given its whole month (<code>month_credited</code>). A database trigger extends the tenant's rental time every time money is added.</p>
 </section>
 
 <!-- ═════════════ 10 ═════════════ -->
-<section class="flow">
-<h2><span class="n">10</span>Paid / Part paid / Not paid</h2>
+<section class="brk">
+<h2 id="s10"><span class="n">10</span>Paid / Part paid / Not paid</h2>
 <p>One rule gives the status everywhere: landlord lists and pages, the tenant dashboard, the admin, the tenant picker.</p>
-<table>
-  <tr><th>Badge</th><th>When</th><th>"To pay" shows</th></tr>
+<table><thead><tr><th>Badge</th><th>When</th><th>"To pay" shows</th></tr></thead><tbody>
   <tr><td><span class="pill p-ok">Paid</span></td><td>Nothing owed <b>and</b> the paid rental time is still running</td><td>Nothing to pay</td></tr>
   <tr><td><span class="pill p-part">Part paid</span></td><td>Part of a month is paid; the rest is owed</td><td>The rest</td></tr>
   <tr><td><span class="pill p-no">Not paid</span></td><td>Owes rent, never paid, or the paid time has ended</td><td>What is owed, or one month's rent</td></tr>
   <tr><td><span class="pill p-off">Moved out</span></td><td>Former tenant</td><td>—</td></tr>
-</table>
+</tbody></table>
 <p>A tenant who owes UGX 0 is never shown as Paid when they have never paid or their time has ended.</p>
 </section>
 
 <!-- ═════════════ 11 ═════════════ -->
 <section>
-<h2><span class="n">11</span>Payments step by step</h2>
+<h2 id="s11"><span class="n">11</span>Payments step by step</h2>
 <h3>Mobile money from a tenant</h3>
 <ol class="steps">
   <li>The tenant sends money to the landlord's line and submits it with the sender names.</li>
@@ -514,8 +393,8 @@
 </section>
 
 <!-- ═════════════ 12 ═════════════ -->
-<section class="flow">
-<h2><span class="n">12</span>Receipts</h2>
+<section>
+<h2 id="s12"><span class="n">12</span>Receipts</h2>
 <ul>
   <li>Every confirmed payment has a receipt image (PNG, landscape) for tenants and landlords.</li>
   <li><b>File name:</b> the tenant's name and receipt number, e.g. <code>John Kamera Receipt No. 30591874.png</code>. The 8-digit number is always the same for the same payment.</li>
@@ -523,13 +402,17 @@
   <li><b>Paid in turns:</b> a table of every instalment (number, date, method, amount, days covered), the instalment the receipt is for highlighted, and "Paid X of Y · Balance Z · N of 30 days covered". A part-paid month is marked "PART PAYMENT · CONFIRMED".</li>
   <li>Where: tenant Payments (payments and month details); landlord Transactions, Payments history and month details.</li>
 </ul>
+<h3>Example of rent paid in turns</h3>
+<table><thead><tr><th>Turn</th><th>Date</th><th>Method</th><th>Amount</th><th>Days</th></tr></thead><tbody>
+<tr><td>1</td><td>20 Nov</td><td>MTN Mobile Money</td><td>UGX 100,000</td><td>10</td></tr>
+<tr><td>2</td><td>27 Nov</td><td>Cash</td><td>UGX 50,000</td><td>5</td></tr>
+<tr><td colspan="3">Paid UGX 150,000 of UGX 300,000</td><td>Balance UGX 150,000</td><td>15 of 30</td></tr></tbody></table>
 </section>
 
 <!-- ═════════════ 13 ═════════════ -->
-<section>
-<h2><span class="n">13</span>Notifications and reminders</h2>
-<table>
-  <tr><th>Message</th><th>To</th><th>When</th></tr>
+<section class="brk">
+<h2 id="s13"><span class="n">13</span>Notifications and reminders</h2>
+<table><thead><tr><th>Message</th><th>To</th><th>When</th></tr></thead><tbody>
   <tr><td>Payment being reviewed</td><td>Tenant</td><td>They submit mobile money</td></tr>
   <tr><td>Payment confirmation (amount, new end date, balance)</td><td>Tenant</td><td>The landlord confirms or records it</td></tr>
   <tr><td>Payment not confirmed (with reason)</td><td>Tenant</td><td>The landlord rejects it</td></tr>
@@ -544,7 +427,7 @@
   <tr><td>Subscription payment to confirm</td><td>Admin inbox</td><td>A landlord submits one</td></tr>
   <tr><td>Account security (new device)</td><td>Everyone</td><td>Sign-in on a device not used in 60 days</td></tr>
   <tr><td>System check found a problem</td><td>Admin</td><td>A health check or error</td></tr>
-</table>
+</tbody></table>
 <ul>
   <li>Phone notifications arrive even when the app is closed (iPhone: add to Home Screen first, then turn them on in Settings).</li>
   <li>Tenants without a smartphone receive their payment messages as text messages on their phone.</li>
@@ -553,10 +436,9 @@
 </section>
 
 <!-- ═════════════ 14 ═════════════ -->
-<section>
-<h2><span class="n">14</span>Who can do what (permissions)</h2>
-<table>
-  <tr><th>Action</th><th>Tenant</th><th>Landlord</th><th>Main admin</th></tr>
+<section class="brk">
+<h2 id="s14"><span class="n">14</span>Who can do what (permissions)</h2>
+<table><thead><tr><th>Action</th><th>Tenant</th><th>Landlord</th><th>Main admin</th></tr></thead><tbody>
   <tr><td>See own rent, payments, receipts</td><td>Own only</td><td>Own tenants</td><td>All</td></tr>
   <tr><td>Submit a payment</td><td>Yes (waits)</td><td>Records (counts at once)</td><td>—</td></tr>
   <tr><td>Confirm / reject a tenant payment</td><td>—</td><td>Own tenants</td><td>—</td></tr>
@@ -567,12 +449,12 @@
   <tr><td>Approve request to leave</td><td>Asks</td><td>Own tenants</td><td>—</td></tr>
   <tr><td>Register / suspend / delete landlords</td><td>—</td><td>—</td><td>Yes (not the permanent account)</td></tr>
   <tr><td>Confirm subscriptions, cash, free days, prices</td><td>—</td><td>Pays</td><td>Yes</td></tr>
-</table>
+</tbody></table>
 </section>
 
 <!-- ═════════════ 15 ═════════════ -->
-<section class="flow">
-<h2><span class="n">15</span>Security and privacy</h2>
+<section class="brk">
+<h2 id="s15"><span class="n">15</span>Security and privacy</h2>
 <div class="grid2">
   <div class="card"><h4>Row-level security</h4><p>Every table checks who is asking. Landlords reach only their tenants; tenants only themselves; the admin reads everything.</p></div>
   <div class="card"><h4>Browser write limits</h4><p>Payments, receipts and rental time are written only by database functions. Tenant rows accept only the fields the app edits. Notices are plain (1–1,000 characters): no fake confirmations. Sizes are limited.</p></div>
@@ -591,10 +473,9 @@
 </section>
 
 <!-- ═════════════ 16 ═════════════ -->
-<section>
-<h2><span class="n">16</span>Data model</h2>
-<table>
-  <tr><th style="width:26%">Table</th><th>Holds</th></tr>
+<section class="brk">
+<h2 id="s16"><span class="n">16</span>Data model</h2>
+<table><thead><tr><th style="width:26%">Table</th><th>Holds</th></tr></thead><tbody>
   <tr><td><code>profiles</code></td><td>Every account: role, name, phone, active, subscription (until, plan, tier, free-for-life), business size</td></tr>
   <tr><td><code>rentals</code></td><td>A business with rooms (name, location, type)</td></tr>
   <tr><td><code>properties</code></td><td>Each house or room: name, location, rent, rental it belongs to</td></tr>
@@ -609,20 +490,19 @@
   <tr><td><code>admin_audit</code>, <code>platform_archives</code></td><td>Admin activity log; archives before "delete all"</td></tr>
   <tr><td><code>error_reports</code>, <code>health_checks</code></td><td>App errors (grouped); results of the 20-minute checks</td></tr>
   <tr><td><code>push_subscriptions</code>, <code>app_installs</code></td><td>Phones registered for notifications; app installs count</td></tr>
-</table>
+</tbody></table>
 </section>
 
 <!-- ═════════════ 17 ═════════════ -->
-<section class="flow">
-<h2><span class="n">17</span>Technical architecture</h2>
-<table>
-  <tr><th style="width:26%">Layer</th><th>Technology and role</th></tr>
+<section class="brk">
+<h2 id="s17"><span class="n">17</span>Technical architecture</h2>
+<table><thead><tr><th style="width:19%">Layer</th><th>Technology and role</th></tr></thead><tbody>
   <tr><td>Front end</td><td>Vue 3, Pinia stores, Vue Router, Tailwind CSS 4, Vite; installable web app with a service worker</td></tr>
   <tr><td>Database &amp; sign-in</td><td>Supabase: PostgreSQL, row-level security, database functions and triggers, realtime updates, pg_cron schedules</td></tr>
   <tr><td>Server functions</td><td>Netlify Functions: first sign-in, phone sign-in, sign-up codes, password reset, admin actions, tenant app access; scheduled: notifications/messages every minute, health check every 20 minutes</td></tr>
   <tr><td>Phone apps</td><td>Android (Trusted Web Activity) and iPhone (Capacitor) wrappers around the web app</td></tr>
   <tr><td>Messages</td><td>Web push for phone notifications; email for codes and resets; Africa's Talking for text messages</td></tr>
-</table>
+</tbody></table>
 <h3>Where the rules live in the code</h3>
 <ul>
   <li><code>src/utils/rentCycle.js</code>: 30-day months, days a payment covers.</li>
@@ -635,10 +515,9 @@
 
 <!-- ═════════════ 18 ═════════════ -->
 <section>
-<h2><span class="n">18</span>Database updates</h2>
+<h2 id="s18"><span class="n">18</span>Database updates</h2>
 <p><code>npm run db:bundle</code> builds <code>setup_all.sql</code> (new database, deletes everything first) and <code>update_existing.sql</code> (live database, keeps data, safe to run more than once). Run the update in Supabase → SQL Editor after each release.</p>
-<table>
-  <tr><th>File</th><th>What it does</th></tr>
+<table><thead><tr><th>File</th><th>What it does</th></tr></thead><tbody>
   <tr><td>45–46</td><td>Landlord subscriptions; Small / Big scale; the permanent free account</td></tr>
   <tr><td>47</td><td>No free trial: locked until the first payment is confirmed</td></tr>
   <tr><td>48</td><td>No reason codes: payments matched by sender names</td></tr>
@@ -647,20 +526,19 @@
   <tr><td>52</td><td>Part payments buy days; 30-day rent months</td></tr>
   <tr><td>53</td><td>Subscription months of 30 days, years of 365</td></tr>
   <tr><td>54</td><td>Browser write limits</td></tr>
-</table>
+</tbody></table>
 </section>
 
 <!-- ═════════════ 19 ═════════════ -->
-<section class="flow">
-<h2><span class="n">19</span>Deploying on Netlify</h2>
+<section class="brk">
+<h2 id="s19"><span class="n">19</span>Deploying on Netlify</h2>
 <ol class="steps">
   <li>Run <code>database/update_existing.sql</code> in the Supabase SQL Editor.</li>
   <li>In Netlify → Site configuration → Environment variables, set every key below.</li>
   <li>Push to the repository. Netlify runs <code>npm test &amp;&amp; npm run build</code> on Node 22 and publishes <code>dist/</code>; a failing test stops the deploy and the live site stays as it was.</li>
   <li>After the deploy: sign in at /admin2026, set Renta UG's MTN/Airtel numbers on Subscriptions, check Health &amp; settings, and run <code>npm run permanent-account</code> once from a computer with the private <code>.env</code>.</li>
 </ol>
-<table>
-  <tr><th>Variable</th><th>Used for</th></tr>
+<table><thead><tr><th>Variable</th><th>Used for</th></tr></thead><tbody>
   <tr><td><code>VITE_SUPABASE_URL</code>, <code>VITE_SUPABASE_ANON_KEY</code></td><td>The app talking to the database (public by design)</td></tr>
   <tr><td><code>SUPABASE_SERVICE_ROLE_KEY</code></td><td>Server functions only (secret)</td></tr>
   <tr><td><code>VITE_VAPID_PUBLIC_KEY</code>, <code>VAPID_PRIVATE_KEY</code>, <code>VAPID_SUBJECT</code></td><td>Phone notifications</td></tr>
@@ -668,12 +546,12 @@
   <tr><td><code>AT_USERNAME</code>, <code>AT_API_KEY</code>, <code>AT_SENDER_ID</code></td><td>Text messages (Africa's Talking)</td></tr>
   <tr><td><code>CLIENT_URL</code>, <code>VITE_SUPPORT_EMAIL</code></td><td>Links in emails; support email on public pages</td></tr>
   <tr><td><code>PERMANENT_ACCOUNT_PASSWORD</code></td><td>Only in the private <code>.env</code> on your computer, not on Netlify</td></tr>
-</table>
+</tbody></table>
 </section>
 
 <!-- ═════════════ 20 ═════════════ -->
-<section>
-<h2><span class="n">20</span>Testing and quality</h2>
+<section class="brk">
+<h2 id="s20"><span class="n">20</span>Testing and quality</h2>
 <ul>
   <li><b>Automated tests</b> (<code>tests/</code>), run before every deploy:
     <ul>
@@ -692,10 +570,9 @@
 </section>
 
 <!-- ═════════════ 21 ═════════════ -->
-<section class="flow">
-<h2><span class="n">21</span>Support guide and troubleshooting</h2>
-<table>
-  <tr><th style="width:34%">Problem</th><th>What to do</th></tr>
+<section>
+<h2 id="s21"><span class="n">21</span>Support guide and troubleshooting</h2>
+<table><thead><tr><th style="width:34%">Problem</th><th>What to do</th></tr></thead><tbody>
   <tr><td>Didn't get the email code</td><td>Check Spam / Promotions; wait a minute; request a new code.</td></tr>
   <tr><td>Connection code doesn't work</td><td>It lasts 20 minutes and only works for the email/phone the landlord typed; create a new one.</td></tr>
   <tr><td>Landlord sees only Subscription, Inbox, Settings</td><td>The subscription is not active: pay or renew, then Renta UG confirms.</td></tr>
@@ -705,22 +582,23 @@
   <tr><td>No phone notifications on iPhone</td><td>Add Renta UG to the Home Screen, open it from there, turn notifications on in Settings.</td></tr>
   <tr><td>Page shows old information</td><td>Pull down or reopen the app; check the internet connection.</td></tr>
   <tr><td>Account suspended</td><td>Only Renta UG can suspend; contact support.</td></tr>
-</table>
-<p><b>Contact:</b> 0726 128782 (call or WhatsApp) · shofascompany@gmail.com. Renta UG never asks for passwords or mobile money PINs.</p>
+</tbody></table>
+<p><b>Contact:</b> 0740 378547 (call or WhatsApp) · shofascompany@gmail.com. Renta UG never asks for passwords or mobile money PINs.</p>
 </section>
 
 <!-- ═════════════ 22–23 ═════════════ -->
-<section>
-<h2><span class="n">22</span>Known limits and next steps</h2>
+<section class="brk">
+<h2 id="s22"><span class="n">22</span>Known limits and next steps</h2>
 <ul>
   <li>Payments are confirmed by people (landlord, Renta UG), not read automatically from MTN/Airtel; a future version could connect to the networks' payment services.</li>
   <li>Calendar-labelled rent months (e.g. "December rent") are labels; the time they buy is always 30 days.</li>
   <li>Possible additions: printable statements per tenant, several staff accounts per landlord, scheduled notices, more languages (Luganda, Runyankole).</li>
 </ul>
 
-<h2 style="margin-top:18pt"><span class="n">23</span>Glossary</h2>
-<table>
-  <tr><th style="width:28%">Term</th><th>Meaning</th></tr>
+</section>
+<section>
+<h2 id="s23"><span class="n">23</span>Glossary</h2>
+<table><thead><tr><th style="width:28%">Term</th><th>Meaning</th></tr></thead><tbody>
   <tr><td>Rent month</td><td>30 days of rental time.</td></tr>
   <tr><td>Rental time</td><td>The period the tenant's paid rent covers.</td></tr>
   <tr><td>Debt days</td><td>Days after the rental time ended that are not paid yet.</td></tr>
@@ -731,22 +609,9 @@
   <tr><td>Small / Big scale</td><td>Landlord subscription packages by number of houses and rooms.</td></tr>
   <tr><td>Records</td><td>Former tenants and their full history.</td></tr>
   <tr><td>Permanent account</td><td>The one landlord that is free for life and can never be deleted.</td></tr>
-</table>
-<p class="muted" style="margin-top:16pt;text-align:center">Renta UG · Made in Uganda · 0726 128782 · shofascompany@gmail.com</p>
+</tbody></table>
+<p class="muted" style="margin-top:16pt;text-align:center">Renta UG · Made in Uganda · 0740 378547 · shofascompany@gmail.com</p>
 </section>
 
-<script>
-  // Leave out screenshots that haven't been taken yet (and a gallery with none at all)
-  const drop = (img) => {
-    const fig = img.closest('figure'); const row = fig && fig.parentElement
-    fig && fig.remove()
-    if (row && row.classList.contains('phones') && !row.querySelector('figure')) row.remove()
-    document.querySelectorAll('[data-gallery]').forEach((g) => { if (!g.querySelector('img')) g.remove() })
-  }
-  document.querySelectorAll('img').forEach((img) => {
-    if (img.complete && !img.naturalWidth) drop(img)
-    else img.addEventListener('error', () => drop(img))
-  })
-</script>
 </body>
 </html>

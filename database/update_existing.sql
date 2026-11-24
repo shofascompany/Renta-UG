@@ -1813,6 +1813,35 @@ grant execute on function public.confirm_cash_payment(uuid, bigint) to authentic
 --
 -- Safe to run more than once.
 
+-- ── One-time recalculation for current tenants: paid up to = start + months fully paid ──
+-- ONLY the very first time (before the function below exists). On a database that already has it this must
+-- never run again: it would wipe part-payment days and replace 30-day months with calendar months (52).
+do $$
+begin
+  if to_regprocedure('public.extend_rental_time()') is null then
+    update public.tenants t
+    set lease_start = s.start_day,
+        lease_end = case when s.paid_months > 0 then (s.start_day + make_interval(months => s.paid_months))::date end
+    from (
+      select tn.id,
+             coalesce(
+               tn.lease_start,
+               (select min((p.paid_at at time zone 'Africa/Kampala')::date) from public.payments p where p.tenant_id = tn.id and p.status = 'paid'),
+               (tn.created_at at time zone 'Africa/Kampala')::date
+             ) as start_day,
+             (select count(*)::int from public.payments p where p.tenant_id = tn.id and p.status = 'paid') as paid_months
+      from public.tenants tn
+      where tn.property_id is not null
+    ) s
+    where t.id = s.id;
+
+    -- New tenants start with no rental time until they pay
+    update public.tenants set lease_start = null
+    where property_id is not null and lease_end is null
+      and not exists (select 1 from public.payments p where p.tenant_id = tenants.id and p.status = 'paid');
+  end if;
+end $$;
+
 -- ── Rental time grows with every fully paid month ──
 create or replace function public.extend_rental_time() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -1833,28 +1862,6 @@ drop trigger if exists payments_extend_rental_time on public.payments;
 create trigger payments_extend_rental_time
   after insert or update of status on public.payments
   for each row execute function public.extend_rental_time();
-
--- ── One-time recalculation for current tenants: paid up to = start + months fully paid ──
-update public.tenants t
-set lease_start = s.start_day,
-    lease_end = case when s.paid_months > 0 then (s.start_day + make_interval(months => s.paid_months))::date end
-from (
-  select tn.id,
-         coalesce(
-           tn.lease_start,
-           (select min((p.paid_at at time zone 'Africa/Kampala')::date) from public.payments p where p.tenant_id = tn.id and p.status = 'paid'),
-           (tn.created_at at time zone 'Africa/Kampala')::date
-         ) as start_day,
-         (select count(*)::int from public.payments p where p.tenant_id = tn.id and p.status = 'paid') as paid_months
-  from public.tenants tn
-  where tn.property_id is not null
-) s
-where t.id = s.id;
-
--- New tenants start with no rental time until they pay
-update public.tenants set lease_start = null
-where property_id is not null and lease_end is null
-  and not exists (select 1 from public.payments p where p.tenant_id = tenants.id and p.status = 'paid');
 
 -- ── Connection code: must match the account's email or phone ──
 create or replace function public.redeem_connect_code(p_code text) returns uuid
@@ -2834,19 +2841,28 @@ create trigger payments_extend_rental_time
   after insert or update of status, amount_paid on public.payments
   for each row execute function public.extend_rental_time();
 
--- One-time catch-up: tenants with no rental time yet who already have a month at 60%+ paid
-update public.tenants t
-set lease_start = s.start_day,
-    lease_end = (s.start_day + make_interval(months => s.months))::date
-from (
-  select p.tenant_id,
-         min((coalesce(p.paid_at, p.created_at) at time zone 'Africa/Kampala')::date) as start_day,
-         count(*)::int as months
-  from public.payments p
-  where p.amount > 0 and (p.status = 'paid' or p.amount_paid * 10 >= p.amount * 6)
-  group by p.tenant_id
-) s
-where t.id = s.tenant_id and t.property_id is not null and t.lease_end is null;
+-- One-time catch-up: tenants with no rental time yet who already have a month at 60%+ paid.
+-- Never again once part payments buy days (52 adds payments.month_credited).
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payments' and column_name = 'month_credited'
+  ) then
+    update public.tenants t
+    set lease_start = s.start_day,
+        lease_end = (s.start_day + make_interval(months => s.months))::date
+    from (
+      select p.tenant_id,
+             min((coalesce(p.paid_at, p.created_at) at time zone 'Africa/Kampala')::date) as start_day,
+             count(*)::int as months
+      from public.payments p
+      where p.amount > 0 and (p.status = 'paid' or p.amount_paid * 10 >= p.amount * 6)
+      group by p.tenant_id
+    ) s
+    where t.id = s.tenant_id and t.property_id is not null and t.lease_end is null;
+  end if;
+end $$;
 
 -- ────────────── 37_email_verification.sql ──────────────
 
@@ -3764,9 +3780,16 @@ create trigger profiles_landlord_billing before insert or update of role on publ
   for each row execute function public.landlord_billing_defaults();
 
 -- Existing landlords: code + free trial from today (one at a time so codes stay unique)
+-- Never again once the free trial is removed (47 adds trial_removed_at): it would open unpaid accounts
 do $$
 declare r record;
 begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'billing_settings' and column_name = 'trial_removed_at'
+  ) then
+    return;
+  end if;
   for r in select id from public.profiles where role = 'landlord' and (billing_code is null or subscription_until is null) loop
     update public.profiles
     set billing_code = coalesce(billing_code, public.new_billing_code()),

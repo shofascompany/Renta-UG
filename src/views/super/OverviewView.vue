@@ -15,6 +15,7 @@ import Panel from '@/components/admin/Panel.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
 import RankBars from '@/components/charts/RankBars.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin home: the whole platform at a glance, what needs attention, and shortcuts to act.
 const rental = useRentalStore()
@@ -187,7 +188,7 @@ const greeting = (() => {
               </template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No payments yet.</p>
+          <EmptyState v-else compact kind="money" title="No payments yet" />
         </div>
       </section>
 
@@ -202,7 +203,7 @@ const greeting = (() => {
               <template #icon><span class="icon-disc disc-brand"><ShieldCheck class="size-5" /></span></template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">Changes you make appear here.</p>
+          <EmptyState v-else compact kind="activity" title="No actions yet" text="Changes you make appear here." />
         </div>
       </section>
     </div>

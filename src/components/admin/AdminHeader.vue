@@ -48,8 +48,8 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
     inset: 0;
     z-index: -1;
     background-image:
-      linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+      linear-gradient(rgb(var(--glass) / 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--glass) / 0.06) 1px, transparent 1px);
     background-size: 26px 26px;
     mask-image: linear-gradient(180deg, #000, transparent 85%);
   }
@@ -62,7 +62,7 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
     width: 18rem;
     height: 18rem;
     border-radius: 9999px;
-    background: radial-gradient(circle, rgb(255 255 255 / 0.2), transparent 65%);
+    background: radial-gradient(circle, rgb(var(--glass) / 0.2), transparent 65%);
   }
   .eyebrow {
     display: inline-flex;
@@ -74,7 +74,7 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
     padding: 0.3rem 0.7rem;
     font-size: 0.6875rem;
     color: #fff;
-    background: rgb(255 255 255 / 0.14);
+    background: rgb(var(--glass) / 0.14);
     box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2);
   }
   .title { margin-top: 0.75rem; font-size: 1.75rem; color: #fff; }
@@ -82,7 +82,7 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
   .actions { margin-top: 0.25rem; }
 
   /* Action buttons on the gradient */
-  .actions :slotted(*) {
+  .actions > :slotted(*) {
     height: 2.875rem;
     width: 100%;
     border-radius: 0.875rem;
@@ -94,14 +94,14 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
     box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.35);
   }
   .actions :slotted(.btn-secondary) {
-    background: rgb(255 255 255 / 0.12);
+    background: rgb(var(--glass) / 0.12);
     border-color: rgb(255 255 255 / 0.25);
     color: #fff;
   }
-  .actions :slotted(.btn-secondary:hover) { background: rgb(255 255 255 / 0.2); }
+  .actions :slotted(.btn-secondary:hover) { background: rgb(var(--glass) / 0.2); }
 
   /* Compact: a neat pill sized to its words, not the full width */
-  .actions.compact :slotted(*) {
+  .actions.compact > :slotted(*) {
     width: auto;
     height: 2.75rem;
     padding: 0 1.25rem 0 1rem;
@@ -112,6 +112,6 @@ defineProps({ eyebrow: String, title: String, subtitle: String, compact: Boolean
 
 /* Compact pill also on computers */
 @media (min-width: 1024px) {
-  .actions.compact :slotted(*) { border-radius: 9999px; padding-inline: 1.1rem; }
+  .actions.compact > :slotted(*) { border-radius: 9999px; padding-inline: 1.1rem; }
 }
 </style>

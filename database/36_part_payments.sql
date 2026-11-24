@@ -33,16 +33,25 @@ create trigger payments_extend_rental_time
   after insert or update of status, amount_paid on public.payments
   for each row execute function public.extend_rental_time();
 
--- One-time catch-up: tenants with no rental time yet who already have a month at 60%+ paid
-update public.tenants t
-set lease_start = s.start_day,
-    lease_end = (s.start_day + make_interval(months => s.months))::date
-from (
-  select p.tenant_id,
-         min((coalesce(p.paid_at, p.created_at) at time zone 'Africa/Kampala')::date) as start_day,
-         count(*)::int as months
-  from public.payments p
-  where p.amount > 0 and (p.status = 'paid' or p.amount_paid * 10 >= p.amount * 6)
-  group by p.tenant_id
-) s
-where t.id = s.tenant_id and t.property_id is not null and t.lease_end is null;
+-- One-time catch-up: tenants with no rental time yet who already have a month at 60%+ paid.
+-- Never again once part payments buy days (52 adds payments.month_credited).
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payments' and column_name = 'month_credited'
+  ) then
+    update public.tenants t
+    set lease_start = s.start_day,
+        lease_end = (s.start_day + make_interval(months => s.months))::date
+    from (
+      select p.tenant_id,
+             min((coalesce(p.paid_at, p.created_at) at time zone 'Africa/Kampala')::date) as start_day,
+             count(*)::int as months
+      from public.payments p
+      where p.amount > 0 and (p.status = 'paid' or p.amount_paid * 10 >= p.amount * 6)
+      group by p.tenant_id
+    ) s
+    where t.id = s.tenant_id and t.property_id is not null and t.lease_end is null;
+  end if;
+end $$;

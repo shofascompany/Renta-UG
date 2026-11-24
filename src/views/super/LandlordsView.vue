@@ -9,6 +9,7 @@ import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const rental = useRentalStore()
 const route = useRoute()
@@ -123,9 +124,7 @@ async function save() {
           </template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">
-        {{ rental.landlords.length ? 'No landlords match.' : 'No landlords yet. Tap "Register landlord" to add one.' }}
-      </p>
+      <EmptyState v-else :kind="rental.landlords.length ? 'search' : 'people'" :title="rental.landlords.length ? 'No landlords match' : 'No landlords yet'" :text="rental.landlords.length ? 'Try another name or filter.' : 'Use Register landlord to add one.'" />
     </div>
 
     <BaseModal v-model="open" title="Register landlord">
@@ -145,7 +144,7 @@ async function save() {
           </div>
         </div>
         <p class="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">They sign in with this email (or phone). The first time, they create their own password.</p>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2 pt-1">
           <button type="button" class="btn-secondary" @click="open = false">Cancel</button>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Registering…' : 'Register' }}</button>

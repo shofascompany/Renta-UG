@@ -52,7 +52,7 @@ defineProps({
 .glass {
   --color-white: #fff;
   color: #fff;
-  background: rgb(255 255 255 / 0.09);
+  background: rgb(var(--glass) / 0.09);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
   backdrop-filter: blur(6px);
 }
@@ -63,6 +63,6 @@ defineProps({
 
 .link:hover { transform: translateY(-2px); }
 .solid.link:hover { box-shadow: 0 16px 34px -20px rgb(15 23 42 / 0.45); }
-.glass.link:hover { background: rgb(255 255 255 / 0.15); }
+.glass.link:hover { background: rgb(var(--glass) / 0.15); }
 .link:active { transform: scale(0.98); }
 </style>

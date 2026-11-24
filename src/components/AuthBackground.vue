@@ -51,12 +51,12 @@
   .auth-bg, .blob { animation: none; }
 }
 /* Dark mode: black, with a soft neutral light from the top (no colour wash) */
-:global(html.dark) .auth-bg {
+html.dark .auth-bg {
   animation: none;
   background:
-    radial-gradient(60rem 34rem at 50% -12%, rgb(255 255 255 / 0.07), transparent 62%),
-    radial-gradient(40rem 30rem at 50% 115%, rgb(255 255 255 / 0.03), transparent 60%),
+    radial-gradient(60rem 34rem at 50% -12%, rgb(var(--glass) / 0.07), transparent 62%),
+    radial-gradient(40rem 30rem at 50% 115%, rgb(var(--glass) / 0.03), transparent 60%),
     #000;
 }
-:global(html.dark) .blob { display: none; }
+html.dark .blob { display: none; }
 </style>

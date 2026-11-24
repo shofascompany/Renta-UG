@@ -7,6 +7,7 @@ import { useRentalStore } from '@/stores/rental'
 import { formatDate } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: send an announcement from "Renta UG" to tenants, landlords or everyone —
 // across the platform or for one landlord only. It also pops up on phones that allow notifications.
@@ -80,7 +81,7 @@ async function send() {
         Reaches <strong class="text-slate-900">{{ reach.tenants }}</strong> tenant{{ reach.tenants === 1 ? '' : 's' }} and
         <strong class="text-slate-900">{{ reach.landlords }}</strong> landlord{{ reach.landlords === 1 ? '' : 's' }}.
       </p>
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
       <p v-if="sent !== null" class="mt-3 flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 class="size-4.5" /> Sent to {{ sent }} {{ sent === 1 ? 'person' : 'people' }}.</p>
       <button :data-busy="Boolean(busy)" class="btn-primary mt-4 h-12 w-full rounded-2xl" :disabled="busy || message.trim().length < 3 || !(reach.tenants + reach.landlords)" @click="send">
         <Send class="size-4" /> {{ busy ? 'Sending…' : 'Send announcement' }}
@@ -94,7 +95,7 @@ async function send() {
           <template #icon><span class="icon-disc disc-brand"><Megaphone class="size-5" /></span></template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No announcements yet.</p>
+      <EmptyState v-else compact kind="announce" title="No announcements yet" text="Announcements you send appear here." />
     </div>
   </div>
 </template>

@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Phone, Mail, DoorClosed, Wallet, CalendarClock, CalendarDays, Smartphone, UserCog, KeyRound, ReceiptText, ArrowLeft, Link2, LogOut, TriangleAlert,
+  Phone, Mail, DoorClosed, Wallet, CalendarClock, CalendarDays, Smartphone, UserCog, KeyRound, ReceiptText, ArrowLeft, Link2, LogOut,
   HandCoins, Trash2,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
@@ -12,7 +12,9 @@ import BaseModal from '@/components/BaseModal.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 import DeleteTenantModal from '@/components/DeleteTenantModal.vue'
+import EndTenancyModal from '@/components/EndTenancyModal.vue'
 import PayStatus from '@/components/PayStatus.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 
 // Full page about ONE tenant: who they are, where they live, their rental time and rent.
@@ -92,19 +94,7 @@ async function giveAccess() {
 
 // ── End tenancy (asks first) ──
 const endOpen = ref(false)
-async function endTenancy() {
-  busy.value = true
-  error.value = ''
-  try {
-    await rental.endTenancy(t.value.id)
-    endOpen.value = false
-    router.replace('/landlord/tenants')
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    busy.value = false
-  }
-}</script>
+</script>
 
 <template>
   <div class="mx-auto max-w-lg">
@@ -115,7 +105,7 @@ async function endTenancy() {
       </button>
     </div>
 
-    <div v-if="!t" class="py-20 text-center text-sm text-slate-500">Tenant not found.</div>
+    <div v-if="!t" class="sheet"><EmptyState kind="missing" title="Tenant not found" text="It may have been removed, or the link is old." to="/landlord/tenants" action="All tenants" /></div>
 
     <div v-else class="space-y-5 pb-6">      <!-- Who -->
       <div class="relative overflow-hidden rounded-3xl px-5 pt-6 pb-5 text-center text-white" style="background: linear-gradient(140deg, #14918a, #0f766e 50%, #0a3b38)">
@@ -244,8 +234,8 @@ async function endTenancy() {
         </div>
       </dl>
     
-      <p v-if="done" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-800">{{ done }}</p>
-      <p v-if="error && !endOpen && !accessOpen" class="text-sm text-red-600">{{ error }}</p>
+      <p v-if="done" class="form-ok" role="status">{{ done }}</p>
+      <p v-if="error && !accessOpen" class="form-error" role="alert">{{ error }}</p>
 
       <!-- Actions -->
       <div class="grid gap-2.5 pt-1">
@@ -255,7 +245,7 @@ async function endTenancy() {
         <button v-if="!t.userId" type="button" class="btn-secondary h-12 w-full rounded-2xl text-[15px]" @click="connect">
           <Link2 class="size-5" /> Connect tenant
         </button>
-        <button type="button" class="btn-secondary h-12 w-full rounded-2xl border-red-200 text-[15px] text-red-600 hover:bg-red-50" @click="endOpen = true; error = ''">
+        <button type="button" class="btn-secondary h-12 w-full rounded-2xl border-red-200 text-[15px] text-red-600 hover:bg-red-50" @click="endOpen = true">
           <LogOut class="size-5" /> End tenancy
         </button>
         <button type="button" class="btn h-12 w-full rounded-2xl bg-red-600 text-[15px] text-white hover:bg-red-700" @click="deleteOpen = true">
@@ -276,7 +266,7 @@ async function endTenancy() {
             {{ t.name }} will sign in to Renta with <strong class="text-slate-900">{{ t.phone || 'their phone number' }}</strong>, then add an email and choose a password. No code is needed.
           </p>
           <p v-if="!t.phone" class="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Add a phone number for this tenant first.</p>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn-secondary" @click="accessOpen = false">Cancel</button>
             <button type="button" class="btn-primary" :data-busy="busy" :disabled="busy || !t.phone" @click="giveAccess">{{ busy ? 'Connecting…' : 'Connect' }}</button>
@@ -284,30 +274,14 @@ async function endTenancy() {
         </div>
       </BaseModal>
 
-      <!-- Confirm end of tenancy -->
-      <BaseModal v-model="endOpen" title="End tenancy?" width="max-w-md">
-        <div class="space-y-4">
-          <div class="flex items-start gap-3.5 rounded-2xl bg-red-50 p-4">
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600"><TriangleAlert class="size-5" /></span>
-            <p class="text-sm leading-relaxed text-red-800">
-              <strong>{{ t.name }}</strong> will move out of <strong>{{ rental.placeName(t.propertyId) }}</strong>. It becomes vacant, and their full history is kept in Records.
-            </p>
-          </div>
-          <p v-if="owed" class="text-sm text-slate-600">They still owe <strong class="text-slate-900">{{ formatUGX(owed) }}</strong>. This stays on their record.</p>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-          <div class="flex justify-end gap-2">
-            <button type="button" class="btn-secondary" @click="endOpen = false">Keep tenant</button>
-            <button type="button" class="btn bg-red-600 text-white hover:bg-red-700" :data-busy="busy" :disabled="busy" @click="endTenancy">{{ busy ? 'Ending…' : 'End tenancy' }}</button>
-          </div>
-        </div>
-      </BaseModal>
+      <EndTenancyModal v-model="endOpen" :tenant="t" @ended="router.replace('/landlord/tenants')" @record="recordPay" />
     </template>
   </div>
 </template>
 
 <style scoped>
-.debt-card { background: linear-gradient(160deg, #fffbeb 0%, var(--color-white) 75%); box-shadow: inset 0 0 0 1.5px #fcd34d, 0 18px 40px -30px rgb(146 64 14 / 0.6); }
+.debt-card { background: linear-gradient(160deg, var(--color-amber-50) 0%, var(--color-white) 75%); box-shadow: inset 0 0 0 1.5px #fcd34d, 0 18px 40px -30px rgb(146 64 14 / 0.6); }
 .debt-ico { color: #fff; background: linear-gradient(140deg, #fbbf24, #d97706); box-shadow: 0 10px 20px -12px rgb(217 119 6 / 0.9); }
 .debt-fill { background: linear-gradient(90deg, #fbbf24, #d97706); }
-:global(html.dark) .debt-card { background: var(--color-white); box-shadow: inset 0 0 0 1.5px #574213; }
+html.dark .debt-card { background: var(--color-white); box-shadow: inset 0 0 0 1.5px #574213; }
 </style>

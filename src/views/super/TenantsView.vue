@@ -11,6 +11,7 @@ import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import PayStatus from '@/components/PayStatus.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: every tenant on the platform, plus app accounts that aren't renting anything.
 const rental = useRentalStore()
@@ -122,26 +123,26 @@ async function removeAccount() {
           </template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No tenants here.</p>
+      <EmptyState v-else kind="people" title="No tenants here" text="Try another filter or name." />
     </div>
 
     <!-- App accounts not renting -->
     <div v-else class="sheet">
       <p class="border-b border-slate-100 px-5 py-3.5 text-xs text-slate-500">App accounts not renting right now: never connected, or their tenancy ended.</p>
       <div v-if="inactiveLoading" class="space-y-3 p-5"><div v-for="i in 3" :key="i" class="skeleton h-10 w-full" /></div>
-      <p v-else-if="inactiveError" class="px-5 py-6 text-sm text-red-600">{{ inactiveError }}</p>
+      <p v-else-if="inactiveError" class="form-error m-5" role="alert">{{ inactiveError }}</p>
       <ul v-else-if="inactive.length" class="divide-y divide-slate-100">
         <ListRow v-for="a in inactive" :key="a.id" :title="a.name || a.email" :subtitle="`${a.email} · joined ${formatDate(a.createdAt)} · ${a.formerTenant ? 'former tenant' : 'never connected'}`" :chevron="false" @click="deleting = a">
           <template #icon><span class="icon-disc disc-slate rounded-full"><UserX class="size-5" /></span></template>
           <template #value><span class="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-red-600"><Trash2 class="size-3.5" /> Delete</span></template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No unused accounts.</p>
+      <EmptyState v-else kind="done" title="No unused accounts" text="Every tenant account is renting." />
     </div>
 
     <BaseModal :model-value="Boolean(deleting)" title="Delete account?" width="max-w-sm" @update:model-value="!$event && (deleting = null)">
-      <p class="text-sm text-slate-600">The account <strong>{{ deleting?.email }}</strong> will be deleted and can't sign in any more. This cannot be undone.</p>
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p class="rounded-2xl bg-red-50 p-4 text-sm leading-relaxed text-red-900">The account <strong>{{ deleting?.email }}</strong> will be deleted and can't sign in any more. This cannot be undone.</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
       <div class="mt-6 flex justify-end gap-2">
         <button class="btn-secondary" @click="deleting = null">Cancel</button>
         <button :data-busy="Boolean(busy)" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="busy" @click="removeAccount">{{ busy ? 'Deleting…' : 'Delete' }}</button>

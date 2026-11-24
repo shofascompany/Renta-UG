@@ -13,6 +13,7 @@ import ListRow from '@/components/admin/ListRow.vue'
 import PayStatus from '@/components/PayStatus.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
 import RankBars from '@/components/charts/RankBars.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Landlord overview: total revenue, the best house, cash vs mobile money, properties,
 // how long each tenant has left, and what needs action. Every row opens its details.
@@ -301,7 +302,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
               </template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No properties yet.</p>
+          <EmptyState v-else compact kind="places" title="No properties yet" text="Add your first house or rental to start." to="/landlord/properties" action="Add a property" />
         </div>
       </section>
 
@@ -326,7 +327,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
               </template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No tenants yet.</p>
+          <EmptyState v-else compact kind="time" title="No tenants yet" text="Their rental time shows here once they move in." />
         </div>
       </section>
 
@@ -355,7 +356,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
               <template #icon><span class="icon-disc disc-red rounded-full"><AlertCircle class="size-5" /></span></template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">Nobody owes rent right now.</p>
+          <EmptyState v-else compact kind="done" title="Nobody owes rent" text="Every tenant is up to date." />
         </div>
       </section>
 
@@ -384,7 +385,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
               </template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No payments yet.</p>
+          <EmptyState v-else compact kind="money" title="No payments yet" text="Money you receive appears here." />
         </div>
       </section>
 

@@ -7,32 +7,23 @@ import { timeLeft } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod, daysUntil } from '@/utils/format'
 import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 import DeleteTenantModal from '@/components/DeleteTenantModal.vue'
-import BaseModal from '@/components/BaseModal.vue'
+import EndTenancyModal from '@/components/EndTenancyModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Mini account page for a tenant without a smartphone: just the essentials, run by the landlord.
 const props = defineProps({ id: String })
 const rental = useRentalStore()
 const router = useRouter()
 const showCash = ref(false)
+const payAmount = ref(0)
+function recordPay(amount = 0) {
+  payAmount.value = amount
+  showCash.value = true
+}
 const deleteOpen = ref(false)
 
 // End tenancy instead (history kept in Records)
 const endOpen = ref(false)
-const ending = ref(false)
-const endError = ref('')
-async function endTenancy() {
-  ending.value = true
-  endError.value = ''
-  try {
-    await rental.endTenancy(t.value.id)
-    endOpen.value = false
-    router.replace('/landlord/managed')
-  } catch (e) {
-    endError.value = e.message
-  } finally {
-    ending.value = false
-  }
-}
 
 const t = computed(() => rental.tenantById(props.id))
 const house = computed(() => t.value && rental.propertyById(t.value.propertyId))
@@ -52,7 +43,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
       <ArrowLeft class="size-4" /> Managed accounts
     </RouterLink>
 
-    <div v-if="!t" class="py-20 text-center text-sm text-slate-500">Tenant not found.</div>
+    <div v-if="!t" class="sheet"><EmptyState kind="missing" title="Tenant not found" text="It may have been removed, or the link is old." to="/landlord/managed" action="Managed accounts" /></div>
 
     <template v-else>
       <!-- Account card -->
@@ -72,7 +63,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
         <p class="mt-0.5 text-4xl font-bold tracking-tight tabular-nums">{{ formatUGX(pay?.owed ?? owed) }}</p>
         <p class="mt-1 text-sm text-white/70">{{ dues.length ? `${dues.length} unpaid month${dues.length === 1 ? '' : 's'}` : pay?.key === 'paid' ? 'Paid' : 'Not paid yet' }}</p>
         <div class="mt-6 grid grid-cols-2 gap-2.5">
-          <button class="hero-btn hero-btn-solid" @click="showCash = true"><Banknote class="size-4" /> Record payment</button>
+          <button class="hero-btn hero-btn-solid px-2! whitespace-nowrap" @click="recordPay(0)"><Banknote class="size-4" /> Record payment</button>
           <a v-if="t.phone" :href="`tel:${t.phone}`" class="hero-btn hero-btn-glass"><Phone class="size-4" /> Call</a>
           <RouterLink v-else :to="`/landlord/properties/${t.propertyId}`" class="hero-btn hero-btn-glass">Details</RouterLink>
         </div>
@@ -125,7 +116,7 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
             </span>
           </li>
         </ul>
-        <p v-else class="px-5 py-8 text-center text-sm text-slate-500">No rent charges yet.</p>
+        <EmptyState v-else compact kind="time" title="No rent months yet" text="They appear with the first payment." />
       </div>
 
       <!-- Got a smartphone -->
@@ -144,21 +135,9 @@ const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2)
         <button type="button" class="btn h-12 rounded-2xl bg-red-600 text-white hover:bg-red-700" @click="deleteOpen = true"><Trash2 class="size-4.5" /> Delete tenant</button>
       </div>
 
-      <RecordPaymentModal v-model="showCash" :tenant-id="t.id" />
+      <RecordPaymentModal v-model="showCash" :tenant-id="t.id" :preset-amount="payAmount" />
       <DeleteTenantModal v-model="deleteOpen" :tenant="t" @deleted="router.replace('/landlord/managed')" @end-instead="endOpen = true" />
-      <BaseModal v-model="endOpen" title="End tenancy?" width="max-w-md">
-        <div class="space-y-4">
-          <p class="text-sm leading-relaxed text-slate-600">
-            <strong class="text-slate-900">{{ t.name }}</strong> moves out of <strong class="text-slate-900">{{ rental.placeName(t.propertyId) }}</strong>. The room becomes empty and their payment history is kept in Records.
-          </p>
-          <p v-if="owed" class="text-sm text-slate-600">They still owe <strong class="text-slate-900">{{ formatUGX(owed) }}</strong>. This stays on their record.</p>
-          <p v-if="endError" class="text-sm text-red-600">{{ endError }}</p>
-          <div class="flex justify-end gap-2">
-            <button type="button" class="btn-secondary" @click="endOpen = false">Keep tenant</button>
-            <button type="button" class="btn bg-red-600 text-white hover:bg-red-700" :data-busy="ending" :disabled="ending" @click="endTenancy">{{ ending ? 'Ending…' : 'End tenancy' }}</button>
-          </div>
-        </div>
-      </BaseModal>
+      <EndTenancyModal v-model="endOpen" :tenant="t" @ended="router.replace('/landlord/managed')" @record="recordPay" />
     </template>
   </div>
 </template>

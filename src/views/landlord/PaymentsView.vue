@@ -184,7 +184,7 @@ function exportCSV() {
         </div>
 
         <!-- Month -->
-        <DropMenu label="Choose month" width="w-60" trigger-class="tool-btn" :class="month && 'is-on'">
+        <DropMenu label="Choose month" title="Month" width="w-60" trigger-class="tool-btn" :class="month && 'is-on'">
           <template #trigger>
             <CalendarDays class="size-[1.15rem]" />
             <span class="hidden sm:inline">{{ month ? longMonth(month) : 'All months' }}</span>
@@ -192,12 +192,12 @@ function exportCSV() {
             <span v-if="month" class="tool-dot sm:hidden" />
           </template>
           <template #default="{ close }">
-            <div class="max-h-72 overflow-y-auto">
+            <div>
               <button type="button" class="menu-item" :class="!month && 'menu-item-on'" @click="month = ''; close()">
-                <span class="flex-1 text-left">All months</span><Check v-if="!month" class="size-4" />
+                <span class="flex-1 text-left">All months</span><span v-if="!month" class="menu-check"><Check class="size-3" stroke-width="3" /></span>
               </button>
               <button v-for="m in monthsWithCharges" :key="m" type="button" class="menu-item" :class="month === m && 'menu-item-on'" @click="month = m; close()">
-                <span class="flex-1 text-left">{{ longMonth(m) }}</span><Check v-if="month === m" class="size-4" />
+                <span class="flex-1 text-left">{{ longMonth(m) }}</span><span v-if="month === m" class="menu-check"><Check class="size-3" stroke-width="3" /></span>
               </button>
             </div>
           </template>
@@ -209,15 +209,15 @@ function exportCSV() {
           <template #default="{ close }">
             <button type="button" class="menu-item" :disabled="!list.length" @click="exportCSV(); close()">
               <span class="menu-ico bg-emerald-50 text-emerald-700"><FileDown class="size-4" /></span>
-              <span class="flex-1 text-left">Download list<span class="block text-xs font-normal text-slate-400">Excel / CSV file</span></span>
+              <span class="flex-1 text-left">Download list<span class="menu-sub">Excel / CSV file</span></span>
             </button>
             <button type="button" class="menu-item" @click="cashHistoryOpen = true; close()">
               <span class="menu-ico bg-amber-50 text-amber-700"><History class="size-4" /></span>
-              <span class="flex-1 text-left">Payment history<span class="block text-xs font-normal text-slate-400">Cash and mobile money</span></span>
+              <span class="flex-1 text-left">Payment history<span class="menu-sub">Cash and mobile money</span></span>
             </button>
             <RouterLink to="/landlord/revenue" class="menu-item" @click="close()">
               <span class="menu-ico bg-sky-50 text-sky-700"><Banknote class="size-4" /></span>
-              <span class="flex-1 text-left">Transactions<span class="block text-xs font-normal text-slate-400">Every payment received</span></span>
+              <span class="flex-1 text-left">Transactions<span class="menu-sub">Every payment received</span></span>
             </RouterLink>
           </template>
         </DropMenu>
@@ -360,8 +360,8 @@ function exportCSV() {
 }
 .pay-action:active { transform: scale(0.97); }
 .pay-action-solid { background: #fff; color: #0a3b38; box-shadow: 0 10px 22px -12px rgb(0 0 0 / 0.5); }
-.pay-action-glass { color: #fff; background: rgb(255 255 255 / 0.12); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.22); }
-.pay-action-glass:hover { background: rgb(255 255 255 / 0.18); }
+.pay-action-glass { color: #fff; background: rgb(var(--glass) / 0.12); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.22); }
+.pay-action-glass:hover { background: rgb(var(--glass) / 0.18); }
 .pay-ico {
   display: flex;
   width: 2.35rem;
@@ -405,29 +405,4 @@ function exportCSV() {
   box-shadow: 0 0 0 2px var(--color-white);
 }
 
-/* Menu rows */
-.menu-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.75rem;
-  border-radius: 0.75rem;
-  padding: 0.7rem 0.75rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--color-slate-700);
-  transition: background-color 0.12s ease;
-}
-.menu-item:hover { background: var(--color-slate-50); }
-.menu-item:disabled { opacity: 0.45; }
-.menu-item-on { color: var(--color-brand-700); background: var(--color-brand-50); }
-.menu-ico {
-  display: flex;
-  width: 2.25rem;
-  height: 2.25rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.7rem;
-}
 </style>

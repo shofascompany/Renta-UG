@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // One whole split into parts (e.g. how rent was paid). Tall segmented bar + a legend that doubles
 // as the table view (name, amount, share), so identity never relies on colour alone.
@@ -43,7 +44,7 @@ const ink = (i) => (i === 3 ? '#0b0b0b' : '#ffffff')
         <span class="font-semibold text-slate-900 tabular-nums">{{ format(r.value) }}</span>
         <span class="w-10 text-right text-xs text-slate-500 tabular-nums">{{ Math.round(r.pct) }}%</span>
       </li>
-      <li v-if="!rows.length" class="py-3 text-center text-sm text-slate-500">No payments yet.</li>
+      <li v-if="!rows.length"><EmptyState compact kind="money" title="No payments yet" /></li>
     </ul>
   </div>
 </template>

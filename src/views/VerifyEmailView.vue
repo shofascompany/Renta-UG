@@ -210,7 +210,7 @@ function startAgain() {
               <template v-else>Code works for <strong class="tabular-nums">{{ clock }}</strong></template>
             </p>
 
-            <p v-if="error" class="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700" role="alert">{{ error }}</p>
+            <p v-if="error" class="form-error mt-4" role="alert">{{ error }}</p>
             <p v-else-if="info" class="mt-4 rounded-xl bg-emerald-50 p-3 text-center text-sm text-emerald-700">{{ info }}</p>
 
             <button :data-busy="Boolean(busy)" type="button" class="btn-primary mt-5 h-12 w-full rounded-2xl" :disabled="busy || expired || code.length !== LENGTH" @click="submit">

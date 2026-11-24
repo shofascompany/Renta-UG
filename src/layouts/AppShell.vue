@@ -15,6 +15,7 @@ import Logo from '@/components/Logo.vue'
 import ConnectLandlord from '@/components/ConnectLandlord.vue'
 import MoveOutScreen from '@/components/MoveOutScreen.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 const rental = useRentalStore()
@@ -418,9 +419,10 @@ const logout = useSignOut()
         class="mx-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-10"
         :class="[tabs.length && 'pb-32 lg:pb-10', setupMode ? 'max-w-3xl pb-16' : 'max-w-6xl']"
       >
-        <div v-if="rental.error" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Couldn't load your data: {{ rental.error }}
-          <button class="ml-2 font-medium underline" @click="rental.load()">Retry</button>
+        <div v-if="rental.error" class="sheet" role="alert">
+          <EmptyState kind="missing" title="Your data couldn't be loaded" :text="rental.error">
+            <button type="button" class="btn-primary mt-5 h-11 rounded-2xl px-6" @click="rental.load()">Try again</button>
+          </EmptyState>
         </div>
         <PageSkeleton v-else-if="!rental.loaded || waitingForBilling || (locked && !allowedWhenLocked(route.path))" />
         <ConnectLandlord v-else-if="unlinked && !onSettings" />
@@ -501,7 +503,7 @@ const logout = useSignOut()
 .side-admin :deep(.text-slate-900), .side-admin .text-slate-900 { color: #fff; }
 .side-admin .text-slate-400, .side-admin .text-slate-500, .side-admin .nav-group { color: rgb(255 255 255 / 0.45); }
 .side-admin .nav-link { color: rgb(255 255 255 / 0.72); }
-.side-admin .nav-link:hover { color: #fff; background: rgb(255 255 255 / 0.07); }
+.side-admin .nav-link:hover { color: #fff; background: rgb(var(--glass) / 0.07); }
 .side-admin .nav-on {
   color: #fff !important;
   background: linear-gradient(135deg, rgb(20 184 166 / 0.45), rgb(15 118 110 / 0.35)) !important;
@@ -510,8 +512,8 @@ const logout = useSignOut()
 .side-admin .nav-badge { background: #f59e0b; }
 .side-admin .border-t { border-color: rgb(255 255 255 / 0.1); }
 .side-admin .btn-ghost { color: rgb(255 255 255 / 0.75); }
-.side-admin .btn-ghost:hover { background: rgb(255 255 255 / 0.08); color: #fff; }
-.side-admin .bg-brand-50 { background: rgb(255 255 255 / 0.12); }
+.side-admin .btn-ghost:hover { background: rgb(var(--glass) / 0.08); color: #fff; }
+.side-admin .bg-brand-50 { background: rgb(var(--glass) / 0.12); }
 .side-admin .text-brand-700 { color: #5eead4; }
 /* soft brand tint behind the logo */
 .side-head {
@@ -570,13 +572,13 @@ const logout = useSignOut()
   font-size: 0.85rem; font-weight: 600; color: var(--color-slate-600); transition: background-color 0.15s ease, color 0.15s ease;
 }
 .setup-link:hover { color: var(--color-slate-900); background: var(--color-slate-100); }
-:global(html.dark) .setup-bg { background: transparent; }
-:global(html.dark) .setup-bar { background: rgb(0 0 0 / 0.85); box-shadow: inset 0 -1px 0 #1f1f1f; }
+html.dark .setup-bg { background: transparent; }
+html.dark .setup-bar { background: rgb(0 0 0 / 0.85); box-shadow: inset 0 -1px 0 #1f1f1f; }
 /* Dark mode: let the page's black background (with its soft top light) show through */
-:global(html.dark) .console-bg,
-:global(html.dark) .app-root { background: transparent; }
+html.dark .console-bg,
+html.dark .app-root { background: transparent; }
 /* Side menu (landlords): a dark panel with a hairline edge */
-:global(html.dark) .side:not(.side-admin) { background: #0b0b0b; border-color: rgb(255 255 255 / 0.08); }
+html.dark .side:not(.side-admin) { background: #0b0b0b; border-color: rgb(var(--glass) / 0.08); }
 
 /* Subscription banner */
 .sub-banner { transition: transform 0.15s ease, box-shadow 0.15s ease; }

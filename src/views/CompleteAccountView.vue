@@ -109,7 +109,7 @@ async function signOut() {
             </div>
             <p class="mt-1.5 text-xs text-slate-500">Used to sign in and to reset your password if you forget it.</p>
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <button type="submit" class="btn-primary h-11 w-full" :disabled="!emailOk">
             Continue <ArrowRight class="size-4" />
           </button>
@@ -151,9 +151,9 @@ async function signOut() {
           <div>
             <label class="label" for="ca-pw2">Confirm password</label>
             <input id="ca-pw2" v-model="confirm" :type="show ? 'text' : 'password'" class="input" autocomplete="new-password" required />
-            <p v-if="mismatch" class="mt-1 text-xs text-red-600">Passwords do not match.</p>
+            <p v-if="mismatch" class="field-error mt-1">Passwords do not match.</p>
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary h-11 w-full" :disabled="busy || !passwordOk">
             <Loader2 v-if="busy" class="size-4 animate-spin" />
             {{ busy ? 'Finishing…' : 'Finish setup' }}

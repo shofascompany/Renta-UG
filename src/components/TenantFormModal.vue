@@ -224,7 +224,7 @@ async function finish(tenant) {
         <span v-else>Next you get a <strong>connection code</strong>. It only works for the tenant with this email or phone number. They sign up, enter the code and add their own name and details.</span>
       </p>
 
-      <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
       <div class="grid grid-cols-2 gap-2 pt-1">
         <button type="button" class="btn-secondary h-11" @click="open = false">Cancel</button>

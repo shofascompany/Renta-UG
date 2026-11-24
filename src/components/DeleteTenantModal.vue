@@ -67,10 +67,10 @@ async function remove() {
       </button>
 
       <label class="flex items-start gap-3 rounded-2xl border border-red-200 p-3 text-sm text-slate-700">
-        <input v-model="sure" type="checkbox" class="mt-0.5 size-4 accent-red-600" />
+        <input v-model="sure" type="checkbox" class="size-5 accent-red-600" />
         <span>I understand that {{ tenant.name.split(' ')[0] }} and all their payment records will be deleted.</span>
       </label>
-      <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <div class="grid grid-cols-2 gap-2">
         <button type="button" class="btn-secondary h-11" @click="open = false">Cancel</button>
         <button type="button" class="btn h-11 bg-red-600 text-white hover:bg-red-700" :data-busy="busy" :disabled="busy || !sure" @click="remove">

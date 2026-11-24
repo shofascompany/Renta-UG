@@ -11,6 +11,7 @@ import { formatUGX, formatDate, daysUntil } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Current tenants as a sortable table. Former tenants live on the Records page.
 const rental = useRentalStore()
@@ -139,6 +140,7 @@ function onSaved(t) {
       <!-- Filter -->
       <DropMenu
         label="Filter tenants"
+        title="Show"
         width="w-64"
         trigger-class="tool-btn"
         :class="filter !== 'all' && 'is-on'"
@@ -149,7 +151,6 @@ function onSaved(t) {
           <span v-if="filter !== 'all'" class="tool-dot" />
         </template>
         <template #default="{ close }">
-          <p class="px-3 pt-2 pb-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">Show</p>
           <button
             v-for="f in FILTERS"
             :key="f[0]"
@@ -160,10 +161,10 @@ function onSaved(t) {
             :class="filter === f[0] && 'menu-item-on'"
             @click="filter = f[0]; close()"
           >
-            <component :is="f[2]" class="size-4 shrink-0" />
+            <span class="menu-ico"><component :is="f[2]" class="size-4" /></span>
             <span class="flex-1 text-left">{{ f[1] }}</span>
-            <span class="text-xs text-slate-400 tabular-nums">{{ counts[f[0]] }}</span>
-            <Check v-if="filter === f[0]" class="size-4 text-brand-600" />
+            <span class="menu-count">{{ counts[f[0]] }}</span>
+            <span v-if="filter === f[0]" class="menu-check"><Check class="size-3" stroke-width="3" /></span>
           </button>
         </template>
       </DropMenu>
@@ -176,14 +177,14 @@ function onSaved(t) {
             <span class="menu-ico bg-emerald-50 text-emerald-700"><FileDown class="size-4" /></span>
             <span class="flex-1 text-left">
               Download list
-              <span class="block text-xs font-normal text-slate-400">Excel / CSV file</span>
+              <span class="menu-sub">Excel / CSV file</span>
             </span>
           </button>
           <RouterLink to="/landlord/records" class="menu-item" @click="close()">
             <span class="menu-ico bg-violet-50 text-violet-700"><FolderArchive class="size-4" /></span>
             <span class="flex-1 text-left">
               Records
-              <span class="block text-xs font-normal text-slate-400">Former tenants</span>
+              <span class="menu-sub">Former tenants</span>
             </span>
           </RouterLink>
         </template>
@@ -239,7 +240,7 @@ function onSaved(t) {
           </tr>
         </tbody>
       </table>
-      <p v-else class="px-5 py-14 text-center text-sm text-slate-500">{{ counts.all ? 'No tenants match.' : 'No tenants yet. Click "Add tenant".' }}</p>
+      <EmptyState v-else :kind="counts.all ? 'search' : 'people'" :title="counts.all ? 'No tenants match' : 'No tenants yet'" :text="counts.all ? 'Try another name or filter.' : 'Use Add tenant to put someone in a house or room.'" />
     </div>
 
     <!-- List (phones) -->
@@ -263,7 +264,7 @@ function onSaved(t) {
           </button>
         </li>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">{{ counts.all ? 'No tenants match.' : 'No tenants yet.' }}</p>
+      <EmptyState v-else :kind="counts.all ? 'search' : 'people'" :title="counts.all ? 'No tenants match' : 'No tenants yet'" :text="counts.all ? 'Try another name or filter.' : 'Add a tenant to put someone in a house or room.'" />
     </div>
 
     <TenantFormModal v-model="adding" @saved="onSaved" />
@@ -339,29 +340,4 @@ function onSaved(t) {
 }
 @media (min-width: 640px) { .tool-dot { position: static; box-shadow: none; } }
 
-/* Menu rows */
-.menu-item {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.75rem;
-  border-radius: 0.75rem;
-  padding: 0.7rem 0.75rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--color-slate-700);
-  transition: background-color 0.12s ease;
-}
-.menu-item:hover { background: var(--color-slate-50); }
-.menu-item:disabled { opacity: 0.45; }
-.menu-item-on { color: var(--color-brand-700); background: var(--color-brand-50); }
-.menu-ico {
-  display: flex;
-  width: 2.25rem;
-  height: 2.25rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.7rem;
-}
 </style>

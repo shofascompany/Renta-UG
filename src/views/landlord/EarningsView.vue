@@ -5,6 +5,7 @@ import { useRentalStore } from '@/stores/rental'
 import { useRentAnalytics, compactUGX, lastPeriods, longMonth, shortMonth, periodOf } from '@/composables/useRentAnalytics'
 import { formatUGX } from '@/utils/format'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Earnings per rental business (and single house): ranked bars for the chosen period,
 // tap one to see its last 6 months.
@@ -69,7 +70,7 @@ function monthsOf(p) {
       <p class="mt-1 text-sm text-white/80">{{ formatUGX(total) }} earned {{ rangeText }} · {{ businesses }} rental{{ businesses === 1 ? '' : 's' }}{{ rows.length > businesses ? ` · ${rows.length - businesses} house${rows.length - businesses === 1 ? '' : 's'}` : '' }}</p>
 
       <div v-if="top" class="mt-5 flex items-center gap-3 rounded-2xl bg-white/10 p-3.5 ring-1 ring-white/15 ring-inset">
-        <span class="flex size-11 shrink-0 items-center justify-center rounded-xl text-amber-950" style="background: linear-gradient(140deg, #fde68a, #f59e0b)"><Trophy class="size-5" /></span>
+        <span class="flex size-11 shrink-0 items-center justify-center rounded-xl text-amber-950" style="background: linear-gradient(140deg, #fbbf24, #d97706)"><Trophy class="size-5" /></span>
         <div class="min-w-0 flex-1">
           <p class="text-[11px] font-semibold tracking-wider text-white/70 uppercase">Top earner</p>
           <p class="truncate font-semibold">{{ top.name }}</p>
@@ -142,7 +143,7 @@ function monthsOf(p) {
             </div>
           </li>
         </ul>
-        <p v-else class="px-5 py-14 text-center text-sm text-slate-500">Add a rental to see its earnings here.</p>
+        <EmptyState v-else kind="money" title="No earnings yet" text="Add a rental to see its earnings here." to="/landlord/properties" action="My properties" />
       </div>
       <p v-if="rows.length" class="mt-2 px-1 text-xs text-slate-400">Tap a rental to see its earnings month by month.</p>
     </section>

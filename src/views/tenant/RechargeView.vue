@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Sparkles, ChevronRight } from '@lucide/vue'
+import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Sparkles, ChevronRight, X } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate } from '@/utils/format'
 import { coverage } from '@/utils/rentCycle'
@@ -123,7 +123,7 @@ function continueToPay() {
           <p v-if="debtDays" class="mt-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
             You have <strong>{{ debtDays }} debt day{{ debtDays === 1 ? '' : 's' }}</strong> since your month ended on {{ formatDate(currentEnd) }}. They are taken from the first month you pay now.
           </p>
-          <p v-if="error" class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+          <p v-if="error" class="form-error mt-4" role="alert">{{ error }}</p>
         </div>
       </section>
     </Transition>
@@ -135,6 +135,10 @@ function continueToPay() {
         <Smartphone class="size-5" /> Choose your SIM and pay {{ formatUGX(total) }} <ChevronRight class="size-4.5" />
       </button>
     </section>
+
+    <button type="button" class="btn-secondary h-13 w-full rounded-2xl text-[15px]" :class="months ? 'mt-2.5' : 'mt-6'" @click="router.replace('/tenant/payments')">
+      <X class="size-4.5" /> Cancel
+    </button>
 
     <!-- Trust -->
     <ul class="mt-6 grid gap-2.5 text-sm text-slate-600 sm:grid-cols-3">
@@ -155,8 +159,8 @@ function continueToPay() {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(var(--glass) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--glass) / 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(180deg, #000, transparent 80%);
 }
@@ -167,9 +171,9 @@ function continueToPay() {
   width: 20rem;
   height: 20rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.2), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.2), transparent 65%);
 }
-.back { background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2); }
+.back { background: rgb(var(--glass) / 0.14); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.2); }
 .back:active { transform: scale(0.96); }
 .opt:active { transform: scale(0.97); }
 .opt-on {

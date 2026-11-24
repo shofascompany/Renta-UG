@@ -69,9 +69,9 @@ async function signOut() {
         <div>
           <label class="label" for="cp">Confirm password</label>
           <input id="cp" v-model="confirm" type="password" class="input" required autocomplete="new-password" />
-          <p v-if="mismatch" class="mt-1 text-xs text-red-600">Passwords do not match.</p>
+          <p v-if="mismatch" class="field-error mt-1">Passwords do not match.</p>
         </div>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <button :data-busy="Boolean(busy)" type="submit" class="btn-primary w-full" :disabled="busy">{{ busy ? 'Saving…' : 'Save password & continue' }}</button>
         <p class="text-center text-xs leading-relaxed text-slate-500">
           By continuing you agree to the <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink>

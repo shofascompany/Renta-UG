@@ -11,7 +11,7 @@
     "db:bundle": "node scripts/bundle-sql.js",
     "permanent-account": "node --env-file-if-exists=.env.production --env-file-if-exists=.env scripts/permanent-account.mjs",
     "share": "vite build && node --env-file-if-exists=.env.production --env-file-if-exists=.env server/index.js",
-    "test": "node --test tests/",
+    "test": "node --test \"tests/**/*.test.mjs\"",
     "screenshots": "node --env-file-if-exists=.env.production --env-file-if-exists=.env scripts/screenshots.mjs"
   },
   "dependencies": {

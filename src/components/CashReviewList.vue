@@ -7,6 +7,7 @@ import { formatUGX, formatDate } from '@/utils/format'
 import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import BaseModal from './BaseModal.vue'
 import PaymentCoverage from './PaymentCoverage.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Cash payments. Only the tenant's LANDLORD reviews them:
 //   reported by a tenant   → the landlord confirms (amount can be corrected) or rejects
@@ -145,7 +146,7 @@ const statusText = (c) =>
               <span v-if="c.status === 'confirmed' && c.confirmedAmount !== c.amount">Reported {{ formatUGX(c.amount) }}</span>
             </p>
             <p v-if="c.note" class="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">“{{ c.note }}”</p>
-            <p v-if="c.status === 'rejected' && c.rejectReason" class="mt-1.5 text-xs text-red-600">Reason: {{ c.rejectReason }}</p>
+            <p v-if="c.status === 'rejected' && c.rejectReason" class="field-error mt-1.5">Reason: {{ c.rejectReason }}</p>
 
             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
               <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset" :class="statusStyle[c.status]">
@@ -167,7 +168,7 @@ const statusText = (c) =>
         </div>
       </li>
     </ul>
-    <p v-else class="px-5 py-10 text-center text-sm text-slate-500">{{ empty }}</p>
+    <EmptyState v-else compact kind="money" :title="empty" />
 
     <!-- Confirm -->
     <BaseModal :model-value="Boolean(confirming)" center title="Confirm payment" width="max-w-lg" @update:model-value="!$event && (confirming = null)">
@@ -203,7 +204,7 @@ const statusText = (c) =>
 
         <PaymentCoverage v-if="cTenant && value" :tenant="cTenant" :dues="cDues" :rent="cRent" :amount="value" :pay-day="confirming.paidOn" :you="false" />
 
-        <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="grid grid-cols-2 gap-2">
           <button type="button" class="btn-secondary h-11" @click="confirming = null">Cancel</button>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary h-11" :disabled="busy || !value">{{ busy ? 'Confirming…' : `Confirm ${formatUGX(value)}` }}</button>
@@ -222,7 +223,7 @@ const statusText = (c) =>
           <label class="label" for="cr-reason">Reason <span class="font-normal text-slate-400">(shown to the tenant)</span></label>
           <input id="cr-reason" v-model="reason" class="input" maxlength="200" placeholder="e.g. No cash was received on that day" />
         </div>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="rejecting = null">Cancel</button>
           <button :data-busy="Boolean(busy)" type="submit" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="busy">{{ busy ? 'Rejecting…' : 'Reject payment' }}</button>

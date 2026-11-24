@@ -1,11 +1,13 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { DoorOpen, Star, CheckCircle2, XCircle, TriangleAlert, Clock } from '@lucide/vue'
+import { computed, nextTick, ref } from 'vue'
+import { DoorOpen, Star, CheckCircle2, XCircle, Clock } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
-import { formatDate, formatUGX } from '@/utils/format'
+import { formatDate } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EndTenancySummary from '@/components/EndTenancySummary.vue'
+import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 
 // Landlords: their tenants' requests to leave a room. Only the landlord approves or declines.
 // Approve → the tenancy ends (history kept, room vacant) and the tenant is signed out.
@@ -15,7 +17,6 @@ const filter = ref('pending') // pending | all
 
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Tenant'
 const place = (id) => (id && rental.propertyById(id) ? rental.placeName(id) : 'Room')
-const owedBy = (id) => rental.duesForTenant(id).reduce((s, p) => s + p.balance, 0)
 const landlordName = (id) => rental.landlords.find((l) => l.id === id)?.name
 
 const list = computed(() =>
@@ -41,6 +42,17 @@ function show(r) {
   step.value = 'view'
   note.value = ''
   error.value = ''
+}
+// Record a payment before approving
+const payOpen = ref(false)
+const payTenant = ref(null)
+const payAmount = ref(0)
+async function recordFirst(amount) {
+  payTenant.value = open.value.tenantId
+  payAmount.value = amount
+  openId.value = null
+  await nextTick()
+  payOpen.value = true
 }
 async function decide(approve) {
   busy.value = true
@@ -121,17 +133,11 @@ async function decide(approve) {
 
         <!-- Confirm approve -->
         <template v-else-if="step === 'approve'">
-          <div class="flex items-start gap-3.5 rounded-2xl bg-amber-50 p-4">
-            <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700"><TriangleAlert class="size-5" /></span>
-            <p class="text-sm leading-relaxed text-amber-900">
-              <strong>{{ tenantName(open.tenantId) }}</strong>'s tenancy at <strong>{{ place(open.propertyId) }}</strong> ends now. The room becomes vacant, their history moves to Records, and their app signs them out.
-            </p>
-          </div>
-          <p v-if="owedBy(open.tenantId)" class="text-sm text-slate-600">They still owe <strong class="text-slate-900">{{ formatUGX(owedBy(open.tenantId)) }}</strong>. It stays on their record.</p>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <EndTenancySummary v-if="rental.tenantById(open.tenantId)" :tenant="rental.tenantById(open.tenantId)" :place-id="open.propertyId" approve @record="recordFirst" @leave="openId = null" />
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn-secondary" @click="step = 'view'">Back</button>
-            <button type="button" class="btn-primary" :data-busy="busy" :disabled="busy" @click="decide(true)">{{ busy ? 'Approving…' : 'Approve & end tenancy' }}</button>
+            <button type="button" class="btn-primary" :data-busy="busy" :disabled="busy" @click="decide(true)"><CheckCircle2 class="size-4" /> {{ busy ? 'Approving…' : 'Approve & end tenancy' }}</button>
           </div>
         </template>
 
@@ -141,7 +147,7 @@ async function decide(approve) {
             <label class="label" for="mo-note">Reason for declining <span class="font-normal text-slate-400">(sent to the tenant)</span></label>
             <textarea id="mo-note" v-model="note" rows="3" maxlength="300" class="input" placeholder="e.g. Please clear your balance first" />
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex justify-end gap-2">
             <button type="button" class="btn-secondary" @click="step = 'view'">Back</button>
             <button type="button" class="btn bg-red-600 text-white hover:bg-red-700" :data-busy="busy" :disabled="busy" @click="decide(false)">{{ busy ? 'Declining…' : 'Decline request' }}</button>
@@ -149,5 +155,6 @@ async function decide(approve) {
         </template>
       </div>
     </BaseModal>
+    <RecordPaymentModal v-model="payOpen" :tenant-id="payTenant" :preset-amount="payAmount" />
   </div>
 </template>

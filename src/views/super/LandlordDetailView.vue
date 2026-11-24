@@ -17,6 +17,7 @@ import ListRow from '@/components/admin/ListRow.vue'
 import DropMenu from '@/components/admin/DropMenu.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PropertyEditModal from '@/components/super/PropertyEditModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: one landlord — their numbers, properties, tenants and money, and every action on them.
 const props = defineProps({ id: String })
@@ -115,7 +116,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
 </script>
 
 <template>
-  <div v-if="!landlord" class="py-20 text-center text-sm text-slate-500">Landlord not found.</div>
+  <div v-if="!landlord" class="sheet"><EmptyState kind="missing" title="Landlord not found" text="It may have been removed, or the link is old." to="/admin2026/landlords" action="All landlords" /></div>
 
   <div v-else>
     <SuperHero :eyebrow="landlord.active ? 'Landlord · active' : 'Landlord · suspended'" :title="landlord.name || landlord.email" :tone="landlord.active ? 'teal' : 'amber'">
@@ -124,17 +125,17 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
       </template>
       <button class="btn-primary" @click="openEdit"><Pencil class="size-4" /> Edit</button>
       <RouterLink :to="`/admin2026/broadcast?landlord=${landlord.id}`" class="btn-secondary"><Megaphone class="size-4" /> Message</RouterLink>
-      <DropMenu trigger-class="btn-secondary h-11 w-11 rounded-[0.95rem] p-0 text-white" label="More actions" width="w-60">
+      <DropMenu trigger-class="hero-more" label="More actions" :title="landlord.name || 'Landlord'" width="w-64">
         <template #trigger><MoreVertical class="size-5" /></template>
         <template #default="{ close }">
-          <button v-if="!landlord.subscriptionExempt" type="button" class="menu-item" @click="close(); form.resetPassword = true; openEdit(); form.resetPassword = true"><KeyRound class="size-4 text-slate-500" /> Reset password</button>
-          <p v-if="landlord.subscriptionExempt" class="px-3 py-2 text-xs leading-relaxed text-slate-500">
+          <button v-if="!landlord.subscriptionExempt" type="button" class="menu-item" @click="close(); form.resetPassword = true; openEdit(); form.resetPassword = true"><span class="menu-ico"><KeyRound class="size-4" /></span> Reset password</button>
+          <p v-if="landlord.subscriptionExempt" class="menu-note">
             Permanent account: it can't be suspended, deleted or have its password reset.
           </p>
-          <button v-else type="button" class="menu-item" :class="landlord.active && 'text-red-600'" @click="close(); dialog = 'suspend'">
-            <component :is="landlord.active ? ShieldOff : ShieldCheck" class="size-4" /> {{ landlord.active ? 'Suspend' : 'Reactivate' }}
+          <button v-else type="button" class="menu-item" :class="landlord.active && 'menu-item-danger'" @click="close(); dialog = 'suspend'">
+            <span class="menu-ico"><component :is="landlord.active ? ShieldOff : ShieldCheck" class="size-4" /></span> {{ landlord.active ? 'Suspend' : 'Reactivate' }}
           </button>
-          <button v-if="!landlord.active && !landlord.subscriptionExempt" type="button" class="menu-item text-red-600" @click="close(); dialog = 'delete'"><Trash2 class="size-4" /> Delete permanently</button>
+          <button v-if="!landlord.active && !landlord.subscriptionExempt" type="button" class="menu-item menu-item-danger" @click="close(); dialog = 'delete'"><span class="menu-ico"><Trash2 class="size-4" /></span> Delete permanently</button>
         </template>
       </DropMenu>
       <template #stats>
@@ -165,7 +166,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
       </div>
     </div>
 
-    <p v-if="flash" class="sheet mb-5 p-4 text-sm text-emerald-700">{{ flash }}</p>
+    <p v-if="flash" class="form-ok mb-5" role="status">{{ flash }}</p>
 
     <!-- Subscription: status, package, and "paid in cash" -->
     <section v-if="!landlord.subscriptionExempt && sub" class="sub-card sheet mb-5 overflow-hidden">
@@ -173,7 +174,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
         <span class="sub-ico flex size-12 shrink-0 items-center justify-center rounded-2xl" :class="sub.active ? 'sub-ok' : 'sub-bad'">
           <component :is="sub.active ? Crown : Lock" class="size-5.5" />
         </span>
-        <div class="min-w-0 flex-1">
+        <div class="min-w-0 grow basis-48">
           <p class="text-xs font-semibold tracking-[0.14em] text-slate-400 uppercase">Subscription</p>
           <p class="mt-0.5 text-base font-semibold text-slate-900">
             {{ landlord.subscriptionPlan ? `${tierName(landlord.subscriptionTier)} · ${landlord.subscriptionPlan === 'yearly' ? 'Yearly' : 'Monthly'}` : 'No package yet' }}
@@ -185,7 +186,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
             <template v-if="Math.max(s.properties, landlord.plannedUnits ?? 0) > billing.settings.smallMaxUnits"> · needs Big scale</template>
           </p>
         </div>
-        <button type="button" class="btn-primary h-11 rounded-xl" @click="cashFor = landlord"><Banknote class="size-4.5" /> Record cash payment</button>
+        <button type="button" class="btn-primary h-11 w-full rounded-xl sm:w-auto" @click="cashFor = landlord"><Banknote class="size-4.5" /> Record cash payment</button>
       </div>
       <p v-if="subPending" class="flex items-center gap-2 border-t border-slate-100 bg-amber-50 px-5 py-3 text-sm text-amber-900">
         <Clock class="size-4 shrink-0 text-amber-600" />
@@ -266,9 +267,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
         </ListRow>
       </ul>
 
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">
-        {{ tab === 'properties' ? 'No properties yet.' : tab === 'tenants' ? 'No tenants renting right now.' : 'No payments yet.' }}
-      </p>
+      <EmptyState v-else :kind="tab === 'properties' ? 'places' : tab === 'tenants' ? 'people' : 'money'" :title="tab === 'properties' ? 'No properties yet' : tab === 'tenants' ? 'No tenants renting' : 'No payments yet'" />
     </div>
     <p v-if="tab === 'tenants' && formerCount" class="mt-3 px-1 text-xs text-slate-400">{{ formerCount }} former tenant record{{ formerCount === 1 ? '' : 's' }} kept in their Records.</p>
 
@@ -287,10 +286,10 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
         </div>
         <p class="text-xs text-slate-500">Email (login): {{ landlord.email }}</p>
         <label v-if="!landlord.subscriptionExempt" class="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
-          <input v-model="form.resetPassword" type="checkbox" class="mt-0.5 size-4 accent-brand-600" />
+          <input v-model="form.resetPassword" type="checkbox" class="size-5 accent-brand-600" />
           <span>Reset password<span class="block text-xs text-slate-500">Their current password stops working; they create a new one at their next sign-in.</span></span>
         </label>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="dialog = null">Cancel</button>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save' }}</button>
@@ -300,11 +299,11 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
 
     <!-- Suspend / reactivate -->
     <BaseModal :model-value="dialog === 'suspend'" :title="landlord.active ? 'Suspend landlord?' : 'Reactivate landlord?'" width="max-w-sm" @update:model-value="!$event && (dialog = null)">
-      <p class="text-sm text-slate-600">
+      <p class="rounded-2xl p-4 text-sm leading-relaxed" :class="landlord.active ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800'">
         <template v-if="landlord.active"><strong>{{ landlord.name }}</strong> won't be able to sign in. Their tenants, properties and payments stay as they are.</template>
         <template v-else><strong>{{ landlord.name }}</strong> will be able to sign in again.</template>
       </p>
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
       <div class="mt-6 flex justify-end gap-2">
         <button class="btn-secondary" @click="dialog = null">Cancel</button>
         <button :data-busy="Boolean(busy)" class="btn" :class="landlord.active ? 'bg-red-600 text-white hover:bg-red-700' : 'btn-primary'" :disabled="busy" @click="toggleActive">
@@ -319,7 +318,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
         <TriangleAlert class="mt-0.5 size-5 shrink-0 text-red-600" />
         <p>This deletes <strong>{{ landlord.name }}</strong> and their {{ s.properties }} properties, tenant records, payments and messages. It cannot be undone.</p>
       </div>
-      <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+      <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
       <div class="mt-6 flex justify-end gap-2">
         <button class="btn-secondary" @click="dialog = null">Cancel</button>
         <button :data-busy="Boolean(busy)" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="busy" @click="remove">{{ busy ? 'Deleting…' : 'Delete' }}</button>
@@ -329,22 +328,24 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
 </template>
 
 <style scoped>
-.back { --color-white: #fff; color: #fff; background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2); }
+.back { --color-white: #fff; color: #fff; background: rgb(var(--glass) / 0.14); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.2); }
 .hero-avatar { color: #0a3b38; background: #fff; }
 .sub-ico { --color-white: #fff; color: #fff; box-shadow: 0 8px 18px -10px rgb(0 0 0 / 0.5); }
 .sub-ok { background: linear-gradient(140deg, #fbbf24, #b45309); }
 .sub-bad { background: linear-gradient(140deg, #f87171, #b91c1c); }
-.menu-item {
+:deep(.hero-more) {
   display: flex;
-  width: 100%;
+  width: 2.75rem;
+  height: 2.75rem;
   align-items: center;
-  gap: 0.6rem;
-  border-radius: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  text-align: left;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-slate-700);
+  justify-content: center;
+  border-radius: 0.95rem;
+  cursor: pointer;
+  color: #fff;
+  background: rgb(var(--glass) / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
+  transition: background-color 0.15s ease;
 }
-.menu-item:hover { background: var(--color-slate-50); }
+:deep(.hero-more:hover),
+:deep(.hero-more[aria-expanded='true']) { background: rgb(var(--glass) / 0.26); }
 </style>

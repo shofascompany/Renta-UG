@@ -241,7 +241,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
           <label class="label" for="cash-note">Note <span class="font-normal text-slate-400">(optional)</span></label>
           <input id="cash-note" v-model="cash.note" class="input" maxlength="200" placeholder="e.g. Given to the caretaker" />
         </div>
-        <p v-if="cashError" class="text-sm text-red-600">{{ cashError }}</p>
+        <p v-if="cashError" class="form-error" role="alert">{{ cashError }}</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="cashOpen = false">Cancel</button>
           <button :data-busy="Boolean(cashBusy)" type="submit" class="btn-primary" :disabled="cashBusy || !cashValue">
@@ -519,8 +519,8 @@ onBeforeUnmount(() => clearInterval(tipTimer))
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(var(--glass) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--glass) / 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(180deg, #000 0%, transparent 80%);
 }
@@ -531,7 +531,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
   width: 22rem;
   height: 22rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.2), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.2), transparent 65%);
   animation: drift 16s ease-in-out infinite alternate;
 }
 .hero-btn {
@@ -555,10 +555,10 @@ onBeforeUnmount(() => clearInterval(tipTimer))
 .banner-overdue .hero-btn-solid { color: #7a1a12; }
 .hero-btn-glass {
   color: #fff;
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(var(--glass) / 0.12);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
 }
-.hero-btn-glass:hover { background: rgb(255 255 255 / 0.2); }
+.hero-btn-glass:hover { background: rgb(var(--glass) / 0.2); }
 
 /* Payment detail sheet */
 .detail-head {
@@ -578,10 +578,10 @@ onBeforeUnmount(() => clearInterval(tipTimer))
 }
 
 /* Complete a part payment */
-.part-card { background: linear-gradient(160deg, #fffbeb 0%, var(--color-white) 70%); box-shadow: inset 0 0 0 1.5px #fcd34d, 0 18px 40px -30px rgb(146 64 14 / 0.6); }
+.part-card { background: linear-gradient(160deg, var(--color-amber-50) 0%, var(--color-white) 70%); box-shadow: inset 0 0 0 1.5px #fcd34d, 0 18px 40px -30px rgb(146 64 14 / 0.6); }
 .part-ico { color: #fff; background: linear-gradient(140deg, #fbbf24, #d97706); box-shadow: 0 10px 20px -12px rgb(217 119 6 / 0.9); }
 .part-fill { background: linear-gradient(90deg, #fbbf24, #d97706); }
-:global(html.dark) .part-card { background: var(--color-white); box-shadow: inset 0 0 0 1.5px #574213; }
+html.dark .part-card { background: var(--color-white); box-shadow: inset 0 0 0 1.5px #574213; }
 
 /* Lists: same .section-title / .sheet / .icon-disc as the landlord pages (main.css) */
 .pay-btn {

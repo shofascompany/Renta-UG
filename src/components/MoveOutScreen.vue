@@ -87,7 +87,7 @@ const stars = computed(() => props.request.rating ?? 0)
             <li class="flex gap-3"><History class="size-5 shrink-0 text-brand-600" /> All your payments and receipts are kept safely.</li>
           </ol>
 
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="grid grid-cols-2 gap-2.5">
             <button type="button" class="btn-secondary h-12 rounded-2xl" :data-busy="cancelling" :disabled="cancelling" @click="cancel">
               <X class="size-4" /> {{ cancelling ? 'Cancelling…' : 'Cancel request' }}

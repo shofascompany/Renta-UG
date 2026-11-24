@@ -81,7 +81,7 @@ async function remove() {
             <input id="pe-rent" v-model="form.rent" class="input" inputmode="numeric" required />
             <p v-if="rentValue !== p.rent" class="mt-1 text-xs text-amber-700">Was {{ formatUGX(p.rent) }}. New months are billed at {{ formatUGX(rentValue) }}.</p>
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <div class="flex items-center justify-between gap-2 pt-1">
             <button v-if="!hasHistory" type="button" class="btn-ghost px-2 text-sm text-red-600" @click="confirmDelete = true"><Trash2 class="size-4" /> Delete</button>
             <span v-else class="text-[11px] text-slate-400">Has history: can't be deleted</span>
@@ -97,7 +97,7 @@ async function remove() {
           <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700"><TriangleAlert class="size-5" /></span>
           <p class="text-sm text-red-900"><strong>{{ p.name }}</strong> has never had a tenant or payment. It will be removed from the landlord's account.</p>
         </div>
-        <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
         <div class="mt-5 flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="confirmDelete = false">Back</button>
           <button type="button" class="btn bg-red-600 text-white hover:bg-red-700" :data-busy="Boolean(busy)" :disabled="busy" @click="remove">{{ busy ? 'Deleting…' : 'Delete property' }}</button>

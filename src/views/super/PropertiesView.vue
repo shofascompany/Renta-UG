@@ -10,6 +10,7 @@ import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import PropertyEditModal from '@/components/super/PropertyEditModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: every house and room on the platform. Tap one to edit its name, location or rent.
 const rental = useRentalStore()
@@ -74,7 +75,7 @@ const rentRoll = computed(() => rental.properties.filter((x) => rental.tenantFor
           </template>
         </ListRow>
       </ul>
-      <p v-else class="px-5 py-12 text-center text-sm text-slate-500">No properties match.</p>
+      <EmptyState v-else kind="search" title="No properties match" text="Try another name or filter." />
     </div>
 
     <PropertyEditModal :property-id="editing" @close="editing = null" />

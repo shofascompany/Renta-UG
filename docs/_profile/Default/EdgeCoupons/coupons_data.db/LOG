@@ -1,6 +1,0 @@
-2026/11/24-16:36:50.058 1728 Reusing MANIFEST C:\Users\uSer\Desktop\Renta UG\docs\_profile\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/11/24-16:36:50.060 1728 Recovering log #4
-2026/11/24-16:36:52.513 1728 Reusing old log C:\Users\uSer\Desktop\Renta UG\docs\_profile\Default\EdgeCoupons/coupons_data.db/000004.log 
-2026/11/24-16:37:24.783 166c Level-0 table #8: started
-2026/11/24-16:37:24.801 166c Level-0 table #8: 683376 bytes OK
-2026/11/24-16:37:24.812 166c Delete type=0 #4

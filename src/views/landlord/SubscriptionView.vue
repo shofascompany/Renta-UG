@@ -13,6 +13,8 @@ import { formatUGX, formatDate } from '@/utils/format'
 import { NETWORKS, NETWORK_IDS, prettyPhone, dialCodeOf, dialHref, sendSteps } from '@/lib/networks'
 import { copyText } from '@/lib/clipboard'
 import AppLink from '@/components/AppLink.vue'
+import { askConfirm } from '@/composables/useConfirm'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Landlord's subscription to Renta UG, one page per step (the step lives in the address, so Back works):
 //   overview                → status, usage, billing history, "Renew"
@@ -190,12 +192,16 @@ async function submit() {
 
 // ── 5. Waiting ──
 async function cancel() {
-  if (!pending.value || !confirm('Withdraw this payment? Only do this if you did not send the money.')) return
-  try {
-    await billing.cancelPayment(pending.value.id)
-  } catch (e) {
-    error.value = e.message
-  }
+  if (!pending.value) return
+  const id = pending.value.id
+  await askConfirm({
+    title: 'Withdraw this payment?',
+    text: 'Only do this if you did not send the money.',
+    confirm: 'Withdraw',
+    cancel: 'Keep it',
+    working: 'Withdrawing…',
+    action: () => billing.cancelPayment(id),
+  })
 }
 const checking = ref(false)
 async function checkNow() {
@@ -476,7 +482,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
                 </div>
               </div>
 
-              <p v-if="capError" class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ capError }}</p>
+              <p v-if="capError" class="form-error mt-4" role="alert">{{ capError }}</p>
               <button type="submit" class="btn-primary mt-6 h-13 w-full rounded-2xl text-[15px]" :data-busy="capBusy" :disabled="capBusy || capNum < 1">
                 {{ capBusy ? 'Saving…' : 'Continue to packages' }} <ArrowRight class="size-4.5" />
               </button>
@@ -585,7 +591,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
                 <p class="text-sm font-semibold text-slate-900">How to send</p>
                 <ol class="mt-3 space-y-3">
                   <li v-for="(st, i) in steps" :key="i" class="flex gap-3 text-sm leading-relaxed text-slate-700">
-                    <span class="step-no" :style="{ background: net.soft, color: sim === 'mtn' ? '#5c4a00' : net.bg }">{{ i + 1 }}</span>
+                    <span class="step-no" :class="`net-${sim}`">{{ i + 1 }}</span>
                     <span class="pt-0.5">{{ st }}</span>
                   </li>
                 </ol>
@@ -608,7 +614,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
                   <User class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
                   <input id="sub-name" v-model="name" class="input h-12 pl-10 text-base uppercase" placeholder="e.g. JOHN BOSCO MUKASA" autocomplete="name" data-cap="characters" />
                 </div>
-                <p v-if="touched && nameError" class="mt-1.5 text-xs text-red-600">{{ nameError }}</p>
+                <p v-if="touched && nameError" class="field-error mt-1.5">{{ nameError }}</p>
                 <p v-else class="mt-1.5 text-xs text-slate-500">Exactly as the network shows them when money is sent from that line.</p>
               </div>
               <dl class="divide-y divide-slate-100 rounded-2xl bg-slate-50 px-4 text-sm">
@@ -617,10 +623,10 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
                 <div class="flex justify-between gap-3 py-2.5"><dt class="text-slate-500">Sent to</dt><dd class="text-right font-medium text-slate-900">{{ net.short }} {{ prettyPhone(account.phone) }}</dd></div>
               </dl>
               <label class="flex items-start gap-3 rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
-                <input v-model="sentMoney" type="checkbox" class="mt-0.5 size-4 accent-brand-600" />
+                <input v-model="sentMoney" type="checkbox" class="size-5 accent-brand-600" />
                 <span>I have sent this money, and the names above are exactly as registered on the line I used.</span>
               </label>
-              <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+              <p v-if="error" class="form-error" role="alert">{{ error }}</p>
               <button type="submit" class="btn-primary h-12 w-full rounded-2xl text-[15px]" :data-busy="busy" :disabled="busy"><Send class="size-4.5" /> {{ busy ? 'Submitting…' : 'Submit payment' }}</button>
             </form>
           </section>
@@ -630,7 +636,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
       <!-- ── Billing history (overview only) ── -->
       <section v-if="page === 'overview' && !s.exempt && !welcome" id="billing-history" class="mt-10 scroll-mt-20">
         <h2 class="flex items-center gap-2 text-lg font-semibold text-slate-900"><Receipt class="size-5 text-brand-600" /> Billing history</h2>
-        <div v-if="!history.length" class="sheet mt-3 p-6 text-center text-sm text-slate-500">No payments yet.</div>
+        <div v-if="!history.length" class="sheet mt-3"><EmptyState compact kind="money" title="No payments yet" text="Your subscription payments appear here." /></div>
         <ul v-else class="sheet mt-3 divide-y divide-slate-100">
           <li v-for="p in history" :key="p.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-4 text-sm">
             <div class="min-w-0 flex-1">
@@ -664,9 +670,9 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
 .status-sub { color: rgb(255 255 255 / 0.72); }
 .plan-badge { color: #fde68a; background: rgb(250 204 21 / 0.14); box-shadow: inset 0 0 0 1px rgb(250 204 21 / 0.35); }
 .status-ended .plan-badge { color: #fecaca; background: rgb(248 113 113 / 0.16); box-shadow: inset 0 0 0 1px rgb(248 113 113 / 0.4); }
-.meter { background: rgb(255 255 255 / 0.14); }
+.meter { background: rgb(var(--glass) / 0.14); }
 .meter span { background: linear-gradient(90deg, #5eead4, #facc15); }
-.usage { background: rgb(255 255 255 / 0.08); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14); }
+.usage { background: rgb(var(--glass) / 0.08); box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.14); }
 
 .perm-list li { display: flex; align-items: center; gap: 0.5rem; border-radius: 0.9rem; padding: 0.55rem 0.75rem; color: #fde68a; background: rgb(250 204 21 / 0.08); box-shadow: inset 0 0 0 1px rgb(250 204 21 / 0.22); }
 
@@ -750,7 +756,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
 .feat-ico { display: flex; width: 1.5rem; height: 1.5rem; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 0.5rem; color: var(--color-brand-700); background: var(--color-brand-50); }
 .period { background: var(--color-slate-100); }
 .period-on { color: var(--color-slate-900); background: var(--color-white); box-shadow: 0 1px 2px rgb(15 23 42 / 0.08), 0 6px 16px -10px rgb(15 23 42 / 0.3); }
-.save-tag { color: #065f46; background: #d1fae5; }
+.save-tag { color: var(--color-emerald-800); background: var(--color-emerald-50); }
 
 .sim-card { background: var(--color-white); box-shadow: inset 0 0 0 1px var(--color-slate-200); }
 .sim-card:not(:disabled):hover { box-shadow: inset 0 0 0 1px var(--color-slate-300), 0 12px 26px -18px rgb(15 23 42 / 0.4); }
@@ -758,7 +764,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
 
 .copy-btn { display: inline-flex; height: 2.5rem; flex-shrink: 0; align-items: center; gap: 0.4rem; border-radius: 0.8rem; padding: 0 0.85rem; font-size: 0.8rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
 .copy-btn:active { transform: scale(0.96); }
-.copy-done { color: #047857; background: #d1fae5; }
+.copy-done { color: var(--color-emerald-700); background: var(--color-emerald-50); }
 .step-no { display: flex; width: 1.6rem; height: 1.6rem; flex-shrink: 0; align-items: center; justify-content: center; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; }
 .dial-btn { display: inline-flex; height: 3rem; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; box-shadow: 0 10px 22px -14px rgb(0 0 0 / 0.6); }
 

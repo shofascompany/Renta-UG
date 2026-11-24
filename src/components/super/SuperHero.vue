@@ -42,8 +42,8 @@ defineProps({ eyebrow: String, title: String, subtitle: String, tone: { type: St
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+    linear-gradient(rgb(var(--glass) / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--glass) / 0.05) 1px, transparent 1px);
   background-size: 30px 30px;
   mask-image: linear-gradient(180deg, #000, transparent 85%);
 }
@@ -67,11 +67,11 @@ defineProps({ eyebrow: String, title: String, subtitle: String, tone: { type: St
   left: -15%;
   width: 20rem;
   height: 20rem;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.1), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.1), transparent 65%);
   animation-duration: 20s;
 }
 .chip {
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(var(--glass) / 0.12);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
 }
 .dot {
@@ -87,12 +87,12 @@ defineProps({ eyebrow: String, title: String, subtitle: String, tone: { type: St
   box-shadow: 0 8px 18px -8px rgb(0 0 0 / 0.45);
 }
 .actions :slotted(.btn-secondary) {
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(var(--glass) / 0.12);
   border-color: rgb(255 255 255 / 0.25);
   color: #fff;
 }
-.actions :slotted(.btn-secondary:hover) { background: rgb(255 255 255 / 0.2); }
-.actions :slotted(*) { height: 2.75rem; border-radius: 0.95rem; font-weight: 600; }
+.actions :slotted(.btn-secondary:hover) { background: rgb(var(--glass) / 0.2); }
+.actions > :slotted(*) { height: 2.75rem; border-radius: 0.95rem; font-weight: 600; }
 @keyframes drift {
   to { transform: translate(-2.5rem, 1.5rem) scale(1.1); }
 }

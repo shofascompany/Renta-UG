@@ -71,7 +71,7 @@ async function submit() {
               />
             </div>
           </div>
-          <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+          <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <button :data-busy="Boolean(busy)" type="submit" class="btn-primary w-full" :disabled="busy">
             <Send class="size-4" /> {{ busy ? 'Sending…' : 'Send reset link' }}
           </button>

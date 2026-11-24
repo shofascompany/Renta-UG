@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import SuperHero from '@/components/super/SuperHero.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: is everything working? Payments, database, phone notifications, your account.
 const rental = useRentalStore()
@@ -255,7 +256,7 @@ async function clearAll() {
           <span v-for="c in [...checks].reverse()" :key="c.id" class="h-5 w-1.5 rounded-full" :class="c.ok ? 'bg-emerald-400' : 'bg-amber-400'" :title="when(c.run_at)" />
         </div>
       </div>
-      <p v-if="runError" class="border-b border-slate-100 bg-red-50 px-5 py-2.5 text-sm text-red-700">{{ runError }}</p>
+      <p v-if="runError" class="form-error m-4" role="alert">{{ runError }}</p>
       <ul v-if="lastCheck" class="divide-y divide-slate-100">
         <li v-for="r in lastCheck.results" :key="r.key" class="flex items-start gap-3 px-4 py-3 sm:px-5">
           <component :is="ICON[STATUS_TONE[r.status]]" class="mt-0.5 size-4.5 shrink-0" :class="TONE[STATUS_TONE[r.status]]" />
@@ -322,7 +323,7 @@ async function clearAll() {
       <span class="icon-tile tile-slate"><ArchiveIcon class="size-[1.3rem]" /></span>
       <div class="min-w-0 flex-1">
         <p class="font-medium text-slate-900">Saved history</p>
-        <p class="text-xs text-slate-500">{{ archives === null ? 'Loading…' : archives.length ? `${archives.length} archive${archives.length === 1 ? '' : 's'} · only you can see them` : 'Nothing archived yet' }}</p>
+        <p class="text-xs text-slate-500"><span v-if="archives === null" class="skeleton inline-block h-3 w-32 align-middle" /><template v-else>{{ archives.length ? `${archives.length} archive${archives.length === 1 ? '' : 's'} · only you can see them` : 'Nothing archived yet' }}</template></p>
       </div>
       <ChevronRight class="size-4 text-slate-300" />
     </RouterLink>
@@ -401,7 +402,7 @@ async function clearAll() {
           <label class="label" for="clear-confirm">Type <strong class="text-red-600">{{ PHRASE }}</strong> to confirm</label>
           <input id="clear-confirm" v-model="clearConfirm" class="input tracking-wide" autocomplete="off" data-cap="off" :placeholder="PHRASE" />
         </div>
-        <p v-if="clearError" class="text-sm text-red-600">{{ clearError }}</p>
+        <p v-if="clearError" class="form-error" role="alert">{{ clearError }}</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-secondary" @click="clearOpen = false">Cancel</button>
           <button :data-busy="Boolean(clearing)" type="submit" class="btn bg-red-600 text-white hover:bg-red-700" :disabled="clearing || clearConfirm.trim().toUpperCase() !== PHRASE">
@@ -427,7 +428,7 @@ async function clearAll() {
           <div v-if="openError.user_agent" class="col-span-2"><dt class="text-xs text-slate-500">Device</dt><dd class="truncate text-xs text-slate-700">{{ openError.user_agent }}</dd></div>
         </dl>
         <p v-if="openError.auto_fixed" class="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800"><Wand2 class="size-4" /> The app recovered from this by itself (it reloaded or retried). Kept here so you know it happened.</p>
-        <details v-if="openError.detail" class="rounded-xl bg-slate-50 p-3">
+        <details v-if="openError.detail" class="disclosure rounded-xl bg-slate-50 p-3">
           <summary class="cursor-pointer text-xs font-semibold text-slate-700">Technical details</summary>
           <pre class="mt-2 max-h-56 overflow-auto text-[11px] leading-relaxed whitespace-pre-wrap text-slate-600">{{ openError.detail }}</pre>
         </details>
@@ -466,7 +467,8 @@ async function clearAll() {
               <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize" :class="a.role === 'landlord' ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-600'">{{ a.role }}</span>
             </button>
           </li>
-          <li v-if="!shownAccounts.length" class="py-8 text-center text-sm text-slate-500">{{ accounts.length ? 'Nobody matches.' : 'Loading accounts…' }}</li>
+          <li v-if="!shownAccounts.length && accounts.length"><EmptyState compact kind="search" title="Nobody matches" text="Try another name, email or phone." /></li>
+          <template v-else-if="!shownAccounts.length"><li v-for="i in 4" :key="`load-${i}`" class="skeleton h-14 rounded-2xl" /></template>
         </ul>
       </div>
       <form v-else class="space-y-4" @submit.prevent="deleteAccount">
@@ -483,7 +485,7 @@ async function clearAll() {
           <label class="label" for="del-confirm">Type <strong class="text-red-600">DELETE</strong> to confirm</label>
           <input id="del-confirm" v-model="delConfirm" class="input tracking-wide" autocomplete="off" data-cap="off" placeholder="DELETE" />
         </div>
-        <p v-if="delError" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ delError }}</p>
+        <p v-if="delError" class="form-error" role="alert">{{ delError }}</p>
         <div class="grid grid-cols-2 gap-2">
           <button type="button" class="btn-secondary h-11" @click="delTarget = null">Back</button>
           <button type="submit" class="btn h-11 bg-red-600 text-white hover:bg-red-700" :data-busy="delBusy" :disabled="delBusy || delConfirm.trim().toUpperCase() !== 'DELETE'">

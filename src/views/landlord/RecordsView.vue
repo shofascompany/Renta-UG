@@ -40,8 +40,8 @@ const menu = ref(null) // { x, y, record }
 const lp = useLongPress((pos, record) => openMenu(pos, record))
 
 function openMenu(pos, record) {
-  const w = 220
-  const h = 100
+  const w = 264
+  const h = 190
   menu.value = {
     x: Math.min(pos.x, window.innerWidth - w - 8),
     y: Math.min(pos.y, window.innerHeight - h - 8),
@@ -98,7 +98,7 @@ function onSaved(t) {
     <p class="mt-2 px-1 text-xs text-slate-400">Tap a person to view their records · press and hold for more options</p>
   </div>
 
-  <section class="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+  <section class="sheet mt-4">
     <ul v-if="rows.length" class="divide-y divide-slate-100">
       <li
         v-for="r in rows"
@@ -150,30 +150,22 @@ function onSaved(t) {
 
   <!-- Dropdown menu -->
   <Teleport to="body">
-    <div v-if="menu" class="fixed inset-0 z-40" @click="closeMenu" @contextmenu.prevent="closeMenu" />
-    <div
-      v-if="menu"
-      class="fixed z-50 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
-      :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
-      role="menu"
-    >
-      <p class="truncate border-b border-slate-100 px-3 pt-1.5 pb-2 text-xs font-medium text-slate-500">{{ menu.record.name }}</p>
-      <button
-        class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-        role="menuitem"
-        :disabled="Boolean(menu.record.current)"
-        @click="addBack(menu.record)"
-      >
-        <History class="size-4 text-slate-400" />
-        <span>
-          Register again (fresh)
-          <span class="block text-xs text-slate-400">{{ menu.record.current ? 'Already renting' : 'New tenant, no old history' }}</span>
-        </span>
-      </button>
-      <button class="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50" role="menuitem" @click="viewRecords(menu.record)">
-        <FileText class="size-4 text-slate-400" /> View records
-      </button>
-    </div>
+    <div v-if="menu" class="fixed inset-0 z-[79]" @click="closeMenu" @contextmenu.prevent="closeMenu" />
+    <Transition name="menu-pop">
+      <div v-if="menu" class="menu-panel menu-from-left w-64" :style="{ left: `${menu.x}px`, top: `${menu.y}px` }" role="menu">
+        <p class="menu-title truncate">{{ menu.record.name }}</p>
+        <div class="menu-scroll">
+          <button type="button" class="menu-item" role="menuitem" @click="viewRecords(menu.record)">
+            <span class="menu-ico"><FileText class="size-4" /></span>
+            <span class="flex-1 text-left">View records<span class="menu-sub">Every stay and payment</span></span>
+          </button>
+          <button type="button" class="menu-item" role="menuitem" :disabled="Boolean(menu.record.current)" @click="addBack(menu.record)">
+            <span class="menu-ico"><History class="size-4" /></span>
+            <span class="flex-1 text-left">Register again<span class="menu-sub">{{ menu.record.current ? 'Already renting' : 'New tenant, no old history' }}</span></span>
+          </button>
+        </div>
+      </div>
+    </Transition>
   </Teleport>
 
   <TenantRecordCard :model-value="Boolean(cardRecord)" :record="cardRecord" @update:model-value="!$event && (cardPerson = null)" />

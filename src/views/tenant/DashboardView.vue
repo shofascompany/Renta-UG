@@ -11,6 +11,7 @@ import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
 import PushPrompt from '@/components/PushPrompt.vue'
 import AppLink from '@/components/AppLink.vue'
+import EmptyState from '@/components/EmptyState.vue'
 
 // Only what a tenant needs at a glance: what they owe, their lease, their home.
 // Everything else has its own page (My home, Payments, Notifications via the bell).
@@ -496,7 +497,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
               </template>
             </ListRow>
           </ul>
-          <p v-else class="px-5 py-10 text-center text-sm text-slate-500">No payments yet.</p>
+          <EmptyState v-else compact kind="money" title="No payments yet" text="Your payments and receipts appear here." />
         </div>
       </section>
 
@@ -562,8 +563,8 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px);
+    linear-gradient(rgb(var(--glass) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--glass) / 0.06) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: linear-gradient(180deg, #000 0%, transparent 75%);
 }
@@ -575,7 +576,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   padding: 0.3rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
-  background: rgb(255 255 255 / 0.15);
+  background: rgb(var(--glass) / 0.15);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.2);
   backdrop-filter: blur(6px);
 }
@@ -606,11 +607,11 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
 }
 .hero-btn-glass {
   color: #fff;
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(var(--glass) / 0.12);
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.25);
 }
 .hero-btn-glass:hover {
-  background: rgb(255 255 255 / 0.2);
+  background: rgb(var(--glass) / 0.2);
 }
 
 /* Soft light blobs drifting slowly behind the hero content */
@@ -621,7 +622,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   width: 22rem;
   height: 22rem;
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.22), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.22), transparent 65%);
   animation: drift 14s ease-in-out infinite alternate;
 }
 .blob-2 {
@@ -631,7 +632,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
   left: -20%;
   width: 18rem;
   height: 18rem;
-  background: radial-gradient(circle, rgb(255 255 255 / 0.12), transparent 65%);
+  background: radial-gradient(circle, rgb(var(--glass) / 0.12), transparent 65%);
   animation-duration: 18s;
 }
 
