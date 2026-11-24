@@ -21,12 +21,16 @@ const sort = ref({ key: 'balance', dir: -1 })
 const all = computed(() =>
   rental.currentTenants.map((t) => {
     const dues = rental.duesForTenant(t.id)
+    const pay = rental.payStateFor(t.id) // Paid / Part paid / Not paid (same rule on every page)
     return {
       ...t,
       house: rental.placeName(t.propertyId),
       rent: rental.propertyById(t.propertyId)?.rent ?? 0,
-      balance: dues.reduce((s, p) => s + p.balance, 0),
-      status: dues.some((p) => p.status === 'overdue') ? 'overdue' : dues.length ? 'due' : 'paid',
+      // What they need to pay now (a tenant who never paid, or whose time ended, owes a month's rent)
+      balance: pay?.owed ?? dues.reduce((s, p) => s + p.balance, 0),
+      pay,
+      status: pay?.key ?? 'unpaid',
+      overdue: dues.some((p) => p.status === 'overdue'),
       leaseDays: t.leaseEnd ? daysUntil(t.leaseEnd) : null,
       account: t.userId ? 'app' : t.managedByLandlord ? 'managed' : 'none',
     }
@@ -37,8 +41,9 @@ const rows = computed(() => {
   const q = query.value.trim().toLowerCase()
   const f = filter.value
   const list = all.value.filter((t) => {
-    if (f === 'owing' && !t.balance) return false
-    if (f === 'overdue' && t.status !== 'overdue') return false
+    if (f === 'paid' && t.status !== 'paid') return false
+    if (f === 'owing' && t.status === 'paid') return false
+    if (f === 'overdue' && !t.overdue) return false
     if (f === 'app' && t.account !== 'app') return false
     if (f === 'managed' && t.account !== 'managed') return false
     if (f === 'ending' && !(t.leaseDays !== null && t.leaseDays >= 0 && t.leaseDays <= 30)) return false
@@ -57,8 +62,9 @@ function sortBy(key) {
 
 const counts = computed(() => ({
   all: all.value.length,
-  owing: all.value.filter((t) => t.balance).length,
-  overdue: all.value.filter((t) => t.status === 'overdue').length,
+  paid: all.value.filter((t) => t.status === 'paid').length,
+  owing: all.value.filter((t) => t.status !== 'paid').length,
+  overdue: all.value.filter((t) => t.overdue).length,
   app: all.value.filter((t) => t.account === 'app').length,
   managed: all.value.filter((t) => t.account === 'managed').length,
   ending: all.value.filter((t) => t.leaseDays !== null && t.leaseDays >= 0 && t.leaseDays <= 30).length,
@@ -70,7 +76,8 @@ onBeforeUnmount(() => clearTimeout(addTimer))
 
 const FILTERS = [
   ['all', 'All tenants', Users],
-  ['owing', 'Owing rent', Wallet],
+  ['paid', 'Paid', Check],
+  ['owing', 'Not paid', Wallet],
   ['overdue', 'Overdue', AlertCircle],
   ['ending', 'Ending soon', CalendarClock],
   ['app', 'On the app', Smartphone],
@@ -80,8 +87,8 @@ const filterLabel = computed(() => FILTERS.find((f) => f[0] === filter.value)?.[
 
 const owedTotal = computed(() => all.value.reduce((s, t) => s + t.balance, 0))
 
-const statusStyle = { paid: 'bg-emerald-50 text-emerald-700', due: 'bg-amber-50 text-amber-700', overdue: 'bg-red-50 text-red-700' }
-const statusText = { paid: 'Paid up', due: 'Due', overdue: 'Overdue' }
+const statusStyle = { paid: 'bg-emerald-50 text-emerald-700', part: 'bg-amber-50 text-amber-800', unpaid: 'bg-red-50 text-red-700' }
+const statusText = { paid: 'Paid', part: 'Part paid', unpaid: 'Not paid' }
 const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 
 function exportCSV() {
@@ -92,7 +99,8 @@ function exportCSV() {
     { label: 'House', value: (t) => t.house },
     { label: 'Monthly rent (UGX)', value: (t) => t.rent },
     { label: 'Balance (UGX)', value: (t) => t.balance },
-    { label: 'Rent status', value: (t) => statusText[t.status] },
+    { label: 'Paid?', value: (t) => statusText[t.status] },
+    { label: 'Payment details', value: (t) => t.pay?.detail ?? '' },
     { label: 'Moved in', value: (t) => t.leaseStart ?? '' },
     { label: 'Rental time ends', value: (t) => t.leaseEnd ?? '' },
     { label: 'Account', value: (t) => ({ app: 'Uses the app', managed: 'No smartphone (managed)', none: 'Not connected' })[t.account] },
@@ -114,7 +122,7 @@ function onSaved(t) {
       :subtitle="`${counts.all} current tenants${owedTotal ? ` · ${formatUGX(owedTotal)} owed` : ''}`"
     >
       <template #corner>
-        <button type="button" class="add-btn" :class="showAddLabel && 'add-open'" aria-label="Add tenant" @click="adding = true">
+        <button type="button" class="add-btn" :class="showAddLabel && 'add-open'" aria-label="Add tenant" data-tour="add-tenant" @click="adding = true">
           <UserRoundPlus class="size-[1.35rem]" stroke-width="2.25" />
           <span class="add-label">Add tenant</span>
         </button>
@@ -122,7 +130,7 @@ function onSaved(t) {
     </AdminHeader>
 
     <!-- Toolbar: search · filter menu · more menu -->
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2" data-tour="tenant-tools">
       <div class="relative min-w-0 flex-1">
         <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
         <input v-model="query" class="input h-11 rounded-xl bg-white pl-10" placeholder="Search name, phone or house" />
@@ -193,7 +201,7 @@ function onSaved(t) {
       <table v-if="rows.length" class="min-w-full text-sm">
         <thead class="border-b border-slate-200 bg-slate-50/80 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
           <tr>
-            <th v-for="c in [['name', 'Tenant'], ['house', 'House'], ['leaseDays', 'Time left'], ['balance', 'Balance'], ['status', 'Rent'], ['account', 'Account']]" :key="c[0]" class="px-4 py-3">
+            <th v-for="c in [['name', 'Tenant'], ['house', 'House'], ['leaseDays', 'Time left'], ['balance', 'To pay'], ['status', 'Paid?'], ['account', 'Account']]" :key="c[0]" class="px-4 py-3">
               <button class="inline-flex items-center gap-1 uppercase hover:text-slate-800" :class="sort.key === c[0] && 'text-slate-900'" @click="sortBy(c[0])">
                 {{ c[1] }} <ArrowUpDown class="size-3" :class="sort.key === c[0] ? 'opacity-100' : 'opacity-30'" />
               </button>
@@ -218,7 +226,10 @@ function onSaved(t) {
               <p class="text-xs" :class="t.leaseDays !== null && t.leaseDays <= 30 ? 'font-semibold text-amber-700' : 'text-slate-500'">{{ timeLeft(t.leaseDays) }}</p>
             </td>
             <td class="px-4 py-3 font-semibold whitespace-nowrap tabular-nums" :class="t.balance ? 'text-slate-900' : 'text-slate-400'">{{ formatUGX(t.balance) }}</td>
-            <td class="px-4 py-3"><span class="rounded-md px-2 py-0.5 text-xs font-semibold" :class="statusStyle[t.status]">{{ statusText[t.status] }}</span></td>
+            <td class="px-4 py-3">
+              <span class="rounded-md px-2 py-0.5 text-xs font-semibold" :class="statusStyle[t.status]">{{ statusText[t.status] }}</span>
+              <p class="mt-0.5 text-[11px] whitespace-nowrap text-slate-500">{{ t.pay?.detail }}</p>
+            </td>
             <td class="px-4 py-3 text-xs">
               <span v-if="t.account === 'app'" class="inline-flex items-center gap-1 font-medium text-emerald-700"><Smartphone class="size-3.5" /> App</span>
               <span v-else-if="t.account === 'managed'" class="inline-flex items-center gap-1 font-medium text-slate-600"><UserCog class="size-3.5" /> Managed</span>

@@ -3,18 +3,20 @@ import { computed, ref, watch } from 'vue'
 import { Banknote, Smartphone, CheckCircle2, ArrowLeft, CalendarDays, MessageSquareText, ChevronRight, Info } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
-import { nextCycle, isoDay } from '@/utils/rentCycle'
+import { isoDay } from '@/utils/rentCycle'
 import { NETWORKS, NETWORK_IDS } from '@/lib/networks'
 import BaseModal from './BaseModal.vue'
 import TenantPicker from './TenantPicker.vue'
+import PaymentCoverage from './PaymentCoverage.vue'
 
 // Landlord records a payment they received. A card in the middle of the screen:
 //   1. Which payment?  Cash (any tenant) or Mobile money (tenants without a smartphone only;
 //      tenants with the app send it themselves and the landlord confirms it).
 //   2. Tenant, amount, the DATE it was paid (a new tenant's first month starts that day), network.
 // It counts straight away (you received it): unpaid rent first, then months ahead. The tenant is told
-// in the app and by SMS. The money is always recorded as received by you, the landlord.
-const props = defineProps({ tenantId: { type: String, default: null } }) // preselect a tenant
+// with a notification. The money is always recorded as received by you, the landlord.
+// tenantId: preselect a tenant. presetAmount: fill in the amount (e.g. "Complete payment": what is left)
+const props = defineProps({ tenantId: { type: String, default: null }, presetAmount: { type: Number, default: 0 } })
 const open = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['saved'])
 
@@ -40,7 +42,7 @@ watch(
     method.value = 'cash'
     tenantId.value = props.tenantId ?? ''
     network.value = rental.payAccountsOf()[0]?.network ?? 'mtn'
-    amount.value = ''
+    amount.value = props.presetAmount ? String(props.presetAmount) : ''
     paidOn.value = today()
     note.value = ''
     error.value = ''
@@ -84,7 +86,6 @@ const noRent = computed(() => extra.value > 0 && !rent.value)
 
 // Rent cycle: first payment starts the month on the chosen date; late payments lose their debt days
 const firstPayment = computed(() => Boolean(tenant.value) && !tenant.value.leaseEnd)
-const cycle = computed(() => (tenant.value && paidOn.value ? nextCycle(tenant.value, paidOn.value) : null))
 
 async function save() {
   error.value = ''
@@ -188,13 +189,11 @@ async function save() {
           </div>
         </div>
 
-        <!-- Rent cycle -->
-        <div v-if="cycle" class="flex items-start gap-2.5 rounded-2xl p-3 text-sm" :class="cycle.debtDays ? 'bg-amber-50 text-amber-900' : 'bg-sky-50 text-sky-900'">
-          <Info class="mt-0.5 size-4 shrink-0" />
-          <p v-if="firstPayment">First payment: their first month starts on <strong>{{ formatDate(paidOn) }}</strong> and ends on <strong>{{ formatDate(cycle.end) }}</strong>.</p>
-          <p v-else-if="cycle.debtDays">Paid <strong>{{ cycle.debtDays }} day{{ cycle.debtDays === 1 ? '' : 's' }} late</strong> (month ended {{ formatDate(tenant.leaseEnd) }}). Those debt days come off this month: it runs to <strong>{{ formatDate(cycle.end) }}</strong>, {{ cycle.days }} days.</p>
-          <p v-else>One month adds on top: their time runs to <strong>{{ formatDate(cycle.end) }}</strong>.</p>
-        </div>
+        <!-- How long it lasts (part payments buy days) -->
+        <p v-if="firstPayment && paidOn" class="flex items-start gap-2.5 rounded-2xl bg-sky-50 p-3 text-sm text-sky-900">
+          <Info class="mt-0.5 size-4 shrink-0" /> First payment: their rental time starts on <strong>{{ formatDate(paidOn) }}</strong>.
+        </p>
+        <PaymentCoverage v-if="value && paidOn" :tenant="tenant" :dues="dues" :rent="rent" :amount="value" :pay-day="paidOn" :you="false" />
 
         <!-- Where the money goes -->
         <div v-if="value && (plan.length || aheadMonths)" class="overflow-hidden rounded-2xl ring-1 ring-slate-200">
@@ -216,7 +215,7 @@ async function save() {
           <input id="rp-note" v-model="note" class="input" maxlength="200" :placeholder="method === 'cash' ? 'e.g. Paid at the gate' : 'e.g. Transaction ID'" />
         </div>
         <p class="flex items-center gap-2 text-xs text-slate-500">
-          <MessageSquareText class="size-4 shrink-0 text-brand-600" /> {{ tenant.name.split(' ')[0] }} gets an SMS{{ tenant.userId ? ' and a notification' : '' }} that it was received.
+          <MessageSquareText class="size-4 shrink-0 text-brand-600" /> {{ tenant.name.split(' ')[0] }} gets a notification that it was received.
         </p>
       </template>
 
@@ -236,7 +235,7 @@ async function save() {
       <p class="mt-4 text-lg font-semibold text-slate-900">{{ formatUGX(result.amount) }} recorded</p>
       <p class="mt-1 text-sm text-slate-600">
         Added to {{ result.name }}'s rent as {{ method === 'cash' ? 'cash' : 'mobile money' }}<template v-if="result.paidTo">. Their time now runs to {{ formatDate(result.paidTo) }}</template>.
-        <template v-if="result.phone"> An SMS is on its way to {{ result.phone }}.</template>
+        <template v-if="result.phone"> A notification is on its way to {{ result.name }}.</template>
       </p>
       <button class="btn-primary mt-6 h-11 w-full" @click="open = false">Done</button>
     </div>

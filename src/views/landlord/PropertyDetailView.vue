@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
+import PayStatus from '@/components/PayStatus.vue'
 import {
   ArrowLeft, Phone, Mail, UserX, Smartphone, CheckCircle2, KeyRound, Banknote,
   LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight, UserRoundPlus,
@@ -13,6 +14,7 @@ import AdminHeader from '@/components/admin/AdminHeader.vue'
 import HeaderAction from '@/components/admin/HeaderAction.vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+
 
 const props = defineProps({ id: String })
 const rental = useRentalStore()
@@ -187,7 +189,8 @@ function onTenantSaved(t) {
                 <dd class="min-w-0"><a :href="`mailto:${tenant.email}`" class="flex items-center gap-1.5 truncate font-medium text-slate-900 hover:text-brand-700"><Mail class="size-3.5 shrink-0" /> <span class="truncate">{{ tenant.email }}</span></a></dd>
               </div>
               <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Rental time</dt><dd class="text-right"><p class="font-medium text-slate-900">{{ timeLeft(tenant.leaseEnd ? daysUntil(tenant.leaseEnd) : null) }}</p><p v-if="tenant.leaseEnd" class="text-xs text-slate-500">{{ formatDate(tenant.leaseStart) }} – {{ formatDate(tenant.leaseEnd) }}</p></dd></div>
-              <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Balance</dt><dd class="font-semibold" :class="balance ? 'text-red-600' : 'text-emerald-700'">{{ formatUGX(balance) }}</dd></div>
+              <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Rent</dt><dd class="text-right"><PayStatus :tenant-id="tenant.id" /><p class="mt-0.5 text-xs text-slate-500">{{ rental.payStateFor(tenant.id)?.detail }}</p></dd></div>
+              <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">To pay</dt><dd class="font-semibold" :class="rental.payStateFor(tenant.id)?.owed ? 'text-red-600' : 'text-emerald-700'">{{ formatUGX(rental.payStateFor(tenant.id)?.owed ?? balance) }}</dd></div>
             </dl>
 
             <div class="space-y-2 border-t border-slate-100 p-4">

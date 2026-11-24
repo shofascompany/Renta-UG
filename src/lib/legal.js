@@ -23,7 +23,7 @@ export const LEGAL = {
         h: '2. What we collect',
         p: [
           'Account details: name, email address, phone number and password (stored only in scrambled, hashed form).',
-          'Rental details: the house or room rented, rent amounts, rent months, dates paid, amounts paid, payment method (cash, MTN Mobile Money or Airtel Money), the tenant\'s payment word, notices, move-out requests and ratings.',
+          'Rental details: the house or room rented, rent amounts, rent months, dates paid, amounts paid, payment method (cash, MTN Mobile Money or Airtel Money), the names registered on the line a payment was sent from, notices, move-out requests and ratings.',
           'Landlord payment details: the mobile money number(s) and the registered name a landlord chooses to show their tenants.',
           'Technical details: the device and browser used to sign in (for sign-in alerts), the address your phone gives us if you turn on notifications, a random device code when the installed app is opened (to count installs, without any personal details), and error reports (the page, the error and the device type) so we can fix problems.',
           'We do NOT collect or store mobile money PINs, bank card details or the content of your mobile money account. Mobile money is sent by the tenant from their own phone; we only record what the tenant or landlord types in.',

@@ -9,6 +9,7 @@ import { formatUGX, formatDate } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import PayStatus from '@/components/PayStatus.vue'
 import BaseModal from '@/components/BaseModal.vue'
 
 // Main admin: every tenant on the platform, plus app accounts that aren't renting anything.
@@ -105,10 +106,15 @@ async function removeAccount() {
           :to="`/admin2026/tenants/${t.id}`"
           :title="t.name"
           :subtitle="`${place(t)} · ${p.landlordName(t.landlordId)}`"
-          :value="t.propertyId ? (owed(t.id) ? formatUGX(owed(t.id)) : 'Paid up') : `Left ${formatDate(t.endedAt)}`"
-          :value-class="!t.propertyId ? 'text-slate-500' : owed(t.id) ? 'text-red-600' : 'text-emerald-700'"
-          :value-sub="t.propertyId ? (t.leaseEnd ? `to ${formatDate(t.leaseEnd)}` : 'not paid yet') : ''"
+          value="-"
         >
+          <template #value>
+            <template v-if="t.propertyId">
+              <PayStatus :tenant-id="t.id" />
+              <p class="mt-1 text-[11px] text-slate-500">{{ rental.payStateFor(t.id)?.detail }}</p>
+            </template>
+            <p v-else class="text-sm font-semibold text-slate-500">Left {{ formatDate(t.endedAt) }}</p>
+          </template>
           <template #icon>
             <span class="icon-disc rounded-full" :class="!t.propertyId ? 'disc-slate' : isOverdue(t.id) ? 'disc-red' : t.userId ? 'disc-emerald' : 'disc-sky'">
               <UserCog v-if="t.managedByLandlord" class="size-5" /><Users v-else class="size-5" />

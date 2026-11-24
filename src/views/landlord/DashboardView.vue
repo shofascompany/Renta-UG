@@ -10,6 +10,7 @@ import { useRentAnalytics, compactUGX, longMonth } from '@/composables/useRentAn
 import { formatUGX, formatDate } from '@/utils/format'
 import Panel from '@/components/admin/Panel.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import PayStatus from '@/components/PayStatus.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
 import RankBars from '@/components/charts/RankBars.vue'
 
@@ -116,7 +117,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
 <template>
   <div class="mx-auto max-w-6xl space-y-6">
     <!-- Total revenue -->
-    <section class="page-hero rise px-4 py-5 sm:px-8 sm:py-8">
+    <section class="page-hero rise px-4 py-5 sm:px-8 sm:py-8" data-tour="ll-hero">
       <p class="text-[11px] font-semibold tracking-[0.14em] text-white/70 uppercase sm:text-xs">{{ today }}</p>
 
       <!-- Greeting -->
@@ -132,7 +133,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
           <p class="hero-stat-label">Revenue</p>
           <p class="hero-stat-value flex items-center justify-between gap-1 text-base sm:text-xl">{{ compactUGX(a.thisMonth.value.collected) }} <ChevronRight class="size-4 shrink-0 text-white/60" /></p>
         </RouterLink>
-        <RouterLink :to="{ path: '/landlord/properties', query: { show: 'vacant' } }" class="hero-stat hero-stat-link">
+        <RouterLink :to="{ path: '/landlord/properties', query: { show: 'vacant' } }" class="hero-stat hero-stat-link" data-tour="ll-vacant">
           <p class="hero-stat-label">Unoccupied</p>
           <p class="hero-stat-value flex items-center justify-between gap-1 text-base sm:text-xl">
             {{ a.occupancy.value.vacant }} {{ a.occupancy.value.vacant === 1 ? 'room' : 'rooms' }}
@@ -142,7 +143,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
       </div>
 
       <div class="mt-4 grid grid-cols-2 gap-2 sm:mt-6 sm:flex sm:flex-wrap sm:gap-2.5">
-        <RouterLink to="/landlord/revenue" class="hero-btn hero-btn-solid"><History class="size-4" /> Transactions</RouterLink>
+        <RouterLink to="/landlord/revenue" class="hero-btn hero-btn-solid" data-tour="ll-transactions"><History class="size-4" /> Transactions</RouterLink>
         <RouterLink to="/landlord/payments" class="hero-btn hero-btn-glass"><Wallet class="size-4" /> Payments</RouterLink>
       </div>
     </section>
@@ -320,8 +321,8 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
                 </div>
               </template>
               <template #value>
-                <p class="text-sm font-semibold" :class="t.daysLeft !== null && t.daysLeft <= 30 ? 'text-amber-700' : 'text-slate-900'">{{ t.left.replace(' left', '') }}</p>
-                <p class="mt-0.5 text-[11px] text-slate-500">{{ t.leaseEnd ? `paid to ${formatDate(t.leaseEnd)}` : 'not paid yet' }}</p>
+                <PayStatus :tenant-id="t.id" />
+                <p class="mt-1 text-[11px] text-slate-500">{{ t.leaseEnd ? `${t.left.replace(' left', '')} · to ${formatDate(t.leaseEnd)}` : 'not started' }}</p>
               </template>
             </ListRow>
           </ul>

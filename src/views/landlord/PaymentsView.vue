@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import {
   CheckCircle2, Banknote, X, Search, FileDown, EllipsisVertical, CalendarDays, Check, ChevronDown,
-  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight, Smartphone,
+  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight, Smartphone, ImageDown, Loader2,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useRentAnalytics, longMonth, downloadCSV } from '@/composables/useRentAnalytics'
@@ -13,6 +13,7 @@ import DropMenu from '@/components/admin/DropMenu.vue'
 import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 import PayAccountsModal from '@/components/PayAccountsModal.vue'
 import CashReviewList from '@/components/CashReviewList.vue'
+import { useReceiptDownload } from '@/composables/useReceiptDownload'
 
 // Payments: this month at a glance, cash waiting for confirmation, then every rent charge grouped by month.
 const rental = useRentalStore()
@@ -75,10 +76,23 @@ const cashHistory = computed(() => [...rental.cash_payments].sort((x, y) => y.cr
 // Tap a charge → its details
 const openCharge = ref(null)
 const charge_ = computed(() => rental.payments.find((p) => p.id === openCharge.value) ?? null)
+const cashAmount = ref(0) // "Record the rest": what is left on a part-paid month
 function cashFromDetails() {
+  cashAmount.value = charge_.value.amountPaid ? charge_.value.balance : 0
   cashFor.value = charge_.value.tenantId
   openCharge.value = null
 }
+// Each amount received for the open month, with its receipt as an image
+// (paid in turns: every instalment, numbered, with the days each bought)
+const { saving, saveRevenue, instalmentsFor } = useReceiptDownload()
+const plan = computed(() => (charge_.value ? instalmentsFor(charge_.value.id) : null))
+const chargeReceipts = computed(() =>
+  plan.value
+    ? [...plan.value.rows].reverse().map((r) => ({
+        ...r, paymentId: charge_.value.id, tenantId: charge_.value.tenantId, propertyId: charge_.value.propertyId, period: charge_.value.period,
+      }))
+    : [],
+)
 
 const statusText = { paid: 'Paid', pending: 'Due', overdue: 'Overdue' }
 const STATUS = [['all', 'All'], ['pending', 'Due'], ['overdue', 'Overdue'], ['paid', 'Paid']]
@@ -110,7 +124,7 @@ function exportCSV() {
       <p class="mt-0.5 text-[2rem] leading-tight font-bold tracking-tight tabular-nums sm:text-4xl">{{ formatUGX(a.thisMonth.value.collected) }}</p>
 
       <div class="mt-6 grid gap-2.5 sm:grid-cols-2">
-        <button type="button" class="pay-action pay-action-solid w-full" @click="cashFor = ''">
+        <button type="button" class="pay-action pay-action-solid w-full" data-tour="record-payment" @click="cashFor = ''">
           <span class="pay-ico bg-teal-600 text-white"><HandCoins class="size-[1.15rem]" /></span>
           <span class="min-w-0 flex-1 text-left">
             <span class="block truncate text-sm font-semibold">Record payment</span>
@@ -118,7 +132,7 @@ function exportCSV() {
           </span>
           <ChevronRight class="size-4 shrink-0 text-[#5b7a77]" />
         </button>
-        <button type="button" class="pay-action pay-action-glass w-full" @click="numbersOpen = true">
+        <button type="button" class="pay-action pay-action-glass w-full" data-tour="pay-numbers" @click="numbersOpen = true">
           <span class="pay-ico bg-white/15 text-white"><Smartphone class="size-[1.15rem]" /></span>
           <span class="min-w-0 flex-1 text-left">
             <span class="block truncate text-sm font-semibold">Mobile money numbers</span>
@@ -142,14 +156,14 @@ function exportCSV() {
     </div>
 
     <!-- Cash waiting for confirmation (only when there is some) -->
-    <section v-if="pendingCash.length" class="rise" style="--d: 60ms">
+    <section v-if="pendingCash.length" class="rise" style="--d: 60ms" data-tour="to-confirm">
       <h2 class="section-title">Payments to confirm</h2>
       <div class="sheet border-amber-200">
         <div class="flex items-center gap-3 border-b border-amber-100 bg-amber-50/70 px-4 py-3 sm:px-5">
           <span class="icon-tile tile-amber size-10"><HandCoins class="size-5" /></span>
           <p class="min-w-0 flex-1 text-sm text-amber-900">
             <strong>{{ pendingCash.length }}</strong> payment{{ pendingCash.length === 1 ? '' : 's' }} waiting.
-            <span class="text-amber-800/80">Check your phone or cash, then confirm. The tenant gets an SMS.</span>
+            <span class="text-amber-800/80">Check your phone or cash, then confirm. The tenant gets a notification.</span>
           </p>
         </div>
         <div class="max-h-[24rem] overflow-y-auto">
@@ -163,7 +177,7 @@ function exportCSV() {
       <h2 class="section-title">Rent charges</h2>
 
       <!-- Toolbar -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2" data-tour="charges-tools">
         <div class="relative min-w-0 flex-1">
           <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
           <input v-model="query" class="input h-11 rounded-xl bg-white pl-10" placeholder="Search tenant, house or reference" />
@@ -285,10 +299,37 @@ function exportCSV() {
           <div class="flex justify-between gap-3 py-3"><dt class="text-slate-500">Due</dt><dd class="font-medium text-slate-900">{{ formatDate(charge_.dueDate) }}</dd></div>
           <div v-if="charge_.paidAt" class="flex justify-between gap-3 py-3"><dt class="text-slate-500">Paid on</dt><dd class="font-medium text-slate-900">{{ formatDate(charge_.paidAt) }}<span v-if="charge_.method"> · {{ charge_.method }}</span></dd></div>
           <div v-if="charge_.reference" class="flex justify-between gap-3 py-3"><dt class="text-slate-500">Reference</dt><dd class="font-mono text-xs font-medium text-slate-900">{{ charge_.reference }}</dd></div>
+          <div v-if="charge_.status !== 'paid' && charge_.creditedDays" class="flex justify-between gap-3 py-3"><dt class="text-slate-500">Days covered so far</dt><dd class="font-medium text-slate-900">{{ charge_.creditedDays }} day{{ charge_.creditedDays === 1 ? '' : 's' }}</dd></div>
         </dl>
+        <!-- Each amount received, with its receipt -->
+        <div v-if="chargeReceipts.length">
+          <div class="flex items-baseline justify-between gap-3">
+            <p class="text-xs font-semibold tracking-[0.12em] text-slate-400 uppercase">{{ plan.rows.length > 1 ? `Paid in ${plan.rows.length} payments` : 'Payment received' }}</p>
+            <p class="text-xs font-semibold text-brand-700">{{ plan.days }} of 30 days covered</p>
+          </div>
+          <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <span class="block h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-700" :style="{ width: `${Math.min(100, Math.round((plan.paid / plan.rent) * 100))}%` }" />
+          </div>
+          <p class="mt-1.5 text-xs text-slate-500">{{ formatUGX(plan.paid) }} of {{ formatUGX(plan.rent) }} paid · {{ plan.balance ? `${formatUGX(plan.balance)} left` : 'paid in full' }}</p>
+          <ul class="mt-3 space-y-2">
+            <li v-for="r in chargeReceipts" :key="r.id" class="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+              <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-xs font-bold text-brand-700 shadow-sm">{{ r.n }}</span>
+              <div class="min-w-0 flex-1">
+                <p class="flex items-center gap-1.5 truncate text-sm font-medium text-slate-900">
+                  <Banknote v-if="/cash/i.test(r.method ?? '')" class="size-3.5 text-slate-400" /><Smartphone v-else class="size-3.5 text-slate-400" /> {{ r.method || 'Payment' }}
+                </p>
+                <p class="truncate text-xs text-slate-500">{{ formatDate(r.at) }} · +{{ r.days }} day{{ r.days === 1 ? '' : 's' }} · {{ formatUGX(r.totalAfter) }} so far</p>
+              </div>
+              <p class="shrink-0 text-sm font-semibold text-slate-900 tabular-nums">{{ formatUGX(r.amount) }}</p>
+              <button type="button" class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm transition hover:bg-brand-50 active:scale-95" :aria-label="`Download the receipt for ${formatUGX(r.amount)}`" title="Download receipt" @click="saveRevenue(r)">
+                <Loader2 v-if="saving === r.id" class="size-4 animate-spin" /><ImageDown v-else class="size-4" />
+              </button>
+            </li>
+          </ul>
+        </div>
         <div class="grid gap-2" :class="charge_.status !== 'paid' && 'grid-cols-2'">
           <RouterLink :to="rental.tenantById(charge_.tenantId)?.propertyId ? `/landlord/tenants/${charge_.tenantId}` : `/landlord/properties/${charge_.propertyId}`" class="btn-secondary h-11">Open tenant</RouterLink>
-          <button v-if="charge_.status !== 'paid'" class="btn-primary h-11" @click="cashFromDetails"><HandCoins class="size-4" /> Record payment</button>
+          <button v-if="charge_.status !== 'paid'" class="btn-primary h-11" @click="cashFromDetails"><HandCoins class="size-4" /> {{ charge_.amountPaid ? 'Record the rest' : 'Record payment' }}</button>
         </div>
       </div>
     </BaseModal>
@@ -300,7 +341,7 @@ function exportCSV() {
       </div>
     </BaseModal>
 
-    <RecordPaymentModal :model-value="cashOpen" :tenant-id="cashFor || null" @update:model-value="!$event && (cashFor = null)" />
+    <RecordPaymentModal :model-value="cashOpen" :tenant-id="cashFor || null" :preset-amount="cashAmount" @update:model-value="!$event && ((cashFor = null), (cashAmount = 0))" />
     <PayAccountsModal v-model="numbersOpen" />
   </div>
 </template>

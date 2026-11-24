@@ -10,16 +10,16 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Renta" />
+    <meta name="apple-mobile-web-app-title" content="Renta UG" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <title>Renta UG: pay and manage rent in Uganda</title>
+    <title>Renta UG</title>
     <meta name="description" content="Pay rent with MTN and Airtel, watch your rental days count down, and manage houses, rooms and tenants. Made for Uganda." />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Renta UG" />
-    <meta property="og:title" content="Renta UG: pay and manage rent in Uganda" />
+    <meta property="og:title" content="Renta UG" />
     <meta property="og:description" content="Pay rent with MTN and Airtel, watch your rental days count down, and manage houses, rooms and tenants." />
     <meta property="og:image" content="https://rentaug.netlify.app/icon-512.png" />
     <meta name="twitter:card" content="summary" />
@@ -31,12 +31,8 @@
         pointer-events: none !important;
       }
     </style>
-    <script>
-      // Follow the device's dark mode before the page paints (avoids a white flash). See src/lib/theme.js.
-      try {
-        if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('dark')
-      } catch (e) {}
-    </script>
+    <!-- Dark mode before paint + first hero photo preload (a file, so the CSP can forbid inline scripts) -->
+    <script src="/boot.js"></script>
   </head>
   <body>
     <div id="app"></div>

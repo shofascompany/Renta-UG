@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Sparkles, ChevronRight } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate } from '@/utils/format'
-import { addMonths as addM } from '@/utils/rentCycle'
+import { coverage } from '@/utils/rentCycle'
 import { payRoute } from '@/lib/payRoute'
 
 // Recharge: pay rent in advance in ONE mobile money payment, sent straight to the landlord.
@@ -36,7 +36,10 @@ const debtDays = computed(() => {
   const d = Math.round((new Date().setHours(0, 0, 0, 0) - startFrom.value.getTime()) / 86400000)
   return Math.max(0, d)
 })
-const paidUntil = computed(() => (months.value ? addM(startFrom.value, months.value + dues.value.length) : null))
+// Same rule as the database: unpaid months first (part-paid months only need the rest), then 30-day months ahead
+const paidUntil = computed(() =>
+  months.value ? coverage({ tenant: tenant.value, dues: dues.value, rent: rent.value, amount: total.value }).end : null,
+)
 const currentEnd = computed(() => tenant.value?.leaseEnd)
 const total = computed(() => (months.value ? owed.value + rent.value * months.value : 0))
 

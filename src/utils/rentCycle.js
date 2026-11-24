@@ -10,12 +10,11 @@ export const isoDay = (d) => {
 const at = (s) => new Date(`${String(s).slice(0, 10)}T00:00:00`)
 export const daysBetween = (from, to) => Math.round((at(to) - at(from)) / DAY) // to − from
 
+// A rent month is always 30 days (never 28, 29 or 31), the same as the database (database/52)
+export const RENT_MONTH_DAYS = 30
 export function addMonths(d, n) {
   const x = new Date(d)
-  const day = x.getDate()
-  x.setDate(1)
-  x.setMonth(x.getMonth() + n)
-  x.setDate(Math.min(day, new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate()))
+  x.setDate(x.getDate() + n * RENT_MONTH_DAYS)
   return x
 }
 
@@ -38,8 +37,72 @@ export function rentCycle(tenant, lastPaidOn = null) {
     daysLeft,
     debtDays,
     lateDays,
-    fullDays: daysBetween(start, end), // a whole month (28–31 days)
+    fullDays: daysBetween(start, end), // a whole rent month: 30 days
     paidDays: daysBetween(paidOn ?? start, end), // days actually paid for in this month
+  }
+}
+
+export function addDays(d, n) {
+  const x = new Date(d)
+  x.setDate(x.getDate() + n)
+  return x
+}
+
+// Part payments buy days (same rule as database/52): money paid on a month ÷ its rent × 30 days,
+// rounded down. Once a month is paid in full it gives one whole rent month (30 days) instead (minus the
+// days it already gave). Money is used on unpaid months first (oldest first), then months ahead.
+export const DAYS_PER_MONTH = RENT_MONTH_DAYS
+export const daysFor = (paid, rent) => (rent > 0 ? Math.floor((Math.max(0, paid) * DAYS_PER_MONTH) / rent) : 0)
+
+// What a payment would do to the tenant's rental time.
+//   tenant   { leaseEnd }
+//   dues     unpaid rent months, oldest first: { amount, amountPaid, creditedDays, monthCredited }
+//   rent     the monthly rent (for months ahead)
+//   amount   money being paid now
+//   before   money already sent and still waiting for the landlord (counted first)
+// → { from, end, days, debtDays, endsBeforeToday, months, partDays }
+export function coverage({ tenant, dues = [], rent = 0, amount = 0, before = 0, payDay = isoDay(new Date()) }) {
+  const run = (money) => {
+    let left = money
+    let months = 0
+    let days = 0
+    for (const c of dues) {
+      if (left <= 0) break
+      const owed = Math.max(0, c.amount - c.amountPaid)
+      const take = Math.min(left, owed)
+      left -= take
+      if (c.monthCredited || c.amount <= 0 || !take) continue
+      const paid = c.amountPaid + take
+      if (paid >= c.amount) {
+        months += 1
+        days -= c.creditedDays ?? 0
+      } else {
+        const d = daysFor(paid, c.amount)
+        if (d > (c.creditedDays ?? 0)) days += d - (c.creditedDays ?? 0)
+      }
+    }
+    while (left > 0 && rent > 0) {
+      const take = Math.min(left, rent)
+      left -= take
+      if (take >= rent) months += 1
+      else days += daysFor(take, rent)
+    }
+    return { months, days }
+  }
+  const start = tenant?.leaseEnd ? String(tenant.leaseEnd).slice(0, 10) : payDay
+  const endOf = ({ months, days }) => isoDay(addDays(addMonths(at(start), months), days))
+  const from = endOf(run(before)) // after anything already waiting
+  const after = run(before + amount)
+  const end = endOf(after)
+  const debtDays = tenant?.leaseEnd && start < payDay ? daysBetween(start, payDay) : 0
+  return {
+    from,
+    end,
+    days: Math.max(0, daysBetween(from, end)), // rental time this payment adds
+    debtDays,
+    endsBeforeToday: end < payDay, // still behind after paying
+    daysFromToday: daysBetween(payDay, end),
+    firstPayment: !tenant?.leaseEnd,
   }
 }
 

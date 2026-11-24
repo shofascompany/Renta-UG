@@ -133,56 +133,173 @@ button[data-busy='true']::after {
 
 /* ── Dark mode ──
    The app is written with light colours (bg-white, text-slate-900, …). In dark mode we remap
-   those colour tokens, so every existing page turns dark without per-page changes. */
+   those colour tokens, so every existing page turns dark without per-page changes.
+   Design: a true black page, cards one step lighter (neutral greys, no blue or green tint), and
+   text that is clearly brighter than anything behind it. Colour is kept for meaning only
+   (buttons, status, money in/out), never for backgrounds. */
 html.dark {
   color-scheme: dark;
+  --page-bg: #000000;
 
-  /* surfaces + neutral text/borders (scale inverted) */
-  --color-white: #111925;
-  --color-slate-50: #172131;
-  --color-slate-100: #1e2938;
-  --color-slate-200: #2a3547;
-  --color-slate-300: #3a4659;
-  --color-slate-400: #6b788d;
-  --color-slate-500: #8b97aa;
-  --color-slate-600: #a8b3c4;
-  --color-slate-700: #c5cdd9;
-  --color-slate-800: #dde3ec;
-  --color-slate-900: #f1f5f9;
+  /* surfaces + neutral text/borders (scale inverted, pure greys) */
+  --color-white: #060606;     /* cards, sheets, menus: black, separated from the page by their edge */
+  --color-slate-50: #111111;  /* raised / hover surfaces, inputs */
+  --color-slate-100: #1a1a1a;
+  --color-slate-200: #2e2e2e; /* borders: visible but quiet */
+  --color-slate-300: #424242;
+  --color-slate-400: #9a9a9a; /* hints and placeholders: still readable */
+  --color-slate-500: #b3b3b3; /* secondary text */
+  --color-slate-600: #cfcfcf;
+  --color-slate-700: #e3e3e3;
+  --color-slate-800: #f0f0f0;
+  --color-slate-900: #ffffff; /* headings and main text: full white */
 
-  /* brand: tinted backgrounds go dark, text/icons go bright */
-  --color-brand-50: #0f2c2a;
-  --color-brand-100: #144640;
-  --color-brand-200: #1d5a53;
-  --color-brand-500: #2bb5aa;
-  --color-brand-600: #3cc9bd;
-  --color-brand-700: #6ee0d5;
+  /* brand: backgrounds stay almost neutral, text/icons go bright */
+  --color-brand-50: #142320;
+  --color-brand-100: #1b3330;
+  --color-brand-200: #24453f;
+  --color-brand-500: #2dd4bf;
+  --color-brand-600: #45e0cc;
+  --color-brand-700: #7ff0e1;
 
-  /* status colours */
-  --color-emerald-50: #0e2a20;
-  --color-emerald-200: #1d5c43;
-  --color-emerald-600: #34d399;
-  --color-emerald-700: #6ee7b7;
-  --color-red-50: #2d1518;
-  --color-red-200: #6b2228;
+  /* status colours: quiet backgrounds, bright text */
+  --color-emerald-50: #13211a;
+  --color-emerald-200: #1f4a35;
+  --color-emerald-600: #4ade80;
+  --color-emerald-700: #86efac;
+  --color-red-50: #261414;
+  --color-red-200: #5c2323;
   --color-red-500: #f87171;
   --color-red-600: #f87171;
   --color-red-700: #fca5a5;
-  --color-amber-50: #2a2112;
-  --color-amber-100: #3b2d12;
-  --color-amber-200: #5c4515;
+  --color-amber-50: #241d10;
+  --color-amber-100: #33280f;
+  --color-amber-200: #574213;
   --color-amber-600: #fbbf24;
   --color-amber-700: #fcd34d;
   --color-amber-800: #fde68a;
-  --color-sky-50: #0f2533;
+  --color-sky-50: #111f29;
   --color-sky-600: #38bdf8;
   --color-sky-700: #7dd3fc;
 }
 
-html.dark,
+/* The background: black, with a soft neutral light falling from the top of the screen and a faint
+   glow at the bottom. It stays still while the page scrolls, gives depth without any colour, and
+   keeps every card and line of text clearly in front of it. */
+/* The glow is a fixed layer behind the page (not `background-attachment: fixed`, which many phones
+   don't repaint when the theme changes, so the old colours stayed until a refresh, and which is slow). */
+html.dark { background: var(--page-bg); }
 html.dark body {
-  background: var(--color-white);
+  color: var(--color-slate-800);
+  background: transparent;
 }
+html.dark body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(70rem 36rem at 50% -14%, rgb(255 255 255 / 0.065), transparent 62%),
+    radial-gradient(50rem 30rem at 50% 118%, rgb(255 255 255 / 0.03), transparent 60%);
+}
+
+/* While the theme switches (light page ⇄ dark page), colours change at once instead of fading */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
+/* Pages show that background: no coloured washes behind the content */
+html.dark .console-bg { background: transparent !important; }
+
+/* Cards: black, with a clear edge and a faint top highlight so they still stand out from the page */
+html.dark .sheet,
+html.dark .card {
+  background: var(--color-white);
+  border-color: rgb(255 255 255 / 0.13);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11), inset 0 1px 0 rgb(255 255 255 / 0.06), 0 12px 32px -18px rgb(0 0 0 / 0.9);
+}
+/* Any other white panel (bg-white) is black too, with the same edge */
+html.dark .bg-white:not(.btn-primary):not(button) { background-color: var(--color-white); }
+html.dark .rounded-2xl.bg-white,
+html.dark .rounded-3xl.bg-white,
+html.dark .rounded-xl.bg-white { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11); }
+/* Lines inside cards and lists: visible, never loud */
+html.dark .divide-slate-100 > :not(:last-child) { border-color: rgb(255 255 255 / 0.07); }
+html.dark .border-slate-100 { border-color: rgb(255 255 255 / 0.07); }
+html.dark .border-slate-200 { border-color: rgb(255 255 255 / 0.1); }
+/* Hover rows: a gentle lift */
+html.dark .hover\:bg-slate-50:hover { background-color: #121212; }
+/* Modals and menus: black too, with a brighter edge so they sit above the page */
+html.dark [role='dialog'] .bg-white,
+html.dark .sheet-body { background-color: #0a0a0a; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14); }
+
+/* Fields: a touch lighter than the card, bright text, clear focus ring */
+html.dark .input {
+  background: var(--color-slate-50);
+  border-color: var(--color-slate-300);
+  color: #fff;
+}
+html.dark .input:focus { border-color: var(--color-brand-500); }
+html.dark .input::placeholder { color: var(--color-slate-400); }
+
+/* Big coloured headers and side menus become black panels (white text stays) */
+html.dark .page-hero,
+html.dark .page-hero-blue,
+html.dark .page-hero-red,
+html.dark .super-hero,
+html.dark .side-admin,
+html.dark .status-card,
+html.dark .order-chip {
+  background: #050505 !important;
+  box-shadow: inset 0 0 0 1px #2a2a2a !important;
+}
+html.dark .page-hero::after,
+html.dark .super-hero .orb,
+html.dark .side-admin .side-head,
+html.dark .side-head { background: none !important; }
+html.dark .page-hero::before { opacity: 0.4; }
+/* …with a thin coloured line on top, so each header keeps its meaning */
+html.dark .page-hero { border-top: 3px solid #14b8a6; }
+html.dark .page-hero-red { border-top-color: #ef4444; }
+html.dark .status-ended { box-shadow: inset 0 0 0 1px #5c2323 !important; }
+html.dark .status-free { box-shadow: inset 0 0 0 1px #574213 !important; }
+
+/* Tenant pages' own headers and panels: black too, with the same coloured top line */
+html.dark .hero-ok,
+html.dark .hero-overdue,
+html.dark .banner,
+html.dark .detail-head,
+html.dark .hero {
+  background: #050505 !important;
+  box-shadow: inset 0 0 0 1px #2a2a2a !important;
+  border-top: 3px solid #14b8a6;
+}
+html.dark .hero-overdue,
+html.dark .banner-overdue,
+html.dark .detail-head-overdue { border-top-color: #ef4444 !important; }
+html.dark .banner-overdue,
+html.dark .detail-head-overdue { background: #050505 !important; }
+html.dark .hero .blob,
+html.dark .hero .grid-pattern,
+html.dark .banner .grid-pattern { opacity: 0.25; }
+html.dark .tile.tile-sky,
+html.dark .tile.tile-brand,
+html.dark .tile.tile-warn,
+html.dark .coverage-head { background: var(--color-white) !important; }
+html.dark .coverage,
+html.dark .tile { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11); }
+
+/* Glass figures inside headers: readable on black */
+html.dark .hero-stat { background: #0c0c0c; box-shadow: inset 0 0 0 1px #2a2a2a; }
+html.dark .hero-stat-label { color: #b3b3b3; }
+html.dark .hero-btn-glass { background: #111111; box-shadow: inset 0 0 0 1px #333333; }
+
+/* Top bar and phone tab bar: black glass */
+html.dark .topbar { background: rgb(0 0 0 / 0.85) !important; border-color: #1f1f1f !important; }
+html.dark .tabbar { background: rgb(18 18 18 / 0.92) !important; border-color: #2e2e2e !important; }
 
 /* Things that must stay solid/white even in dark mode */
 html.dark .text-white { color: #fff; }
@@ -190,9 +307,9 @@ html.dark .bg-brand-600 { background-color: #0f766e; }
 html.dark .bg-brand-700 { background-color: #14918a; }
 html.dark .bg-red-600 { background-color: #dc2626; }
 html.dark .hover\:bg-red-700:hover { background-color: #b91c1c; }
-html.dark .bg-slate-900 { background-color: #0b111a; }
+html.dark .bg-slate-900 { background-color: #0a0a0a; }
 html.dark .bg-slate-800,
-html.dark .hover\:bg-slate-800:hover { background-color: #1e2938; }
+html.dark .hover\:bg-slate-800:hover { background-color: #1f1f1f; }
 html.dark .bg-slate-900\/20 { background-color: rgb(0 0 0 / 0.5); }
 html.dark .bg-slate-900\/30 { background-color: rgb(0 0 0 / 0.6); }
 

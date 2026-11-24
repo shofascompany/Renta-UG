@@ -59,7 +59,9 @@ export async function start(db, body) {
   const password = String(body?.password ?? '')
   if (name.length < 2) throw new HttpError(400, 'Enter your full name.')
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw new HttpError(400, 'Enter a valid email address.')
-  if (password.length < 8) throw new HttpError(400, 'Your password needs at least 8 characters.')
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new HttpError(400, 'Your password needs at least 8 characters, with letters and numbers.')
+  }
   await checkDeliverable(email) // typos like gmial.com, or a domain that can't get mail
 
   const { data: taken, error: tErr } = await db.from('profiles').select('id').ilike('email', email.replace(/[\\%_]/g, '\\$&')).limit(1).maybeSingle() // same email in any letter case

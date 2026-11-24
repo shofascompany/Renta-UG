@@ -1,8 +1,9 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, Hash, CalendarDays, Home, User, StickyNote, Smartphone } from '@lucide/vue'
+import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, Hash, CalendarDays, Home, User, StickyNote, Smartphone, ImageDown, Loader2 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import { useRentAnalytics, downloadCSV, longMonth, periodOf } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
@@ -11,6 +12,7 @@ import BaseModal from '@/components/BaseModal.vue'
 // Every amount received, grouped by month. Tap a row for its details.
 const rental = useRentalStore()
 const a = useRentAnalytics()
+const { saving, saveRevenue } = useReceiptDownload() // receipts as images, like the tenant's
 const route = useRoute()
 const router = useRouter()
 
@@ -124,6 +126,13 @@ function exportCSV() {
             value-class="text-emerald-700"
             @click="openId = r.id"
           >
+            <template #below>
+              <!-- (a span: the row itself is already a button) -->
+              <span role="button" tabindex="0" class="rc-link mt-1.5" :aria-label="`Download the receipt for ${formatUGX(r.amount)}`" @click.stop="saveRevenue(r)" @keydown.enter.stop.prevent="saveRevenue(r)">
+                <Loader2 v-if="saving === r.id" class="size-3.5 animate-spin" /><ImageDown v-else class="size-3.5" />
+                {{ saving === r.id ? 'Saving…' : 'Receipt' }}
+              </span>
+            </template>
             <template #icon>
               <span class="icon-disc" :class="r.channel === 'Cash' ? 'disc-amber' : 'disc-emerald'">
                 <Banknote v-if="r.channel === 'Cash'" class="size-5" />
@@ -159,8 +168,18 @@ function exportCSV() {
           <div v-if="open.reference" class="flex items-center gap-3 py-3"><Hash class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Reference</dt><dd class="font-mono text-xs font-medium text-slate-900">{{ open.reference }}</dd></div>
           <div v-if="open.note" class="flex items-start gap-3 py-3"><StickyNote class="mt-0.5 size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Note</dt><dd class="max-w-[60%] text-right text-slate-900">{{ open.note }}</dd></div>
         </dl>
-        <RouterLink v-if="open.propertyId && rental.propertyById(open.propertyId)" :to="`/landlord/properties/${open.propertyId}`" class="btn-secondary h-11 w-full">Open the house</RouterLink>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <button type="button" class="btn-primary h-11" :data-busy="saving === open.id" :disabled="Boolean(saving)" @click="saveRevenue(open)">
+            <ImageDown class="size-4" /> {{ saving === open.id ? 'Saving…' : 'Download receipt' }}
+          </button>
+          <RouterLink v-if="open.propertyId && rental.propertyById(open.propertyId)" :to="`/landlord/properties/${open.propertyId}`" class="btn-secondary h-11">Open the house</RouterLink>
+        </div>
       </div>
     </BaseModal>
   </div>
 </template>
+
+<style scoped>
+.rc-link { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 9999px; padding: 0.15rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
+.rc-link:active { transform: scale(0.96); }
+</style>

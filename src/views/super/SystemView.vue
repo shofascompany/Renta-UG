@@ -129,7 +129,7 @@ async function openDelete() {
   delOpen.value = true
   const { data } = await supabase
     .from('profiles')
-    .select('id, email, full_name, phone, role, active, created_at')
+    .select('*')
     .in('role', ['landlord', 'tenant'])
     .order('created_at', { ascending: false })
   accounts.value = data ?? []
@@ -140,6 +140,8 @@ const shownAccounts = computed(() => {
     .filter((a) => !q || `${a.full_name ?? ''} ${a.email ?? ''} ${a.phone ?? ''}`.toLowerCase().includes(q))
     .slice(0, 50)
 })
+// The permanent landlord account (and nothing else) can never be deleted
+const isProtected = (a) => a.subscription_exempt === true || String(a.email ?? '').toLowerCase() === 'ngumisiriza@gmail.com'
 const renting = (a) => a.role === 'tenant' && rental.tenants.some((t) => t.userId === a.id && t.propertyId)
 const ownsCount = (a) => rental.properties.filter((x) => x.landlordId === a.id).length
 const shownEmail = (e) => (String(e ?? '').endsWith('@phone-signin.example.com') ? 'Signs in with phone' : e)
@@ -334,7 +336,8 @@ async function clearAll() {
           <p class="font-semibold text-slate-900">Delete all users</p>
           <p class="mt-1 text-sm leading-relaxed text-slate-600">
             Deletes every landlord and tenant: their accounts, properties, tenants, payments, messages and everything else they entered.
-            A full copy is saved in <strong>Archives</strong> first, and only you can view it. Your admin account and the activity log stay.
+            A full copy is saved in <strong>Archives</strong> first, and only you can view it. Your admin account and the activity log stay,
+            and so does the permanent landlord account (ngumisiriza@gmail.com) with all its data and its tenants.
           </p>
           <p class="mt-2 text-xs text-slate-500">
             Right now: {{ rental.landlords.length }} landlords · {{ rental.tenants.length }} tenant records · {{ rental.properties.length }} properties · {{ rental.payment_receipts.length }} payments
@@ -388,7 +391,7 @@ async function clearAll() {
       <form v-else class="space-y-4" @submit.prevent="clearAll">
         <div class="flex items-start gap-3 rounded-2xl bg-red-50 p-4 text-sm text-red-900">
           <CircleAlert class="mt-0.5 size-5 shrink-0 text-red-600" />
-          <p>All landlords and tenants will be signed out and deleted. They will need new accounts to use Renta UG again. <strong>This cannot be undone</strong>, but a full copy is kept in Archives.</p>
+          <p>All landlords and tenants will be signed out and deleted, except the permanent landlord account and the tenants renting from it. They will need new accounts to use Renta UG again. <strong>This cannot be undone</strong>, but a full copy is kept in Archives.</p>
         </div>
         <div>
           <label class="label" for="clear-note">Note for the archive <span class="font-normal text-slate-400">(optional)</span></label>
@@ -446,7 +449,15 @@ async function clearAll() {
         </div>
         <ul class="max-h-[50dvh] space-y-1.5 overflow-y-auto overscroll-contain">
           <li v-for="a in shownAccounts" :key="a.id">
-            <button type="button" class="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 ring-slate-200 transition hover:bg-red-50 hover:ring-red-200" @click="delTarget = a; delConfirm = ''; delError = ''">
+            <div v-if="isProtected(a)" class="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200" title="Permanent account: it can't be deleted">
+              <span class="icon-disc disc-brand shrink-0"><ShieldCheck class="size-5" /></span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium text-slate-900">{{ a.full_name || 'No name' }}</span>
+                <span class="block truncate text-xs text-slate-500">{{ a.email }}</span>
+              </span>
+              <span class="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Permanent · can't be deleted</span>
+            </div>
+            <button v-else type="button" class="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left ring-1 ring-slate-200 transition hover:bg-red-50 hover:ring-red-200" @click="delTarget = a; delConfirm = ''; delError = ''">
               <span class="icon-disc shrink-0" :class="a.role === 'landlord' ? 'disc-brand' : 'disc-slate'"><component :is="a.role === 'landlord' ? Building2 : Users" class="size-5" /></span>
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-medium text-slate-900">{{ a.full_name || 'No name' }}</span>

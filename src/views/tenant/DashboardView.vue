@@ -10,10 +10,12 @@ import ListRow from '@/components/admin/ListRow.vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
 import PushPrompt from '@/components/PushPrompt.vue'
+import AppLink from '@/components/AppLink.vue'
 
 // Only what a tenant needs at a glance: what they owe, their lease, their home.
 // Everything else has its own page (My home, Payments, Notifications via the bell).
 const { rental, tenant, property, payments, dues, balance, rent, notStarted, timeEnded, firstRent } = useTenant()
+const paidState = computed(() => (tenant.value ? rental.payStateFor(tenant.value.id) : null)) // Paid / Part paid / Not paid
 
 const firstName = computed(() => tenant.value?.name.split(' ')[0] ?? '')
 const nextDue = computed(() => dues.value[0])
@@ -116,8 +118,7 @@ const ownerInitials = computed(() =>
 const whatsapp = computed(() => {
   const d = String(owner.value?.phone ?? '').replace(/\D/g, '')
   if (d.length < 9) return null
-  const intl = d.startsWith('0') ? `256${d.slice(1)}` : d.length === 9 ? `256${d}` : d
-  return `https://wa.me/${intl}`
+  return d.startsWith('0') ? `256${d.slice(1)}` : d.length === 9 ? `256${d}` : d // opened in the WhatsApp app (AppLink)
 })
 
 // "Pay now": an existing unpaid charge, or (new tenant / time ended) one month's rent that isn't charged yet
@@ -143,7 +144,7 @@ const sentences = computed(() => {
   else list.push('You are all paid up. Thank you!')
   list.push(
     'Your rental month starts counting the moment you pay.',
-    'Pay at least 60% of the rent to start your month.',
+    'Pay all or part of the rent: part of it buys part of the month, in days.',
     'Pay with MTN or Airtel Mobile Money straight to your landlord.',
     'Unpaid days after your month ends are debt days: they come out of your next month.',
   )
@@ -189,6 +190,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       class="rise hero relative overflow-hidden rounded-3xl p-6 text-white shadow-lg sm:p-8"
       :class="overdue ? 'hero-overdue' : 'hero-ok'"
       style="--d: 60ms"
+      data-tour="t-account"
     >
       <div class="grid-pattern" aria-hidden="true" />
       <div class="blob" aria-hidden="true" />
@@ -205,8 +207,9 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
           </p>
           <span class="chip">
             <AlertCircle v-if="overdue" class="size-3.5" />
-            <span v-else class="size-1.5 rounded-full" :class="nextDue || notStarted ? 'bg-amber-300' : 'bg-emerald-300'" />
-            {{ overdue ? 'Overdue' : nextDue ? `Due ${formatDate(nextDue.dueDate)}` : notStarted ? 'Not paid yet' : 'Up to date' }}
+            <span v-else class="size-1.5 rounded-full" :class="paidState?.key === 'paid' ? 'bg-emerald-300' : paidState?.key === 'part' ? 'bg-amber-300' : 'bg-red-300'" />
+            <!-- Paid / Part paid / Not paid: the same rule as everywhere else -->
+            {{ paidState?.label ?? 'Rent' }}<template v-if="overdue"> · overdue</template><template v-else-if="nextDue && paidState?.key !== 'paid'"> · due {{ formatDate(nextDue.dueDate) }}</template>
           </span>
         </div>
 
@@ -236,10 +239,10 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
 
         <!-- Actions -->
         <div class="mt-6 grid gap-2.5" :class="canPayNow ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'">
-          <button v-if="canPayNow" class="hero-btn hero-btn-solid col-span-2 sm:col-span-1" @click="payNow">
+          <button v-if="canPayNow" class="hero-btn hero-btn-solid col-span-2 sm:col-span-1" data-tour="pay-now" @click="payNow">
             Pay now
           </button>
-          <RouterLink to="/tenant/recharge" class="hero-btn" :class="canPayNow ? 'hero-btn-glass' : 'hero-btn-solid'">
+          <RouterLink to="/tenant/recharge" class="hero-btn" :class="canPayNow ? 'hero-btn-glass' : 'hero-btn-solid'" data-tour="recharge">
             <Zap class="size-4" /> Recharge
           </RouterLink>
           <RouterLink to="/tenant/payments" class="hero-btn hero-btn-glass">
@@ -263,6 +266,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         class="rise tile group relative overflow-hidden rounded-2xl border p-5"
         :class="endingSoon ? 'tile-warn border-amber-200' : 'tile-sky border-slate-200'"
         style="--d: 120ms"
+        data-tour="rental-time"
       >
         <div class="flex items-center justify-between">
           <span
@@ -314,7 +318,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
     </div>
 
     <!-- Rent coverage -->
-    <section class="rise coverage mt-4 overflow-hidden rounded-2xl border border-slate-200" style="--d: 240ms">
+    <section class="rise coverage mt-4 overflow-hidden rounded-2xl border border-slate-200" style="--d: 240ms" data-tour="coverage">
       <!-- This month -->
       <div class="coverage-head relative p-5 sm:p-6">
         <div class="flex items-start justify-between gap-3">
@@ -339,7 +343,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
             <p class="pb-1 text-sm leading-snug text-slate-600">days counted<br /><span class="text-slate-400">Starts the day you pay</span></p>
           </div>
           <p class="mt-4 text-sm leading-relaxed text-slate-600">
-            You haven't paid rent yet, so your rental time hasn't started. Your balance is one month's rent. Pay at least 60% of it and your month starts that same day.
+            You haven't paid rent yet, so your rental time hasn't started. Your balance is one month's rent. Pay all or part of it: your rental time starts that same day, and part of the rent buys part of the month in days.
           </p>
           <button v-if="canPayNow" type="button" class="btn-primary mt-4 h-11 w-full rounded-xl sm:w-auto" @click="payNow"><Zap class="size-4" /> Pay first rent</button>
         </div>
@@ -455,7 +459,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
             </ListRow>
           </ul>
           <ul v-else-if="firstRent">
-            <ListRow :title="thisMonthLabel" subtitle="Pay at least 60% to start your month" :value="formatUGX(firstRent)" value-class="text-amber-700" @click="payNow">
+            <ListRow :title="thisMonthLabel" subtitle="Pay all or part: your time starts the day you pay" :value="formatUGX(firstRent)" value-class="text-amber-700" @click="payNow">
               <template #icon><span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span></template>
             </ListRow>
           </ul>
@@ -515,7 +519,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
     </div>
 
     <!-- Contact landlord -->
-    <section v-if="owner" class="rise card mt-4 rounded-2xl p-5 sm:p-6" style="--d: 300ms">
+    <section v-if="owner" class="rise card mt-4 rounded-2xl p-5 sm:p-6" style="--d: 300ms" data-tour="landlord-contact">
       <div class="flex items-center gap-3.5">
         <div class="avatar flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white">
           {{ ownerInitials }}
@@ -529,9 +533,9 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         <a v-if="owner.phone" :href="`tel:${owner.phone}`" class="contact-btn">
           <Phone class="size-5 text-brand-700" /><span>Call</span>
         </a>
-        <a v-if="whatsapp" :href="whatsapp" target="_blank" rel="noopener" class="contact-btn">
+        <AppLink v-if="whatsapp" :phone="whatsapp" class="contact-btn">
           <MessageCircle class="size-5 text-emerald-600" /><span>WhatsApp</span>
-        </a>
+        </AppLink>
         <a :href="`mailto:${owner.email}`" class="contact-btn">
           <Mail class="size-5 text-sky-600" /><span>Email</span>
         </a>

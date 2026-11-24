@@ -1,10 +1,12 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog } from '@lucide/vue'
+import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog, MessageSquareQuote, HandCoins, ImageDown, Loader2, Equal } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { formatUGX, formatDate } from '@/utils/format'
+import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import BaseModal from './BaseModal.vue'
+import PaymentCoverage from './PaymentCoverage.vue'
 
 // Cash payments. Only the tenant's LANDLORD reviews them:
 //   reported by a tenant   → the landlord confirms (amount can be corrected) or rejects
@@ -41,6 +43,14 @@ function startConfirm(c) {
   error.value = ''
 }
 const value = computed(() => Math.round(Number(String(amount.value).replace(/[^\d]/g, '')) || 0))
+// What confirming does to the tenant's rental time
+const cTenant = computed(() => (confirming.value ? tenantOf(confirming.value) : null))
+const cDues = computed(() => (confirming.value ? rental.duesForTenant(confirming.value.tenantId) : []))
+const cRent = computed(() => Number(rental.propertyById(cTenant.value?.propertyId)?.rent ?? 0))
+const differs = computed(() => confirming.value && value.value && value.value !== confirming.value.amount)
+
+// Receipts as images, like the tenant's
+const { saving, saveCash } = useReceiptDownload()
 
 async function confirm() {
   error.value = ''
@@ -117,8 +127,9 @@ const statusText = (c) =>
                   class="ml-1 inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 align-middle text-[11px] font-medium text-slate-600"
                 ><UserCog class="size-3" /> No smartphone</span>
               </p>
-              <p class="font-semibold text-slate-900 tabular-nums">
+              <p class="text-right font-semibold text-slate-900 tabular-nums">
                 {{ formatUGX(c.status === 'confirmed' ? c.confirmedAmount : c.amount) }}
+                <span v-if="c.status === 'pending' && c.submittedRole === 'tenant'" class="block text-[11px] font-medium text-amber-700">tenant says they paid</span>
               </p>
             </div>
             <p class="mt-0.5 truncate text-sm text-slate-500">
@@ -126,7 +137,6 @@ const statusText = (c) =>
             </p>
             <p class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
               <span class="font-medium text-slate-700">{{ methodText(c) }}</span>
-              <span v-if="c.method === 'mobile_money' && tenantOf(c)?.payCode">Reason <strong class="font-mono text-slate-700">{{ tenantOf(c).payCode }}</strong></span>
               <span>Paid {{ formatDate(c.paidOn) }}</span>
               <span class="flex items-center gap-1">
                 <component :is="c.submittedRole === 'tenant' ? Smartphone : UserCog" class="size-3.5" />
@@ -148,6 +158,10 @@ const statusText = (c) =>
                 <button class="btn-secondary h-9 px-3 text-sm" @click="startReject(c)">Reject</button>
                 <button class="btn-primary h-9 px-3 text-sm" @click="startConfirm(c)"><CheckCircle2 class="size-4" /> Confirm</button>
               </div>
+              <button v-else-if="c.status === 'confirmed'" type="button" class="rc-btn" :disabled="Boolean(saving)" @click="saveCash(c)">
+                <Loader2 v-if="saving === c.id" class="size-3.5 animate-spin" /><ImageDown v-else class="size-3.5" />
+                {{ saving === c.id ? 'Saving…' : 'Download receipt' }}
+              </button>
             </div>
           </div>
         </div>
@@ -156,29 +170,45 @@ const statusText = (c) =>
     <p v-else class="px-5 py-10 text-center text-sm text-slate-500">{{ empty }}</p>
 
     <!-- Confirm -->
-    <BaseModal :model-value="Boolean(confirming)" center title="Confirm payment" width="max-w-md" @update:model-value="!$event && (confirming = null)">
+    <BaseModal :model-value="Boolean(confirming)" center title="Confirm payment" width="max-w-lg" @update:model-value="!$event && (confirming = null)">
       <form v-if="confirming" class="space-y-4" @submit.prevent="confirm">
-        <div class="rounded-xl bg-slate-50 p-4 text-sm">
-          <p class="font-medium text-slate-900">{{ tenantOf(confirming)?.name }}</p>
-          <p class="mt-0.5 text-slate-500">
-            {{ confirming.submittedRole === 'tenant' ? 'Reported' : 'Recorded' }} {{ formatUGX(confirming.amount) }} · {{ methodText(confirming) }} · {{ formatDate(confirming.paidOn) }}
+        <!-- What the tenant claims -->
+        <div class="claim rounded-2xl p-4">
+          <p class="flex items-center gap-2 text-xs font-semibold tracking-[0.12em] text-amber-800 uppercase">
+            <MessageSquareQuote class="size-4" /> {{ confirming.submittedRole === 'tenant' ? `${tenantOf(confirming)?.name?.split(' ')[0] ?? 'The tenant'} says they paid` : 'Recorded' }}
           </p>
-          <p v-if="confirming.method === 'mobile_money'" class="mt-1 text-slate-500">
-            Look for <strong class="text-slate-900">{{ formatUGX(confirming.amount) }}</strong> with the reason <strong class="font-mono text-slate-900">{{ tenantOf(confirming)?.payCode }}</strong> on your phone.
+          <p class="mt-1.5 text-3xl font-bold tracking-tight text-slate-900 tabular-nums">{{ formatUGX(confirming.amount) }}</p>
+          <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div><dt class="text-xs text-slate-500">Tenant</dt><dd class="font-medium text-slate-900">{{ tenantOf(confirming)?.name }}</dd></div>
+            <div><dt class="text-xs text-slate-500">How</dt><dd class="font-medium text-slate-900">{{ methodText(confirming) }}</dd></div>
+            <div><dt class="text-xs text-slate-500">Date</dt><dd class="font-medium text-slate-900">{{ formatDate(confirming.paidOn) }}</dd></div>
+            <div><dt class="text-xs text-slate-500">Unpaid rent now</dt><dd class="font-medium text-slate-900 tabular-nums">{{ formatUGX(owedBy(confirming)) }}</dd></div>
+          </dl>
+          <p v-if="confirming.note" class="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs text-slate-700">“{{ confirming.note }}”</p>
+          <p v-if="confirming.method === 'mobile_money'" class="mt-2 text-xs text-slate-600">Check your phone for this money before confirming.</p>
+        </div>
+
+        <!-- What the landlord actually received: can be corrected -->
+        <div class="recv rounded-2xl p-4">
+          <label class="flex items-center gap-2 text-xs font-semibold tracking-[0.12em] text-brand-700 uppercase" for="cr-amount"><HandCoins class="size-4" /> Amount you actually received</label>
+          <input id="cr-amount" v-model="amount" class="input mt-2 h-14 text-xl font-bold tabular-nums" inputmode="numeric" required />
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <button v-if="differs" type="button" class="same-chip" @click="amount = String(confirming.amount)"><Equal class="size-3.5" /> Same as claimed · {{ formatUGX(confirming.amount) }}</button>
+            <span v-else class="text-xs text-slate-500">Matches what the tenant says. Change it if you received a different amount.</span>
+          </div>
+          <p v-if="differs" class="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            You are confirming <strong>{{ formatUGX(value) }}</strong> instead of {{ formatUGX(confirming.amount) }}. The tenant is told the amount you confirmed.
           </p>
-          <p class="mt-0.5 text-slate-500">Unpaid rent: <strong class="text-slate-900">{{ formatUGX(owedBy(confirming)) }}</strong></p>
-          <p class="mt-2 text-xs text-slate-500">It tops up their rent: unpaid months first, then anything extra pays the next months ahead.</p>
         </div>
-        <div>
-          <label class="label" for="cr-amount">Amount actually received (UGX)</label>
-          <input id="cr-amount" v-model="amount" class="input" inputmode="numeric" required />
-          <p class="mt-1 text-xs text-slate-500">Correct it if what you received was different. It's credited to the oldest unpaid rent first, and the tenant gets an SMS.</p>
+
+        <PaymentCoverage v-if="cTenant && value" :tenant="cTenant" :dues="cDues" :rent="cRent" :amount="value" :pay-day="confirming.paidOn" :you="false" />
+
+        <p v-if="error" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" class="btn-secondary h-11" @click="confirming = null">Cancel</button>
+          <button :data-busy="Boolean(busy)" type="submit" class="btn-primary h-11" :disabled="busy || !value">{{ busy ? 'Confirming…' : `Confirm ${formatUGX(value)}` }}</button>
         </div>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="btn-secondary" @click="confirming = null">Cancel</button>
-          <button :data-busy="Boolean(busy)" type="submit" class="btn-primary" :disabled="busy || !value">{{ busy ? 'Confirming…' : `Confirm ${formatUGX(value)}` }}</button>
-        </div>
+        <p class="text-center text-xs text-slate-400">Unpaid months first, then months ahead. The tenant gets a notification.</p>
       </form>
     </BaseModal>
 
@@ -201,3 +231,11 @@ const statusText = (c) =>
     </BaseModal>
   </div>
 </template>
+
+<style scoped>
+.claim { background: var(--color-amber-50); box-shadow: inset 0 0 0 1.5px var(--color-amber-200); }
+.recv { background: var(--color-white); box-shadow: inset 0 0 0 1.5px var(--color-brand-200); }
+.same-chip { display: inline-flex; align-items: center; gap: 0.3rem; height: 2rem; border-radius: 9999px; padding: 0 0.8rem; font-size: 0.75rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
+.rc-btn { display: inline-flex; align-items: center; gap: 0.35rem; height: 2rem; border-radius: 9999px; padding: 0 0.8rem; font-size: 0.75rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
+.rc-btn:active { transform: scale(0.96); }
+</style>

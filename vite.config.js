@@ -19,7 +19,16 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },
+    // Production: no source maps (the original source code is never published) and minified code only
+    build: {
+      sourcemap: false,
+      minify: true,
+      cssMinify: true,
+      reportCompressedSize: false,
+    },
     server: {
+      // `npm run dev --host` hands --host to npm (as npm_config_host), not to vite — honour it here.
+      ...(process.env.npm_config_host ? { host: true } : {}),
       // Forward API calls to the Express server (npm run server)
       proxy: { '/api': 'http://localhost:4242' },
     },

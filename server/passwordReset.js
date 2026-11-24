@@ -1,7 +1,7 @@
 // "Forgot password": the app (not Supabase) emails the reset link. Shared by the Express server and the Netlify Function.
 //   POST /api/password/forgot { email } → emails a link to /reset-password?token=…  (valid 1 hour, works once)
 // The answer is always the same ("if an account uses this email…"), so nobody can use this to find out who has an account.
-import { HttpError, isPlaceholderEmail } from './admin.js'
+import { HttpError, isPlaceholderEmail, isProtectedProfile } from './admin.js'
 import { sendMail } from './mailer.js'
 import { resetEmail } from './resetEmailTemplate.js'
 
@@ -27,6 +27,7 @@ export async function forgot(db, body) {
     .maybeSingle()
   if (error) throw new HttpError(500, error.message)
   if (!profile || profile.active === false) return done // no such account, or suspended: say nothing
+  if (isProtectedProfile(profile)) return done // the permanent account's password never changes (database/50)
 
   // Cooldown, remembered on the account itself
   const { data: found } = await db.auth.admin.getUserById(profile.id)

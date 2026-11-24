@@ -9,13 +9,13 @@ import { formatUGX } from '@/utils/format'
 import BaseModal from '@/components/BaseModal.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import ListRow from '@/components/admin/ListRow.vue'
+import PayStatus from '@/components/PayStatus.vue'
 
 // Properties = rentals (a business with several rooms) + standalone houses. Rows open their page.
 const rental = useRentalStore()
 const router = useRouter()
 const a = useRentAnalytics()
 const collectedAt = (id) => a.byHouse.value.find((h) => h.id === id)?.value ?? 0
-const owedAt = (id) => a.byHouse.value.find((h) => h.id === id)?.owed ?? 0
 
 const query = ref('')
 const route = useRoute()
@@ -137,7 +137,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
 <template>
   <div class="mx-auto max-w-5xl max-lg:pb-20">
     <AdminHeader compact eyebrow="Portfolio" title="My properties" :subtitle="`${rentals.length} rental${rentals.length === 1 ? '' : 's'} · ${houses.length} house${houses.length === 1 ? '' : 's'} · ${occupiedUnits} of ${units} occupied`">
-      <button class="btn-primary h-10 max-lg:hidden" @click="startAdd"><Plus class="size-[1.1rem]" stroke-width="2.5" /> Add property</button>
+      <button class="btn-primary h-10 max-lg:hidden" data-tour="add-property" @click="startAdd"><Plus class="size-[1.1rem]" stroke-width="2.5" /> Add property</button>
     </AdminHeader>
 
     <!-- Search + filter -->
@@ -146,7 +146,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
         <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
         <input v-model="query" class="input h-11 rounded-xl bg-white pl-10" placeholder="Search by name or location" />
       </div>
-      <div class="grid grid-cols-4 rounded-xl bg-slate-100 p-1 text-sm" role="tablist">
+      <div class="grid grid-cols-4 rounded-xl bg-slate-100 p-1 text-sm" role="tablist" data-tour="property-filter">
         <button
           v-for="f in [['all', 'All'], ['rentals', 'Rentals'], ['houses', 'Houses'], ['vacant', 'Vacant']]"
           :key="f[0]"
@@ -191,8 +191,12 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
             :title="p.name"
             :subtitle="`${p.tenant ? p.tenant.name : 'Vacant'} · ${p.location}`"
             :value="`${formatUGX(p.rent)}`"
-            :value-sub="owedAt(p.id) ? `${formatUGX(owedAt(p.id))} owed` : 'a month'"
           >
+            <template #value>
+              <p class="text-sm font-semibold text-slate-900 tabular-nums">{{ formatUGX(p.rent) }}</p>
+              <PayStatus v-if="p.tenant" class="mt-1" :tenant-id="p.tenant.id" />
+              <p v-else class="mt-0.5 text-[11px] text-slate-500">a month</p>
+            </template>
             <template #icon><span class="icon-tile" :class="p.tenant ? 'tile-sky' : 'tile-slate'"><House class="size-[1.35rem]" /></span></template>
           </ListRow>
         </ul>
@@ -360,6 +364,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
         :class="fabOpen && 'fab-open'"
         class="fab fixed right-4 z-30 flex h-14 items-center rounded-2xl p-2 text-[15px] font-semibold text-white lg:hidden"
         aria-label="Add property"
+        data-tour="add-property"
         @click="startAdd"
       >
         <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/30 ring-inset"><Plus class="size-5" stroke-width="2.5" /></span>

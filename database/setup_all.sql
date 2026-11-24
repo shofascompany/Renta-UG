@@ -5,7 +5,7 @@
 -- Paste the whole file into Supabase → SQL Editor → Run.
 -- It also creates the main admin login (12_main_admin.sql); sign in at /admin2026.
 --
--- Includes: 00_reset.sql, 01_profiles.sql, 02_properties.sql, 03_tenants.sql, 04_payments.sql, 05_notifications.sql, 07_functions.sql, 08_policies.sql, 09_realtime.sql, 11_backfill_profiles.sql, 12_main_admin.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql, 36_part_payments.sql, 37_email_verification.sql, 38_app_downloads.sql, 39_sms_confirmations.sql, 40_app_installs.sql, 41_manual_mobile_money.sql, 42_tenant_own_details.sql
+-- Includes: 00_reset.sql, 01_profiles.sql, 02_properties.sql, 03_tenants.sql, 04_payments.sql, 05_notifications.sql, 07_functions.sql, 08_policies.sql, 09_realtime.sql, 11_backfill_profiles.sql, 12_main_admin.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql, 36_part_payments.sql, 37_email_verification.sql, 38_app_downloads.sql, 39_sms_confirmations.sql, 40_app_installs.sql, 41_manual_mobile_money.sql, 42_tenant_own_details.sql, 43_heard_from.sql, 44_security_hardening.sql, 45_landlord_subscriptions.sql, 46_subscription_tiers.sql, 47_no_free_trial.sql, 48_no_reason_codes.sql, 49_protected_account.sql, 50_permanent_account.sql, 51_capacity_and_cash_subscriptions.sql, 52_part_payment_days.sql, 53_subscription_30_day_months.sql, 54_browser_write_limits.sql
 -- ============================================================================
 
 -- ────────────── 00_reset.sql ──────────────
@@ -70,6 +70,7 @@ drop function if exists public.admin_broadcast(text, uuid, text) cascade;
 drop function if exists public.admin_note(text, text, uuid, text) cascade;
 drop function if exists public.admin_archive_and_clear(uuid, text) cascade;
 drop table if exists public.email_verifications cascade;
+drop table if exists public.signup_sources cascade;
 
 -- ────────────── 01_profiles.sql ──────────────
 
@@ -464,15 +465,23 @@ on conflict (id) do nothing;
 --
 -- To change any detail: edit the values below and run this file again
 -- (it is also included in setup_all.sql). Safe to run any time.
+--
+-- SECURITY: never commit a real password here. Type it into the SQL Editor just before you run
+-- the file, then don't save it. The script refuses a missing or weak password
+-- (at least 12 characters, with letters and numbers).
 
 do $$
 declare
-  v_email    text := 'shofascompany@gmail.com';
-  v_password text := '1234man.';
+  v_email    text := 'manyaabraham123@gmail.com';
+  v_password text := 'TYPE-A-STRONG-PASSWORD-HERE';
   v_name     text := 'Abraham';
   v_phone    text := '0703089488';
   v_id       uuid;
 begin
+  if v_password = 'TYPE-A-STRONG-PASSWORD-HERE' or length(v_password) < 12
+     or v_password !~ '[A-Za-z]' or v_password !~ '[0-9]' then
+    raise exception 'Set a strong main admin password in 12_main_admin.sql first (12+ characters, letters and numbers).';
+  end if;
   v_email := lower(trim(v_email));
   select id into v_id from auth.users where lower(email) = v_email;
 
@@ -510,14 +519,12 @@ begin
   )
   on conflict (provider_id, provider) do nothing;
 
-  -- Make it the one and only main admin
+  -- Make it a main admin. Other main admin accounts are kept (several main admins are allowed).
   insert into public.profiles (id, email, full_name, phone, role, active)
   values (v_id, v_email, v_name, v_phone, 'superadmin', true)
   on conflict (id) do update
     set email = excluded.email, full_name = excluded.full_name, phone = excluded.phone,
         role = 'superadmin', active = true;
-
-  update public.profiles set role = 'tenant' where role = 'superadmin' and id <> v_id;
 end $$;
 
 -- ────────────── 13_first_login_password.sql ──────────────
@@ -3847,3 +3854,1677 @@ end $$;
 
 revoke execute on function public.redeem_connect_code(text) from public, anon;
 grant execute on function public.redeem_connect_code(text) to authenticated;
+
+-- ────────────── 43_heard_from.sql ──────────────
+
+-- 43 · "Where did you hear about Renta UG?"
+-- Asked once in the welcome tour (landlords and tenants). One answer per account.
+-- The main admin sees the totals on the Statistics page. Safe to run again.
+
+create table if not exists public.signup_sources (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  role       text,
+  source     text not null check (char_length(source) between 1 and 40),
+  detail     text check (detail is null or char_length(detail) <= 120),
+  created_at timestamptz not null default now()
+);
+
+alter table public.signup_sources enable row level security;
+
+-- The role always comes from the account itself, never from the browser
+create or replace function public.signup_source_role() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.role := (select role from public.profiles where id = new.user_id);
+  new.detail := nullif(trim(new.detail), '');
+  return new;
+end $$;
+
+drop trigger if exists signup_source_role on public.signup_sources;
+create trigger signup_source_role before insert or update on public.signup_sources
+  for each row execute function public.signup_source_role();
+
+drop policy if exists "signup_sources own insert" on public.signup_sources;
+create policy "signup_sources own insert" on public.signup_sources
+  for insert to authenticated with check (user_id = auth.uid());
+
+drop policy if exists "signup_sources read" on public.signup_sources;
+create policy "signup_sources read" on public.signup_sources
+  for select to authenticated using (user_id = auth.uid() or public.is_superadmin());
+
+drop policy if exists "signup_sources admin delete" on public.signup_sources;
+create policy "signup_sources admin delete" on public.signup_sources
+  for delete to authenticated using (public.is_superadmin());
+
+grant select, insert on public.signup_sources to authenticated;
+grant delete on public.signup_sources to authenticated;
+
+-- ────────────── 44_security_hardening.sql ──────────────
+
+-- 44 · security hardening (safe to run again)
+--
+-- 1. setup_codes: a one-time code is now needed for a FIRST sign-in (a landlord registered by the
+--    main admin, or a tenant given app access by their landlord). Before, an email or phone number
+--    alone was enough, and those are not secret. Only a hash of the code is stored. Server only.
+-- 2. login_failures: wrong-password counter per account for sign-in through the server (phone
+--    sign-in), so passwords can't be guessed endlessly. Server only.
+-- 3. tenants.user_id can only be set by the connection-code flow or the server, never by a landlord
+--    writing the row directly (that would attach someone else's account to their tenant record).
+
+create table if not exists public.setup_codes (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts int not null default 0,
+  created_at timestamptz not null default now()
+);
+alter table public.setup_codes enable row level security;
+revoke all on public.setup_codes from public, anon, authenticated;
+grant all on public.setup_codes to service_role;
+
+create table if not exists public.login_failures (
+  key text primary key,          -- 'phone:772123456'
+  fails int not null default 0,
+  locked_until timestamptz,
+  updated_at timestamptz not null default now()
+);
+alter table public.login_failures enable row level security;
+revoke all on public.login_failures from public, anon, authenticated;
+grant all on public.login_failures to service_role;
+
+-- Direct writes from the app run as the "authenticated" role; the connection-code function
+-- (security definer) and the server (service_role) run as other roles and are allowed.
+create or replace function public.guard_tenant_user_id() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if tg_op = 'INSERT' and new.user_id is not null then
+      raise exception 'A tenant account can only be linked with a connection code.';
+    end if;
+    if tg_op = 'UPDATE' and new.user_id is distinct from old.user_id and new.user_id is not null then
+      raise exception 'A tenant account can only be linked with a connection code.';
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists tenants_guard_user_id on public.tenants;
+create trigger tenants_guard_user_id
+  before insert or update of user_id on public.tenants
+  for each row execute function public.guard_tenant_user_id();
+
+-- ────────────── 45_landlord_subscriptions.sql ──────────────
+
+-- 45 · landlord subscriptions (safe to run again; no data is deleted)
+--
+-- Landlords pay Renta UG a MONTHLY or YEARLY subscription to manage their properties.
+--  • Prices, the free-trial length and Renta UG's MTN / Airtel receiving numbers are set by the main admin
+--    (billing_settings, one row).
+--  • Every landlord has: subscription_until (last day covered), subscription_plan (null = free trial) and a
+--    billing_code: their payment reason, like a tenant's pay code.
+--  • New landlords (and all existing ones, once) get the free trial.
+--  • A landlord pays with mobile money from their phone, then submits the payment. It waits as 'pending'
+--    until the main admin confirms it; the subscription is then extended (on top of any time left).
+--  • When the subscription has ended a landlord can still SEE everything and renew, but every change
+--    (houses, tenants, payments, notices, requests to leave…) is refused by the database itself.
+--  • Reminders in the landlord's inbox 7, 3 and 1 days before the end, on the day, and the day after.
+
+-- ── Settings ──
+create table if not exists public.billing_settings (
+  id int primary key default 1 check (id = 1),
+  monthly_price bigint not null default 30000 check (monthly_price > 0),
+  yearly_price bigint not null default 300000 check (yearly_price > 0),
+  trial_days int not null default 30 check (trial_days between 0 and 365),
+  mtn_phone text,
+  mtn_name text,
+  airtel_phone text,
+  airtel_name text,
+  updated_at timestamptz not null default now()
+);
+insert into public.billing_settings (id) values (1) on conflict (id) do nothing;
+alter table public.billing_settings enable row level security;
+drop policy if exists "billing settings read" on public.billing_settings;
+create policy "billing settings read" on public.billing_settings for select to authenticated using (true);
+revoke all on public.billing_settings from public, anon, authenticated;
+grant select on public.billing_settings to authenticated;
+grant all on public.billing_settings to service_role;
+
+-- ── The landlord's subscription (on their profile; users can't write these columns) ──
+alter table public.profiles add column if not exists subscription_until date;
+alter table public.profiles add column if not exists subscription_plan text;
+alter table public.profiles add column if not exists billing_code text;
+create unique index if not exists profiles_billing_code_key on public.profiles (billing_code) where billing_code is not null;
+do $$ begin
+  alter table public.profiles add constraint profiles_subscription_plan_check check (subscription_plan in ('monthly', 'yearly'));
+exception when duplicate_object then null; end $$;
+
+create or replace function public.new_billing_code() returns text
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  c text;
+begin
+  loop
+    c := 'RUG';
+    for i in 1..5 loop
+      c := c || substr(alphabet, 1 + get_byte(extensions.gen_random_bytes(1), 0) % 32, 1);
+    end loop;
+    exit when not exists (select 1 from public.profiles where billing_code = c);
+  end loop;
+  return c;
+end $$;
+revoke execute on function public.new_billing_code() from public, anon, authenticated;
+
+-- A profile becomes a landlord → payment code + free trial (once)
+create or replace function public.landlord_billing_defaults() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.role = 'landlord' then
+    if new.billing_code is null then new.billing_code := public.new_billing_code(); end if;
+    if new.subscription_until is null then
+      new.subscription_until := public.kampala_today() + (select trial_days from public.billing_settings where id = 1);
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists profiles_landlord_billing on public.profiles;
+create trigger profiles_landlord_billing before insert or update of role on public.profiles
+  for each row execute function public.landlord_billing_defaults();
+
+-- Existing landlords: code + free trial from today (one at a time so codes stay unique)
+do $$
+declare r record;
+begin
+  for r in select id from public.profiles where role = 'landlord' and (billing_code is null or subscription_until is null) loop
+    update public.profiles
+    set billing_code = coalesce(billing_code, public.new_billing_code()),
+        subscription_until = coalesce(subscription_until, public.kampala_today() + (select trial_days from public.billing_settings where id = 1))
+    where id = r.id;
+  end loop;
+end $$;
+
+-- ── Subscription payments (written only through the functions below) ──
+create table if not exists public.subscription_payments (
+  id uuid primary key default gen_random_uuid(),
+  landlord_id uuid not null references auth.users (id) on delete cascade,
+  plan text not null check (plan in ('monthly', 'yearly')),
+  months int not null check (months in (1, 12)),
+  amount bigint not null check (amount > 0),
+  network text not null check (network in ('mtn', 'airtel')),
+  sender_phone text not null,
+  sender_name text not null,
+  reference text not null,
+  paid_on date not null,
+  status text not null default 'pending' check (status in ('pending', 'confirmed', 'rejected', 'cancelled')),
+  period_start date,
+  period_end date,
+  reviewed_by uuid references auth.users (id) on delete set null,
+  reviewed_at timestamptz,
+  reject_reason text,
+  created_at timestamptz not null default now()
+);
+create index if not exists subscription_payments_landlord_idx on public.subscription_payments (landlord_id, created_at desc);
+create unique index if not exists subscription_payments_one_pending on public.subscription_payments (landlord_id) where status = 'pending';
+alter table public.subscription_payments enable row level security;
+drop policy if exists "subscription payments own" on public.subscription_payments;
+drop policy if exists "subscription payments admin" on public.subscription_payments;
+create policy "subscription payments own" on public.subscription_payments for select to authenticated using (landlord_id = auth.uid());
+create policy "subscription payments admin" on public.subscription_payments for select to authenticated using (public.is_superadmin());
+revoke all on public.subscription_payments from public, anon, authenticated;
+grant select on public.subscription_payments to authenticated;
+grant all on public.subscription_payments to service_role;
+
+do $$ begin
+  alter publication supabase_realtime add table public.subscription_payments;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.billing_settings;
+exception when duplicate_object then null; end $$;
+
+-- ── Is this landlord's subscription running today? (non-landlords: always true) ──
+create or replace function public.landlord_subscribed(p_user uuid default auth.uid()) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce(
+    (select p.role <> 'landlord' or coalesce(p.subscription_until >= public.kampala_today(), false) from public.profiles p where p.id = p_user),
+    true);
+$$;
+revoke execute on function public.landlord_subscribed(uuid) from public, anon;
+grant execute on function public.landlord_subscribed(uuid) to authenticated, service_role;
+
+-- ── Ended subscription → the landlord's changes are refused (reading is unaffected) ──
+create or replace function public.require_active_subscription() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if auth.uid() is not null and not public.landlord_subscribed(auth.uid()) then
+    raise exception 'Your Renta UG subscription has ended. Renew it on the Subscription page to keep managing your properties.';
+  end if;
+  return coalesce(new, old);
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['properties', 'rentals', 'tenants', 'payments', 'cash_payments', 'landlord_pay_accounts', 'move_out_requests'] loop
+    execute format('drop trigger if exists %I on public.%I', t || '_require_subscription', t);
+    execute format('create trigger %I before insert or update or delete on public.%I for each row execute function public.require_active_subscription()',
+      t || '_require_subscription', t);
+  end loop;
+end $$;
+-- Notices: sending / deleting needs a subscription; marking as read does not
+drop trigger if exists notifications_require_subscription on public.notifications;
+create trigger notifications_require_subscription before insert or delete on public.notifications
+  for each row execute function public.require_active_subscription();
+
+-- ── Landlord: submit a payment they sent ──
+create or replace function public.submit_subscription_payment(
+  p_plan text, p_network text, p_sender_phone text, p_sender_name text, p_paid_on date default null
+) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_phone text := regexp_replace(coalesce(p_sender_phone, ''), '[^0-9+]', '', 'g');
+  v_amount bigint;
+  v_id uuid;
+begin
+  select * into p from public.profiles where id = me;
+  if p.role is distinct from 'landlord' then raise exception 'Only landlords have a subscription.'; end if;
+  if not p.active then raise exception 'This account is suspended. Please contact Renta UG.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if p_network not in ('mtn', 'airtel') then raise exception 'Choose MTN or Airtel.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  if (p_network = 'mtn' and s.mtn_phone is null) or (p_network = 'airtel' and s.airtel_phone is null) then
+    raise exception 'Renta UG has not added a number for this network yet.';
+  end if;
+  if length(right(regexp_replace(v_phone, '\D', '', 'g'), 9)) < 9 then raise exception 'Enter the number you paid from.'; end if;
+  if length(trim(coalesce(p_sender_name, ''))) < 3 then raise exception 'Enter the names registered on that number.'; end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 30 then raise exception 'That payment date is more than 30 days ago. Contact Renta UG.'; end if;
+  if exists (select 1 from public.subscription_payments where landlord_id = me and status = 'pending') then
+    raise exception 'You already have a payment waiting to be confirmed.';
+  end if;
+
+  v_amount := case p_plan when 'yearly' then s.yearly_price else s.monthly_price end;
+
+  insert into public.subscription_payments (landlord_id, plan, months, amount, network, sender_phone, sender_name, reference, paid_on)
+  values (me, p_plan, case p_plan when 'yearly' then 12 else 1 end, v_amount, p_network, v_phone,
+          upper(left(trim(p_sender_name), 80)), coalesce(p.billing_code, '—'), v_paid_on)
+  returning id into v_id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select id, 'subscription', 'Subscription payment to confirm',
+    format('%s says they sent %s on %s for a %s subscription (reason %s, from %s). Check the money, then confirm it.',
+      coalesce(nullif(p.full_name, ''), p.email), public.ugx(v_amount),
+      case p_network when 'mtn' then 'MTN' else 'Airtel' end, p_plan, coalesce(p.billing_code, '—'), v_phone),
+    '/admin2026/subscriptions'
+  from public.profiles where role = 'superadmin';
+
+  return v_id;
+end $$;
+
+-- ── Landlord: withdraw a payment that is still waiting ──
+create or replace function public.cancel_subscription_payment(p_id uuid) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  update public.subscription_payments set status = 'cancelled', reviewed_at = now()
+  where id = p_id and landlord_id = auth.uid() and status = 'pending';
+  if not found then raise exception 'There is no waiting payment to cancel.'; end if;
+end $$;
+
+-- ── Main admin: confirm → extend the subscription on top of any time left ──
+create or replace function public.admin_confirm_subscription_payment(p_id uuid) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  r public.subscription_payments;
+  p record;
+  v_start date;
+  v_end date;
+begin
+  perform public.admin_require();
+  select * into r from public.subscription_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if r.status <> 'pending' then raise exception 'This payment has already been %.', r.status; end if;
+  select * into p from public.profiles where id = r.landlord_id for update;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := (v_start + make_interval(months => r.months) - interval '1 day')::date;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = r.plan where id = r.landlord_id;
+  update public.subscription_payments
+  set status = 'confirmed', period_start = v_start, period_end = v_end, reviewed_by = auth.uid(), reviewed_at = now()
+  where id = r.id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (r.landlord_id, 'subscription', 'Subscription renewed',
+    format('Thank you! Your %s payment of %s was received. Your Renta UG subscription now runs until %s.',
+      r.plan, public.ugx(r.amount), to_char(v_end, 'FMDD Mon YYYY')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.confirm', 'landlord', r.landlord_id,
+    format('Confirmed %s %s subscription from %s, now runs to %s', public.ugx(r.amount), r.plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end, 'FMDD Mon YYYY')));
+  return json_build_object('until', v_end, 'start', v_start);
+end $$;
+
+-- ── Main admin: reject (the money did not arrive) ──
+create or replace function public.admin_reject_subscription_payment(p_id uuid, p_reason text default null) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  r public.subscription_payments;
+  v_reason text := nullif(trim(p_reason), '');
+begin
+  perform public.admin_require();
+  select * into r from public.subscription_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if r.status <> 'pending' then raise exception 'This payment has already been %.', r.status; end if;
+  update public.subscription_payments
+  set status = 'rejected', reject_reason = v_reason, reviewed_by = auth.uid(), reviewed_at = now()
+  where id = r.id;
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (r.landlord_id, 'subscription', 'Subscription payment not confirmed',
+    format('Your %s payment of %s from %s could not be confirmed%s. Please check it, or contact Renta UG.',
+      r.plan, public.ugx(r.amount), to_char(r.paid_on, 'FMDD Mon YYYY'), coalesce(': ' || v_reason, '')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.reject', 'landlord', r.landlord_id,
+    format('Rejected %s %s subscription payment%s', public.ugx(r.amount), r.plan, coalesce(' (' || v_reason || ')', '')));
+end $$;
+
+-- ── Main admin: add free days (goodwill, a payment made another way, a longer trial…) ──
+create or replace function public.admin_grant_subscription(p_landlord uuid, p_days int, p_note text default null) returns date
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  p record;
+  v_end date;
+begin
+  perform public.admin_require();
+  if p_days is null or p_days < 1 or p_days > 730 then raise exception 'Choose between 1 and 730 days.'; end if;
+  select * into p from public.profiles where id = p_landlord and role = 'landlord' for update;
+  if not found then raise exception 'Landlord not found.'; end if;
+  v_end := greatest(coalesce(p.subscription_until, public.kampala_today() - 1), public.kampala_today() - 1) + p_days;
+  update public.profiles set subscription_until = v_end where id = p_landlord;
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (p_landlord, 'subscription', 'Subscription extended',
+    format('Renta UG added %s day%s to your subscription%s. It now runs until %s.',
+      p_days, case when p_days = 1 then '' else 's' end, coalesce(': ' || nullif(trim(p_note), ''), ''), to_char(v_end, 'FMDD Mon YYYY')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.grant', 'landlord', p_landlord,
+    format('Added %s days to %s''s subscription (now to %s)%s', p_days, coalesce(nullif(p.full_name, ''), p.email),
+      to_char(v_end, 'FMDD Mon YYYY'), coalesce(': ' || nullif(trim(p_note), ''), '')));
+  return v_end;
+end $$;
+
+-- ── Main admin: prices, trial, receiving numbers ──
+create or replace function public.admin_save_billing_settings(
+  p_monthly bigint, p_yearly bigint, p_trial_days int,
+  p_mtn_phone text, p_mtn_name text, p_airtel_phone text, p_airtel_name text
+) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  perform public.admin_require();
+  if p_monthly is null or p_monthly < 500 then raise exception 'Enter a monthly price of at least UGX 500.'; end if;
+  if p_yearly is null or p_yearly < 500 then raise exception 'Enter a yearly price of at least UGX 500.'; end if;
+  if p_trial_days is null or p_trial_days < 0 or p_trial_days > 365 then raise exception 'The free trial must be 0 to 365 days.'; end if;
+  if nullif(trim(p_mtn_phone), '') is not null and length(trim(coalesce(p_mtn_name, ''))) < 3 then
+    raise exception 'Enter the name MTN shows for that number.';
+  end if;
+  if nullif(trim(p_airtel_phone), '') is not null and length(trim(coalesce(p_airtel_name, ''))) < 3 then
+    raise exception 'Enter the name Airtel shows for that number.';
+  end if;
+  update public.billing_settings
+  set monthly_price = p_monthly, yearly_price = p_yearly, trial_days = p_trial_days,
+      mtn_phone = nullif(trim(p_mtn_phone), ''), mtn_name = nullif(upper(trim(p_mtn_name)), ''),
+      airtel_phone = nullif(trim(p_airtel_phone), ''), airtel_name = nullif(upper(trim(p_airtel_name)), ''),
+      updated_at = now()
+  where id = 1;
+  perform public.admin_log('billing.settings', 'billing', null,
+    format('Subscription prices: %s / month, %s / year, %s-day free trial', public.ugx(p_monthly), public.ugx(p_yearly), p_trial_days));
+end $$;
+
+-- ── Daily reminders in the landlord's inbox ──
+create or replace function public.send_subscription_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := public.kampala_today();
+  n integer;
+begin
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select p.id, 'subscription',
+    case when d.left_days < 0 then 'Subscription ended' else 'Subscription ending soon' end,
+    case
+      when d.left_days < 0 then format('Your Renta UG %s ended on %s. You can still see everything, but changes are paused until you renew.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end, to_char(p.subscription_until, 'FMDD Mon YYYY'))
+      when d.left_days = 0 then format('Your Renta UG %s ends today. Renew now to keep managing your properties without a break.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end)
+      else format('Your Renta UG %s ends in %s day%s, on %s. Renew any time: the new period is added on top.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end,
+        d.left_days, case when d.left_days = 1 then '' else 's' end, to_char(p.subscription_until, 'FMDD Mon YYYY'))
+    end,
+    '/landlord/subscription'
+  from public.profiles p
+  cross join lateral (select p.subscription_until - today as left_days) d
+  where p.role = 'landlord' and p.active and p.subscription_until is not null
+    and d.left_days in (7, 3, 1, 0, -1)
+    and not exists (
+      select 1 from public.staff_notifications x
+      where x.user_id = p.id and x.type = 'subscription' and x.title in ('Subscription ending soon', 'Subscription ended')
+        and x.created_at > now() - interval '20 hours'
+    );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke execute on function public.send_subscription_reminders() from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'renta-subscription-reminders';
+    perform cron.schedule('renta-subscription-reminders', '0 6 * * *', 'select public.send_subscription_reminders()');
+  end if;
+exception when others then null;
+end $$;
+
+-- ── Who may call what ──
+revoke execute on function public.submit_subscription_payment(text, text, text, text, date) from public, anon;
+revoke execute on function public.cancel_subscription_payment(uuid) from public, anon;
+revoke execute on function public.admin_confirm_subscription_payment(uuid) from public, anon;
+revoke execute on function public.admin_reject_subscription_payment(uuid, text) from public, anon;
+revoke execute on function public.admin_grant_subscription(uuid, int, text) from public, anon;
+revoke execute on function public.admin_save_billing_settings(bigint, bigint, int, text, text, text, text) from public, anon;
+grant execute on function public.submit_subscription_payment(text, text, text, text, date) to authenticated;
+grant execute on function public.cancel_subscription_payment(uuid) to authenticated;
+grant execute on function public.admin_confirm_subscription_payment(uuid) to authenticated;
+grant execute on function public.admin_reject_subscription_payment(uuid, text) to authenticated;
+grant execute on function public.admin_grant_subscription(uuid, int, text) to authenticated;
+grant execute on function public.admin_save_billing_settings(bigint, bigint, int, text, text, text, text) to authenticated;
+
+-- ────────────── 46_subscription_tiers.sql ──────────────
+
+-- 46 · subscription scales + one permanent free landlord (safe to run again; no data is deleted)
+--
+--  Two scales, priced by how many houses / rooms a landlord has (all their properties, rooms included):
+--    Small scale  UGX 55,000 / month   UGX 650,000 / year    up to small_max_units houses + rooms (default 10)
+--    Big scale    UGX 105,000 / month  UGX 1,200,000 / year  any number
+--  A landlord with more units than the small limit must choose Big scale, and a Small-scale subscriber
+--  can't add houses / rooms beyond the limit (they upgrade to Big scale). The free trial has no limit.
+--  Prices and the limit are set by the main admin (Subscriptions → Prices and payment numbers).
+--
+--  Permanent free landlord: ngumisiriza@gmail.com never pays and is never paused (subscription_exempt).
+--  Nobody can switch this on from the app: only this file sets it.
+
+-- ── Prices per scale ──
+alter table public.billing_settings add column if not exists small_monthly bigint not null default 55000;
+alter table public.billing_settings add column if not exists small_yearly bigint not null default 650000;
+alter table public.billing_settings add column if not exists big_monthly bigint not null default 105000;
+alter table public.billing_settings add column if not exists big_yearly bigint not null default 1200000;
+alter table public.billing_settings add column if not exists small_max_units int not null default 10;
+
+-- ── Landlord: their scale, and the permanent free flag (users can't write these columns) ──
+alter table public.profiles add column if not exists subscription_tier text;
+alter table public.profiles add column if not exists subscription_exempt boolean not null default false;
+do $$ begin
+  alter table public.profiles add constraint profiles_subscription_tier_check check (subscription_tier in ('small', 'big'));
+exception when duplicate_object then null; end $$;
+
+alter table public.subscription_payments add column if not exists tier text not null default 'small';
+do $$ begin
+  alter table public.subscription_payments add constraint subscription_payments_tier_check check (tier in ('small', 'big'));
+exception when duplicate_object then null; end $$;
+
+-- The one permanent free landlord account
+update public.profiles set subscription_exempt = true where lower(email) = 'ngumisiriza@gmail.com';
+
+-- ── Houses + rooms a landlord has ──
+create or replace function public.landlord_unit_count(p_user uuid default auth.uid()) returns int
+language sql stable security definer set search_path = '' as $$
+  select count(*)::int from public.properties where landlord_id = p_user;
+$$;
+revoke execute on function public.landlord_unit_count(uuid) from public, anon;
+grant execute on function public.landlord_unit_count(uuid) to authenticated;
+
+-- ── Subscribed? Permanent free accounts always are ──
+create or replace function public.landlord_subscribed(p_user uuid default auth.uid()) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce(
+    (select p.role <> 'landlord' or p.subscription_exempt or coalesce(p.subscription_until >= public.kampala_today(), false)
+     from public.profiles p where p.id = p_user),
+    true);
+$$;
+
+-- ── Guard: ended subscription → no changes; Small scale → no more than the unit limit ──
+create or replace function public.require_active_subscription() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  p record;
+  v_max int;
+begin
+  if auth.uid() is null then return coalesce(new, old); end if;
+  if not public.landlord_subscribed(auth.uid()) then
+    raise exception 'Your Renta UG subscription has ended. Renew it on the Subscription page to keep managing your properties.';
+  end if;
+  if tg_table_name = 'properties' and tg_op = 'INSERT' then
+    select role, subscription_exempt, subscription_plan, subscription_tier into p from public.profiles where id = auth.uid();
+    if p.role = 'landlord' and not p.subscription_exempt and p.subscription_plan is not null and p.subscription_tier = 'small' then
+      select small_max_units into v_max from public.billing_settings where id = 1;
+      if public.landlord_unit_count(auth.uid()) >= v_max then
+        raise exception 'Small scale covers up to % houses and rooms. Upgrade to Big scale on the Subscription page to add more.', v_max;
+      end if;
+    end if;
+  end if;
+  return coalesce(new, old);
+end $$;
+
+-- ── Landlord: submit a payment (now with the scale) ──
+drop function if exists public.submit_subscription_payment(text, text, text, text, date);
+create or replace function public.submit_subscription_payment(
+  p_tier text, p_plan text, p_network text, p_sender_phone text, p_sender_name text, p_paid_on date default null
+) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_phone text := regexp_replace(coalesce(p_sender_phone, ''), '[^0-9+]', '', 'g');
+  v_units int;
+  v_amount bigint;
+  v_id uuid;
+begin
+  select * into p from public.profiles where id = me;
+  if p.role is distinct from 'landlord' then raise exception 'Only landlords have a subscription.'; end if;
+  if p.subscription_exempt then raise exception 'Your account is free for life: there is nothing to pay.'; end if;
+  if not p.active then raise exception 'This account is suspended. Please contact Renta UG.'; end if;
+  if p_tier not in ('small', 'big') then raise exception 'Choose Small scale or Big scale.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if p_network not in ('mtn', 'airtel') then raise exception 'Choose MTN or Airtel.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  v_units := public.landlord_unit_count(me);
+  if p_tier = 'small' and v_units > s.small_max_units then
+    raise exception 'You have % houses and rooms. Small scale covers up to %, so please choose Big scale.', v_units, s.small_max_units;
+  end if;
+  if (p_network = 'mtn' and s.mtn_phone is null) or (p_network = 'airtel' and s.airtel_phone is null) then
+    raise exception 'Renta UG has not added a number for this network yet.';
+  end if;
+  if length(right(regexp_replace(v_phone, '\D', '', 'g'), 9)) < 9 then raise exception 'Enter the number you paid from.'; end if;
+  if length(trim(coalesce(p_sender_name, ''))) < 5 or trim(p_sender_name) !~ '\S+\s+\S+' then
+    raise exception 'Enter the full names registered on the line you paid from (at least two names).';
+  end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 30 then raise exception 'That payment date is more than 30 days ago. Contact Renta UG.'; end if;
+  if exists (select 1 from public.subscription_payments where landlord_id = me and status = 'pending') then
+    raise exception 'You already have a payment waiting to be confirmed.';
+  end if;
+
+  v_amount := case
+    when p_tier = 'big' and p_plan = 'yearly' then s.big_yearly
+    when p_tier = 'big' then s.big_monthly
+    when p_plan = 'yearly' then s.small_yearly
+    else s.small_monthly end;
+
+  insert into public.subscription_payments (landlord_id, tier, plan, months, amount, network, sender_phone, sender_name, reference, paid_on)
+  values (me, p_tier, p_plan, case p_plan when 'yearly' then 12 else 1 end, v_amount, p_network, v_phone,
+          upper(left(regexp_replace(trim(p_sender_name), '\s+', ' ', 'g'), 80)), coalesce(p.billing_code, '—'), v_paid_on)
+  returning id into v_id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select id, 'subscription', 'Subscription payment to confirm',
+    format('%s says they sent %s on %s for %s scale, %s (reason %s, from %s, registered to %s). Check the money, then confirm it.',
+      coalesce(nullif(p.full_name, ''), p.email), public.ugx(v_amount),
+      case p_network when 'mtn' then 'MTN' else 'Airtel' end, initcap(p_tier), p_plan, coalesce(p.billing_code, '—'), v_phone,
+      upper(trim(p_sender_name))),
+    '/admin2026/subscriptions'
+  from public.profiles where role = 'superadmin';
+
+  return v_id;
+end $$;
+
+-- ── Main admin: confirm → extend on top of any time left, and set the scale ──
+create or replace function public.admin_confirm_subscription_payment(p_id uuid) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  r public.subscription_payments;
+  p record;
+  v_start date;
+  v_end date;
+begin
+  perform public.admin_require();
+  select * into r from public.subscription_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if r.status <> 'pending' then raise exception 'This payment has already been %.', r.status; end if;
+  select * into p from public.profiles where id = r.landlord_id for update;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := (v_start + make_interval(months => r.months) - interval '1 day')::date;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = r.plan, subscription_tier = r.tier where id = r.landlord_id;
+  update public.subscription_payments
+  set status = 'confirmed', period_start = v_start, period_end = v_end, reviewed_by = auth.uid(), reviewed_at = now()
+  where id = r.id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (r.landlord_id, 'subscription', 'Subscription renewed',
+    format('Thank you! Your %s scale %s payment of %s was received. Your Renta UG subscription now runs until %s.',
+      initcap(r.tier), r.plan, public.ugx(r.amount), to_char(v_end, 'FMDD Mon YYYY')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.confirm', 'landlord', r.landlord_id,
+    format('Confirmed %s %s scale %s subscription from %s, now runs to %s', public.ugx(r.amount), r.tier, r.plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end, 'FMDD Mon YYYY')));
+  return json_build_object('until', v_end, 'start', v_start);
+end $$;
+
+-- ── Main admin: prices per scale, the small-scale limit, trial, receiving numbers ──
+drop function if exists public.admin_save_billing_settings(bigint, bigint, int, text, text, text, text);
+create or replace function public.admin_save_billing_settings(
+  p_small_monthly bigint, p_small_yearly bigint, p_big_monthly bigint, p_big_yearly bigint,
+  p_small_max_units int, p_trial_days int,
+  p_mtn_phone text, p_mtn_name text, p_airtel_phone text, p_airtel_name text
+) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  perform public.admin_require();
+  if least(p_small_monthly, p_small_yearly, p_big_monthly, p_big_yearly) is null
+     or least(p_small_monthly, p_small_yearly, p_big_monthly, p_big_yearly) < 500 then
+    raise exception 'Every price must be at least UGX 500.';
+  end if;
+  if p_small_max_units is null or p_small_max_units < 1 or p_small_max_units > 10000 then raise exception 'Enter how many houses and rooms Small scale covers.'; end if;
+  if p_trial_days is null or p_trial_days < 0 or p_trial_days > 365 then raise exception 'The free trial must be 0 to 365 days.'; end if;
+  if nullif(trim(p_mtn_phone), '') is not null and length(trim(coalesce(p_mtn_name, ''))) < 3 then
+    raise exception 'Enter the name MTN shows for that number.';
+  end if;
+  if nullif(trim(p_airtel_phone), '') is not null and length(trim(coalesce(p_airtel_name, ''))) < 3 then
+    raise exception 'Enter the name Airtel shows for that number.';
+  end if;
+  update public.billing_settings
+  set small_monthly = p_small_monthly, small_yearly = p_small_yearly, big_monthly = p_big_monthly, big_yearly = p_big_yearly,
+      small_max_units = p_small_max_units, trial_days = p_trial_days,
+      monthly_price = p_small_monthly, yearly_price = p_small_yearly, -- older app versions read these
+      mtn_phone = nullif(trim(p_mtn_phone), ''), mtn_name = nullif(upper(trim(p_mtn_name)), ''),
+      airtel_phone = nullif(trim(p_airtel_phone), ''), airtel_name = nullif(upper(trim(p_airtel_name)), ''),
+      updated_at = now()
+  where id = 1;
+  perform public.admin_log('billing.settings', 'billing', null,
+    format('Subscription prices: small %s / month, %s / year (up to %s units); big %s / month, %s / year; %s-day trial',
+      public.ugx(p_small_monthly), public.ugx(p_small_yearly), p_small_max_units, public.ugx(p_big_monthly), public.ugx(p_big_yearly), p_trial_days));
+end $$;
+
+-- ── Reminders: never for the permanent free account ──
+create or replace function public.send_subscription_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := public.kampala_today();
+  n integer;
+begin
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select p.id, 'subscription',
+    case when d.left_days < 0 then 'Subscription ended' else 'Subscription ending soon' end,
+    case
+      when d.left_days < 0 then format('Your Renta UG %s ended on %s. You can still see everything, but changes are paused until you renew.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end, to_char(p.subscription_until, 'FMDD Mon YYYY'))
+      when d.left_days = 0 then format('Your Renta UG %s ends today. Renew now to keep managing your properties without a break.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end)
+      else format('Your Renta UG %s ends in %s day%s, on %s. Renew any time: the new period is added on top.',
+        case when p.subscription_plan is null then 'free trial' else 'subscription' end,
+        d.left_days, case when d.left_days = 1 then '' else 's' end, to_char(p.subscription_until, 'FMDD Mon YYYY'))
+    end,
+    '/landlord/subscription'
+  from public.profiles p
+  cross join lateral (select p.subscription_until - today as left_days) d
+  where p.role = 'landlord' and p.active and not p.subscription_exempt and p.subscription_until is not null
+    and d.left_days in (7, 3, 1, 0, -1)
+    and not exists (
+      select 1 from public.staff_notifications x
+      where x.user_id = p.id and x.type = 'subscription' and x.title in ('Subscription ending soon', 'Subscription ended')
+        and x.created_at > now() - interval '20 hours'
+    );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke execute on function public.send_subscription_reminders() from public, anon, authenticated;
+
+revoke execute on function public.submit_subscription_payment(text, text, text, text, text, date) from public, anon;
+revoke execute on function public.admin_save_billing_settings(bigint, bigint, bigint, bigint, int, int, text, text, text, text) from public, anon;
+grant execute on function public.submit_subscription_payment(text, text, text, text, text, date) to authenticated;
+grant execute on function public.admin_save_billing_settings(bigint, bigint, bigint, bigint, int, int, text, text, text, text) to authenticated;
+
+-- ────────────── 47_no_free_trial.sql ──────────────
+
+-- 47 · no free trial (safe to run again; no data is deleted)
+--
+--  A landlord can't use Renta UG until they pay a subscription and the main admin confirms it.
+--  • New landlords get their payment reference, but no free days.
+--  • Free trials that are running now end (ONCE, the first time this file runs). Days the main admin
+--    added by hand later ("Add days") are never touched again.
+--  • Until confirmed, every change by the landlord is refused by the database (the app also shows only
+--    the Subscription, Inbox and Settings pages).
+--  • The permanent free account (subscription_exempt) is not affected.
+
+alter table public.billing_settings add column if not exists trial_removed_at timestamptz;
+update public.billing_settings set trial_days = 0 where id = 1;
+
+-- ── New landlords: payment reference only ──
+create or replace function public.landlord_billing_defaults() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.role = 'landlord' and new.billing_code is null then
+    new.billing_code := public.new_billing_code();
+  end if;
+  return new;
+end $$;
+
+-- ── End the running free trials, once ──
+do $$
+begin
+  if (select trial_removed_at from public.billing_settings where id = 1) is null then
+    update public.profiles
+    set subscription_until = null
+    where role = 'landlord' and subscription_plan is null and not subscription_exempt and subscription_until is not null;
+    update public.billing_settings set trial_removed_at = now() where id = 1;
+  end if;
+end $$;
+
+-- ── Guard: no active subscription → no changes; Small scale → no more than the unit limit ──
+create or replace function public.require_active_subscription() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  p record;
+  v_max int;
+begin
+  if auth.uid() is null then return coalesce(new, old); end if;
+  if not public.landlord_subscribed(auth.uid()) then
+    raise exception 'Your Renta UG subscription is not active. Pay on the Subscription page: your account opens as soon as Renta UG confirms the payment.';
+  end if;
+  if tg_table_name = 'properties' and tg_op = 'INSERT' then
+    select role, subscription_exempt, subscription_plan, subscription_tier into p from public.profiles where id = auth.uid();
+    if p.role = 'landlord' and not p.subscription_exempt and p.subscription_plan is not null and p.subscription_tier = 'small' then
+      select small_max_units into v_max from public.billing_settings where id = 1;
+      if public.landlord_unit_count(auth.uid()) >= v_max then
+        raise exception 'Small scale covers up to % houses and rooms. Upgrade to Big scale on the Subscription page to add more.', v_max;
+      end if;
+    end if;
+  end if;
+  return coalesce(new, old);
+end $$;
+
+-- ── Reminders: no trial wording; an ended subscription locks the account ──
+create or replace function public.send_subscription_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := public.kampala_today();
+  n integer;
+begin
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select p.id, 'subscription',
+    case when d.left_days < 0 then 'Subscription ended' else 'Subscription ending soon' end,
+    case
+      when d.left_days < 0 then format('Your Renta UG subscription ended on %s. Your account is locked until you renew and Renta UG confirms the payment.',
+        to_char(p.subscription_until, 'FMDD Mon YYYY'))
+      when d.left_days = 0 then 'Your Renta UG subscription ends today. Renew now to keep managing your properties without a break.'
+      else format('Your Renta UG subscription ends in %s day%s, on %s. Renew any time: the new period is added on top.',
+        d.left_days, case when d.left_days = 1 then '' else 's' end, to_char(p.subscription_until, 'FMDD Mon YYYY'))
+    end,
+    '/landlord/subscription'
+  from public.profiles p
+  cross join lateral (select p.subscription_until - today as left_days) d
+  where p.role = 'landlord' and p.active and not p.subscription_exempt and p.subscription_until is not null
+    and d.left_days in (7, 3, 1, 0, -1)
+    and not exists (
+      select 1 from public.staff_notifications x
+      where x.user_id = p.id and x.type = 'subscription' and x.title in ('Subscription ending soon', 'Subscription ended')
+        and x.created_at > now() - interval '20 hours'
+    );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke execute on function public.send_subscription_reminders() from public, anon, authenticated;
+
+-- ────────────── 48_no_reason_codes.sql ──────────────
+
+-- 48 · no payment reason codes (safe to run again; no data is deleted)
+--
+--  Payments are matched by the FULL NAMES registered on the line the money was sent from, not by a
+--  reason / reference code typed on the phone.
+--  • Landlord subscriptions: the landlord only enters the names registered on the line they paid from.
+--    The phone number is optional (older app versions still send it).
+--  • Tenants: the landlord is told the names; no more "pay word".
+--  • New tenants and landlords no longer get a code. Old codes stay in the database, unused.
+
+-- ── Stop creating codes ──
+drop trigger if exists tenants_pay_code on public.tenants;
+drop trigger if exists profiles_landlord_billing on public.profiles;
+
+-- ── Subscription payments: phone and reference are optional now ──
+alter table public.subscription_payments alter column sender_phone drop not null;
+alter table public.subscription_payments alter column reference drop not null;
+
+create or replace function public.submit_subscription_payment(
+  p_tier text, p_plan text, p_network text, p_sender_phone text, p_sender_name text, p_paid_on date default null
+) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_phone text := nullif(regexp_replace(coalesce(p_sender_phone, ''), '[^0-9+]', '', 'g'), '');
+  v_name text := upper(left(regexp_replace(trim(coalesce(p_sender_name, '')), '\s+', ' ', 'g'), 80));
+  v_units int;
+  v_amount bigint;
+  v_id uuid;
+begin
+  select * into p from public.profiles where id = me;
+  if p.role is distinct from 'landlord' then raise exception 'Only landlords have a subscription.'; end if;
+  if p.subscription_exempt then raise exception 'Your account is free for life: there is nothing to pay.'; end if;
+  if not p.active then raise exception 'This account is suspended. Please contact Renta UG.'; end if;
+  if p_tier not in ('small', 'big') then raise exception 'Choose Small scale or Big scale.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if p_network not in ('mtn', 'airtel') then raise exception 'Choose MTN or Airtel.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  v_units := public.landlord_unit_count(me);
+  if p_tier = 'small' and v_units > s.small_max_units then
+    raise exception 'You have % houses and rooms. Small scale covers up to %, so please choose Big scale.', v_units, s.small_max_units;
+  end if;
+  if (p_network = 'mtn' and s.mtn_phone is null) or (p_network = 'airtel' and s.airtel_phone is null) then
+    raise exception 'Renta UG has not added a number for this network yet.';
+  end if;
+  if length(v_name) < 5 or v_name !~ '\S+\s+\S+' then
+    raise exception 'Enter the full names registered on the line you paid from (at least two names).';
+  end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 30 then raise exception 'That payment date is more than 30 days ago. Contact Renta UG.'; end if;
+  if exists (select 1 from public.subscription_payments where landlord_id = me and status = 'pending') then
+    raise exception 'You already have a payment waiting to be confirmed.';
+  end if;
+
+  v_amount := case
+    when p_tier = 'big' and p_plan = 'yearly' then s.big_yearly
+    when p_tier = 'big' then s.big_monthly
+    when p_plan = 'yearly' then s.small_yearly
+    else s.small_monthly end;
+
+  insert into public.subscription_payments (landlord_id, tier, plan, months, amount, network, sender_phone, sender_name, reference, paid_on)
+  values (me, p_tier, p_plan, case p_plan when 'yearly' then 12 else 1 end, v_amount, p_network, v_phone, v_name, null, v_paid_on)
+  returning id into v_id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select id, 'subscription', 'Subscription payment to confirm',
+    format('%s says they sent %s to your %s line for %s scale, %s, from a line registered to %s. Check the money, then confirm it.',
+      coalesce(nullif(p.full_name, ''), p.email), public.ugx(v_amount),
+      case p_network when 'mtn' then 'MTN' else 'Airtel' end, initcap(p_tier), p_plan, v_name),
+    '/admin2026/subscriptions'
+  from public.profiles where role = 'superadmin';
+
+  return v_id;
+end $$;
+revoke execute on function public.submit_subscription_payment(text, text, text, text, text, date) from public, anon;
+grant execute on function public.submit_subscription_payment(text, text, text, text, text, date) to authenticated;
+
+-- ── Tenants: the landlord's message names the sender, no pay word ──
+create or replace function public.submit_payment(
+  p_tenant_id uuid,
+  p_amount bigint,
+  p_paid_on date default null,
+  p_note text default null,
+  p_method text default 'cash',
+  p_network text default null
+) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  v_role text;
+  v_tenant record;
+  v_house text;
+  v_rent bigint;
+  v_outstanding bigint;
+  v_pending bigint;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_method text := coalesce(nullif(p_method, ''), 'cash');
+  v_network text := nullif(lower(p_network), '');
+  v_net_label text;
+  v_note text := nullif(trim(p_note), '');
+  v_id uuid;
+begin
+  if v_method not in ('cash', 'mobile_money') then raise exception 'Choose cash or mobile money.'; end if;
+  if v_method = 'mobile_money' and v_network is not null and v_network not in ('mtn', 'airtel') then
+    raise exception 'Choose MTN or Airtel.';
+  end if;
+  v_net_label := case v_network when 'mtn' then 'MTN' when 'airtel' then 'Airtel' end;
+
+  select role into v_role from public.profiles where id = me;
+  if v_role = 'tenant' then
+    select * into v_tenant from public.tenants where id = coalesce(p_tenant_id, public.my_tenant_id()) and user_id = me;
+    if not found or v_tenant.property_id is null then raise exception 'You are not connected to a house.'; end if;
+    if (select count(*) from public.cash_payments where tenant_id = v_tenant.id and status = 'pending') >= 3 then
+      raise exception 'You already have payments waiting for your landlord. Wait for them to be checked first.';
+    end if;
+    if v_method = 'mobile_money' and not exists (
+      select 1 from public.landlord_pay_accounts where landlord_id = v_tenant.landlord_id and network = v_network
+    ) then
+      raise exception 'Your landlord has not added a number for this network.';
+    end if;
+    if v_method = 'mobile_money' and coalesce(length(v_note), 0) < 5 then
+      raise exception 'Enter the full names registered on the line you paid from.';
+    end if;
+  elsif public.is_landlord() then
+    select * into v_tenant from public.tenants where id = p_tenant_id and landlord_id = me;
+    if not found then raise exception 'Tenant not found.'; end if;
+    if v_tenant.property_id is null then raise exception 'This tenant no longer rents from you.'; end if;
+    v_role := 'landlord';
+  else
+    raise exception 'Only tenants and landlords can record payments.';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then raise exception 'Enter an amount greater than zero.'; end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 366 then raise exception 'The payment date is more than a year ago.'; end if;
+
+  select name, rent into v_house, v_rent from public.properties where id = v_tenant.property_id;
+  v_outstanding := public.tenant_outstanding(v_tenant.id);
+  select coalesce(sum(amount), 0) into v_pending from public.cash_payments where tenant_id = v_tenant.id and status = 'pending';
+
+  if p_amount + v_pending > v_outstanding then
+    if coalesce(v_rent, 0) <= 0 then
+      raise exception 'This house has no monthly rent set, so money beyond what is owed cannot be recorded.';
+    end if;
+    if p_amount + v_pending - v_outstanding > v_rent * 24 then
+      raise exception '%', format('That pays more than 2 years ahead (rent is %s a month).', public.ugx(v_rent));
+    end if;
+  end if;
+
+  insert into public.cash_payments (tenant_id, landlord_id, amount, paid_on, note, submitted_by, submitted_role, method, network)
+  values (v_tenant.id, v_tenant.landlord_id, p_amount, v_paid_on, v_note, me, v_role, v_method, v_network)
+  returning id into v_id;
+
+  if v_role = 'tenant' then
+    if v_method = 'mobile_money' then
+      insert into public.staff_notifications (user_id, type, title, body, url)
+      values (v_tenant.landlord_id, 'cash', 'Mobile money to confirm',
+        format('%s says they sent you %s on %s%s. %s. Check your phone, then confirm it.',
+          v_tenant.full_name, public.ugx(p_amount), coalesce(v_net_label, 'mobile money'),
+          coalesce(' (' || v_house || ')', ''), coalesce(v_note, 'No sender names given')),
+        '/landlord/payments');
+      insert into public.notifications (landlord_id, tenant_id, type, title, body)
+      values (v_tenant.landlord_id, v_tenant.id, 'payment', 'Payment being reviewed',
+        format('We received your %s payment of %s. Your landlord is checking it and your rent will be updated soon.',
+          coalesce(v_net_label, 'mobile money'), public.ugx(p_amount)));
+    else
+      insert into public.staff_notifications (user_id, type, title, body, url)
+      values (v_tenant.landlord_id, 'cash', 'Cash payment to confirm',
+        format('%s says they paid you %s in cash on %s%s. Please confirm the amount you received.',
+          v_tenant.full_name, public.ugx(p_amount), to_char(v_paid_on, 'FMDD Mon YYYY'), coalesce(' for ' || v_house, '')),
+        '/landlord/payments');
+    end if;
+  else
+    perform public.confirm_cash_payment(v_id, null); -- the landlord received it: it counts now
+  end if;
+
+  return v_id;
+end $$;
+revoke execute on function public.submit_payment(uuid, bigint, date, text, text, text) from public, anon;
+grant execute on function public.submit_payment(uuid, bigint, date, text, text, text) to authenticated;
+
+-- ────────────── 49_protected_account.sql ──────────────
+
+-- 49 · the permanent landlord account can never be deleted (safe to run again; no data is deleted)
+--
+--  ngumisiriza@gmail.com (subscription_exempt, set in 46) is permanent:
+--  • its login account and profile cannot be deleted, suspended, demoted or lose the free flag:
+--    the database refuses it, whoever asks (app, server, SQL Editor through the API);
+--  • "Delete all users" (admin_archive_and_clear) keeps it, with ALL its data: rentals, houses, rooms,
+--    tenant records, rent, payments, receipts, notices, inbox, requests to leave, its subscription
+--    history, and the app accounts of the tenants renting from it.
+--  To ever remove it, someone must first run `alter table ... disable trigger` by hand in Supabase.
+
+-- Make sure the flag is set (again) on the one permanent account
+update public.profiles set subscription_exempt = true where lower(email) = 'ngumisiriza@gmail.com' and not subscription_exempt;
+
+-- Self-repair, every time this file runs: if the login exists, it always has a profile that is an
+-- ACTIVE LANDLORD, free for life (never pays, never locked) and never banned from signing in.
+-- It is listed first on the main admin's Landlords page.
+insert into public.profiles (id, email, full_name, role, active, must_change_password, subscription_exempt)
+select u.id, lower(u.email), coalesce(nullif(u.raw_user_meta_data ->> 'full_name', ''), 'Ngumisiriza'), 'landlord', true, false, true
+from auth.users u
+where lower(u.email) = 'ngumisiriza@gmail.com'
+on conflict (id) do update
+  set role = 'landlord', active = true, subscription_exempt = true, email = excluded.email;
+update auth.users set banned_until = null where lower(email) = 'ngumisiriza@gmail.com' and banned_until is not null;
+
+create or replace function public.is_protected_account(p_user uuid) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce((select subscription_exempt from public.profiles where id = p_user), false);
+$$;
+revoke execute on function public.is_protected_account(uuid) from public, anon;
+grant execute on function public.is_protected_account(uuid) to authenticated, service_role;
+
+-- ── Profile: no delete, no suspension, no role change, flag stays on ──
+create or replace function public.guard_protected_profile() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if tg_op = 'DELETE' then
+    if old.subscription_exempt then
+      raise exception 'This is the permanent Renta UG landlord account. It cannot be deleted.';
+    end if;
+    return old;
+  end if;
+  if old.subscription_exempt and (
+    not new.subscription_exempt or new.role is distinct from 'landlord' or not new.active
+  ) then
+    raise exception 'This is the permanent Renta UG landlord account. It cannot be suspended or changed to another kind of account.';
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists profiles_guard_protected on public.profiles;
+create trigger profiles_guard_protected
+  before update or delete on public.profiles
+  for each row execute function public.guard_protected_profile();
+
+-- ── Login account: cannot be deleted (this also blocks the admin API's deleteUser) ──
+create or replace function public.guard_protected_auth_user() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.profiles where id = old.id and subscription_exempt) then
+    raise exception 'This is the permanent Renta UG landlord account. It cannot be deleted.';
+  end if;
+  return old;
+end $$;
+
+drop trigger if exists auth_users_guard_protected on auth.users;
+create trigger auth_users_guard_protected
+  before delete on auth.users
+  for each row execute function public.guard_protected_auth_user();
+
+-- ── "Delete all users": everyone except the permanent account (and its tenants), with an archive ──
+create or replace function public.admin_archive_and_clear(p_actor uuid, p_note text default null) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_keep_landlords uuid[];
+  v_keep_users uuid[];
+  v_users uuid[];
+  v_gone uuid[]; -- landlords whose data is removed
+  v_data jsonb;
+  v_counts jsonb;
+  v_id uuid;
+begin
+  if not exists (select 1 from public.profiles where id = p_actor and role = 'superadmin') then
+    raise exception 'Only the main admin can do this.';
+  end if;
+
+  -- Kept: the permanent landlord(s) and the app accounts of the tenants renting from them
+  select coalesce(array_agg(id), '{}') into v_keep_landlords from public.profiles where subscription_exempt;
+  select coalesce(array_agg(distinct u), '{}') into v_keep_users from (
+    select unnest(v_keep_landlords) as u
+    union select user_id from public.tenants where landlord_id = any (v_keep_landlords) and user_id is not null
+  ) k;
+
+  select coalesce(array_agg(id), '{}') into v_users
+  from public.profiles where role in ('landlord', 'tenant') and not (id = any (v_keep_users));
+  select coalesce(array_agg(id), '{}') into v_gone
+  from public.profiles where role = 'landlord' and not (id = any (v_keep_landlords));
+
+  -- 1. Full copy of everything that is about to be removed
+  v_data := jsonb_build_object(
+    'landlords',         coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.profiles x where x.role = 'landlord' and x.id = any (v_users)), '[]'),
+    'tenant_accounts',   coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.profiles x where x.role = 'tenant' and x.id = any (v_users)), '[]'),
+    'rentals',           coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.rentals x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'properties',        coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.properties x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'tenants',           coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.tenants x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'payments',          coalesce((select jsonb_agg(to_jsonb(x) order by x.period) from public.payments x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'payment_receipts',  coalesce((select jsonb_agg(to_jsonb(x) order by x.received_at) from public.payment_receipts x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'cash_payments',     coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.cash_payments x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'momo_attempts',     coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.momo_attempts x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'move_out_requests', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.move_out_requests x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'notifications',     coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.notifications x where not (x.landlord_id = any (v_keep_landlords))), '[]'),
+    'inbox',             coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at) from public.staff_notifications x where x.user_id = any (v_users)), '[]')
+  );
+  select jsonb_object_agg(k, jsonb_array_length(v)) into v_counts from jsonb_each(v_data) as e(k, v);
+  v_counts := v_counts || jsonb_build_object(
+    'collected', coalesce((select sum(amount_paid) from public.payments where not (landlord_id = any (v_keep_landlords))), 0),
+    'kept_accounts', coalesce(array_length(v_keep_users, 1), 0));
+
+  insert into public.platform_archives (created_by, note, counts, data)
+  values (p_actor, nullif(trim(p_note), ''), v_counts, v_data)
+  returning id into v_id;
+
+  -- 2. Clear everyone else (children first). The permanent account's data is never touched.
+  delete from public.notifications where not (landlord_id = any (v_keep_landlords));
+  delete from public.payment_receipts where not (landlord_id = any (v_keep_landlords));
+  delete from public.cash_payments where not (landlord_id = any (v_keep_landlords));
+  delete from public.momo_attempts where not (landlord_id = any (v_keep_landlords));
+  delete from public.move_out_requests where not (landlord_id = any (v_keep_landlords));
+  delete from public.payments where not (landlord_id = any (v_keep_landlords));
+  delete from public.tenants where not (landlord_id = any (v_keep_landlords));
+  delete from public.properties where not (landlord_id = any (v_keep_landlords));
+  delete from public.rentals where not (landlord_id = any (v_keep_landlords));
+  delete from public.staff_notifications where user_id = any (v_users);
+  delete from public.push_subscriptions where user_id = any (v_users);
+  delete from public.profiles where id = any (v_users);
+
+  insert into public.admin_audit (actor, action, target_type, target_id, summary)
+  values (p_actor, 'platform.clear', 'archive', v_id,
+    format('Archived and cleared the platform: %s landlords, %s tenant accounts, %s properties, %s tenant records, %s payments (kept the permanent account and %s linked account%s)',
+      v_counts ->> 'landlords', v_counts ->> 'tenant_accounts', v_counts ->> 'properties', v_counts ->> 'tenants', v_counts ->> 'payment_receipts',
+      v_counts ->> 'kept_accounts', case when (v_counts ->> 'kept_accounts') = '1' then '' else 's' end));
+
+  return jsonb_build_object('archive_id', v_id, 'counts', v_counts, 'user_ids', to_jsonb(v_users));
+end $$;
+
+revoke execute on function public.admin_archive_and_clear(uuid, text) from public, anon, authenticated;
+grant execute on function public.admin_archive_and_clear(uuid, text) to service_role;
+
+-- ────────────── 50_permanent_account.sql ──────────────
+
+-- 50 · the permanent landlord account: fixed password, never a first sign-in, data never deleted
+--
+--  ngumisiriza@gmail.com (see 46 + 49) is permanent:
+--  • Its password is fixed. Changing it in the app, by "forgot password" or by an admin reset has no
+--    effect: the database keeps it. The password itself is NOT in this file (the code is public). It is
+--    set from the private .env with `npm run permanent-account` (scripts/permanent-account.mjs), which
+--    calls set_permanent_account() below: the only way to write it, and only with the server key.
+--  • It never sees the first-sign-in pages: it is always a ready, active landlord.
+--  • Its data (rentals, houses, rooms, tenants, rent, payments, receipts, cash) can only be deleted by
+--    the account itself. Admins, the server, "delete all users" and direct database deletes are refused.
+--  Safe to run again. No data is deleted.
+
+-- Always a ready landlord: active, free for life, no first-sign-in step, no one-time setup code
+update public.profiles
+set role = 'landlord', active = true, must_change_password = false, subscription_exempt = true
+where lower(email) = 'ngumisiriza@gmail.com'
+  and (role <> 'landlord' or not active or must_change_password or not subscription_exempt);
+delete from public.setup_codes where user_id in (select id from public.profiles where subscription_exempt);
+
+-- ── Create / repair the login with its fixed password (server key only) ──
+create or replace function public.set_permanent_account(p_password text) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_email text := 'ngumisiriza@gmail.com';
+  v_id uuid;
+begin
+  if length(coalesce(p_password, '')) < 6 then raise exception 'The password must be at least 6 characters.'; end if;
+  select id into v_id from auth.users where lower(email) = v_email;
+
+  perform set_config('renta.permanent_repair', 'on', true); -- lets the guard below accept this one write
+  if v_id is null then
+    v_id := gen_random_uuid();
+    insert into auth.users (
+      instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+      raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+      confirmation_token, recovery_token, email_change, email_change_token_new,
+      email_change_token_current, phone_change, phone_change_token, reauthentication_token
+    ) values (
+      '00000000-0000-0000-0000-000000000000', v_id, 'authenticated', 'authenticated', v_email,
+      extensions.crypt(p_password, extensions.gen_salt('bf')), now(),
+      '{"provider":"email","providers":["email"]}', '{"full_name":"Ngumisiriza"}', now(), now(),
+      '', '', '', '', '', '', '', ''
+    );
+  else
+    update auth.users
+    set encrypted_password = extensions.crypt(p_password, extensions.gen_salt('bf')),
+        email_confirmed_at = coalesce(email_confirmed_at, now()),
+        banned_until = null,
+        updated_at = now()
+    where id = v_id;
+  end if;
+  perform set_config('renta.permanent_repair', 'off', true);
+
+  insert into auth.identities (id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+  values (gen_random_uuid(), v_id, v_id::text,
+    jsonb_build_object('sub', v_id::text, 'email', v_email, 'email_verified', true), 'email', now(), now(), now())
+  on conflict (provider_id, provider) do nothing;
+
+  insert into public.profiles (id, email, full_name, role, active, must_change_password, subscription_exempt)
+  values (v_id, v_email, 'Ngumisiriza', 'landlord', true, false, true)
+  on conflict (id) do update
+    set email = excluded.email, role = 'landlord', active = true, must_change_password = false, subscription_exempt = true;
+  delete from public.setup_codes where user_id = v_id;
+  return v_id;
+end $$;
+revoke execute on function public.set_permanent_account(text) from public, anon, authenticated;
+grant execute on function public.set_permanent_account(text) to service_role;
+
+-- ── Login: the password and email never change, and it is never banned ──
+create or replace function public.guard_permanent_login() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if coalesce(current_setting('renta.permanent_repair', true), 'off') = 'on' then return new; end if;
+  if exists (select 1 from public.profiles where id = old.id and subscription_exempt) then
+    new.encrypted_password := old.encrypted_password;
+    new.email := old.email;
+    new.banned_until := null;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists auth_users_permanent_login on auth.users;
+create trigger auth_users_permanent_login
+  before update on auth.users
+  for each row execute function public.guard_permanent_login();
+
+-- ── Profile: never a first sign-in, never suspended or demoted (49 refuses those; this also fixes
+--    must_change_password and re-applies the flags if the profile is ever created again) ──
+create or replace function public.guard_protected_profile() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if tg_op = 'DELETE' then
+    if old.subscription_exempt then
+      raise exception 'This is the permanent Renta UG landlord account. It cannot be deleted.';
+    end if;
+    return old;
+  end if;
+  if old.subscription_exempt and (not new.subscription_exempt or new.role is distinct from 'landlord' or not new.active) then
+    raise exception 'This is the permanent Renta UG landlord account. It cannot be suspended or changed to another kind of account.';
+  end if;
+  if new.subscription_exempt then new.must_change_password := false; end if;
+  return new;
+end $$;
+
+create or replace function public.permanent_profile_on_insert() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if lower(coalesce(new.email, '')) = 'ngumisiriza@gmail.com' then
+    new.role := 'landlord';
+    new.active := true;
+    new.must_change_password := false;
+    new.subscription_exempt := true;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists profiles_permanent_insert on public.profiles;
+create trigger profiles_permanent_insert
+  before insert on public.profiles
+  for each row execute function public.permanent_profile_on_insert();
+
+-- ── Data: only the account itself can delete its own records ──
+-- Admin functions, the server (service role) and "delete all users" are refused.
+create or replace function public.guard_permanent_data() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if exists (select 1 from public.profiles where id = old.landlord_id and subscription_exempt)
+     and auth.uid() is distinct from old.landlord_id then
+    raise exception 'This belongs to the permanent Renta UG landlord account and cannot be deleted.';
+  end if;
+  return old;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['rentals', 'properties', 'tenants', 'payments', 'payment_receipts', 'cash_payments'] loop
+    execute format('drop trigger if exists %I on public.%I', t || '_guard_permanent', t);
+    execute format('create trigger %I before delete on public.%I for each row execute function public.guard_permanent_data()', t || '_guard_permanent', t);
+  end loop;
+end $$;
+
+-- ────────────── 51_capacity_and_cash_subscriptions.sql ──────────────
+
+-- 51 · business size at first sign-in + subscriptions paid in cash (safe to run again; no data is deleted)
+--
+--  Business size
+--   • Right after a new landlord creates their password, they say how many houses and rooms they will
+--     register (profiles.planned_units). Renta UG recommends the package that fits it, and Small scale
+--     can't be chosen when the number is above its limit.
+--   • The main admin sees the number on the landlord's page.
+--
+--  Cash
+--   • The main admin can record a subscription the landlord paid in cash: choose the landlord, the package
+--     (Small / Big) and monthly / yearly. It is saved as a confirmed payment (network 'cash') and the
+--     subscription is extended at once, on top of any time left, exactly like a confirmed mobile money payment.
+
+-- ── Business size ──
+alter table public.profiles add column if not exists planned_units int;
+do $$ begin
+  alter table public.profiles add constraint profiles_planned_units_check check (planned_units is null or planned_units between 1 and 100000);
+exception when duplicate_object then null; end $$;
+
+create or replace function public.set_planned_units(p_units int) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'landlord') then
+    raise exception 'Only landlords can set this.';
+  end if;
+  if p_units is null or p_units < 1 or p_units > 100000 then
+    raise exception 'Enter how many houses and rooms you will register (at least 1).';
+  end if;
+  update public.profiles set planned_units = p_units where id = auth.uid();
+end $$;
+revoke execute on function public.set_planned_units(int) from public, anon;
+grant execute on function public.set_planned_units(int) to authenticated;
+
+-- ── Cash: a payment can also be 'cash' (recorded by the main admin) ──
+alter table public.subscription_payments drop constraint if exists subscription_payments_network_check;
+alter table public.subscription_payments add constraint subscription_payments_network_check check (network in ('mtn', 'airtel', 'cash'));
+alter table public.subscription_payments add column if not exists note text;
+
+create or replace function public.admin_record_subscription_cash(
+  p_landlord uuid, p_tier text, p_plan text, p_paid_on date default null, p_note text default null
+) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_note text := nullif(left(trim(coalesce(p_note, '')), 200), '');
+  v_units int;
+  v_amount bigint;
+  v_months int;
+  v_start date;
+  v_end date;
+  v_id uuid;
+begin
+  perform public.admin_require();
+  select * into p from public.profiles where id = p_landlord and role = 'landlord' for update;
+  if not found then raise exception 'Landlord not found.'; end if;
+  if p.subscription_exempt then raise exception 'This is the permanent free account: there is nothing to pay.'; end if;
+  if p_tier not in ('small', 'big') then raise exception 'Choose Small scale or Big scale.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 366 then raise exception 'The payment date is more than a year ago.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  v_units := public.landlord_unit_count(p_landlord);
+  if p_tier = 'small' and v_units > s.small_max_units then
+    raise exception 'This landlord has % houses and rooms. Small scale covers up to %, so choose Big scale.', v_units, s.small_max_units;
+  end if;
+
+  v_amount := case
+    when p_tier = 'big' and p_plan = 'yearly' then s.big_yearly
+    when p_tier = 'big' then s.big_monthly
+    when p_plan = 'yearly' then s.small_yearly
+    else s.small_monthly end;
+  v_months := case p_plan when 'yearly' then 12 else 1 end;
+
+  -- On top of any time left, otherwise from today
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := (v_start + make_interval(months => v_months) - interval '1 day')::date;
+
+  insert into public.subscription_payments (
+    landlord_id, tier, plan, months, amount, network, sender_phone, sender_name, reference, paid_on,
+    status, period_start, period_end, reviewed_by, reviewed_at, note
+  ) values (
+    p_landlord, p_tier, p_plan, v_months, v_amount, 'cash', null, 'CASH', null, v_paid_on,
+    'confirmed', v_start, v_end, auth.uid(), now(), v_note
+  ) returning id into v_id;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = p_plan, subscription_tier = p_tier where id = p_landlord;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (p_landlord, 'subscription', 'Subscription paid in cash',
+    format('Thank you! Renta UG received your cash payment of %s for %s scale, %s. Your subscription now runs until %s.',
+      public.ugx(v_amount), initcap(p_tier), p_plan, to_char(v_end, 'FMDD Mon YYYY')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.cash', 'landlord', p_landlord,
+    format('Recorded %s cash for %s scale %s subscription from %s, now runs to %s%s', public.ugx(v_amount), p_tier, p_plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end, 'FMDD Mon YYYY'), coalesce(' (' || v_note || ')', '')));
+
+  return json_build_object('id', v_id, 'amount', v_amount, 'start', v_start, 'until', v_end);
+end $$;
+revoke execute on function public.admin_record_subscription_cash(uuid, text, text, date, text) from public, anon;
+grant execute on function public.admin_record_subscription_cash(uuid, text, text, date, text) to authenticated;
+
+-- ────────────── 52_part_payment_days.sql ──────────────
+
+-- 52 · part payments buy DAYS (safe to run again; no data is deleted)
+--
+--  A tenant can pay any part of a month's rent. The money buys rental time in proportion:
+--    days = amount paid on that month ÷ the month's rent × 30   (rounded down)
+--  e.g. half the rent → 15 days. Paying the rest later ("Complete payment") tops the same month up:
+--  once the month is paid in full it counts as one whole rent month. A rent month is ALWAYS 30 days
+--  (not 28, 29 or 31). The days already given are part of it, never counted twice.
+--  Replaces the old rule (a whole month as soon as 60% was paid). Months that already got their whole
+--  month under the old rule keep it (month_credited = true), so nobody loses time.
+--
+--  payments.credited_days   days of rental time this rent month has given so far (part payments)
+--  payments.month_credited  true once the month has given its whole month
+
+-- New columns; the months that already counted (paid, or 60%+ under the old rule) are marked ONCE,
+-- only when the columns are first added.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'payments' and column_name = 'month_credited'
+  ) then
+    alter table public.payments add column credited_days int not null default 0;
+    alter table public.payments add column month_credited boolean not null default false;
+    update public.payments
+    set month_credited = true
+    where amount > 0 and (status = 'paid' or amount_paid * 10 >= amount * 6);
+  end if;
+end $$;
+alter table public.payments add column if not exists credited_days int not null default 0;
+
+-- Rental time grows as money comes in (runs BEFORE the row is saved, so it can record what it gave)
+create or replace function public.extend_rental_time() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_day date := (coalesce(new.paid_at, now()) at time zone 'Africa/Kampala')::date;
+  v_days int;
+  v_add interval;
+begin
+  if new.amount is null or new.amount <= 0 or new.month_credited then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and new.amount_paid <= coalesce(old.amount_paid, 0) and new.status is not distinct from old.status then
+    return new;
+  end if;
+
+  if new.status = 'paid' or new.amount_paid >= new.amount then
+    -- Paid in full: one rent month = 30 days (never 28 or 31), less the days already given for it
+    v_add := make_interval(days => 30 - coalesce(new.credited_days, 0));
+    new.month_credited := true;
+  else
+    v_days := floor(new.amount_paid::numeric * 30 / new.amount)::int;
+    if v_days <= coalesce(new.credited_days, 0) then
+      return new;
+    end if;
+    v_add := make_interval(days => v_days - coalesce(new.credited_days, 0));
+    new.credited_days := v_days;
+  end if;
+
+  -- New tenant: from their start date (the confirmation sets it to the day paid). Otherwise straight on
+  -- from the old end, so late (debt) days are not given back.
+  update public.tenants
+  set lease_start = coalesce(lease_start, v_day),
+      lease_end = (coalesce(lease_end, lease_start, v_day) + v_add)::date
+  where id = new.tenant_id and property_id is not null;
+  return new;
+end $$;
+
+drop trigger if exists payments_extend_rental_time on public.payments;
+create trigger payments_extend_rental_time
+  before insert or update of status, amount_paid on public.payments
+  for each row execute function public.extend_rental_time();
+
+-- ────────────── 53_subscription_30_day_months.sql ──────────────
+
+-- 53 · landlord subscriptions: a month is 30 days (safe to run again; no data is deleted)
+--
+--  Monthly subscription = exactly 30 days (never 28, 29 or 31), like rent months (database/52).
+--  Yearly subscription  = 365 days.
+--  Periods already confirmed keep their dates; this applies to payments confirmed from now on, whether
+--  confirmed from mobile money (admin_confirm_subscription_payment) or recorded as cash
+--  (admin_record_subscription_cash).
+
+create or replace function public.subscription_days(p_months int) returns int
+language sql immutable set search_path = '' as $$
+  select case when p_months >= 12 then 365 * (p_months / 12) + 30 * (p_months % 12) else 30 * greatest(p_months, 1) end;
+$$;
+revoke execute on function public.subscription_days(int) from public, anon;
+grant execute on function public.subscription_days(int) to authenticated, service_role;
+
+-- ── Main admin: confirm a mobile money payment → on top of any time left ──
+create or replace function public.admin_confirm_subscription_payment(p_id uuid) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  r public.subscription_payments;
+  p record;
+  v_start date;
+  v_end date;
+begin
+  perform public.admin_require();
+  select * into r from public.subscription_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if r.status <> 'pending' then raise exception 'This payment has already been %.', r.status; end if;
+  select * into p from public.profiles where id = r.landlord_id for update;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := v_start + public.subscription_days(r.months) - 1;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = r.plan, subscription_tier = r.tier where id = r.landlord_id;
+  update public.subscription_payments
+  set status = 'confirmed', period_start = v_start, period_end = v_end, reviewed_by = auth.uid(), reviewed_at = now()
+  where id = r.id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (r.landlord_id, 'subscription', 'Subscription renewed',
+    format('Thank you! Your %s scale %s payment of %s was received. Your Renta UG subscription now runs until %s (%s days).',
+      initcap(r.tier), r.plan, public.ugx(r.amount), to_char(v_end, 'FMDD Mon YYYY'), public.subscription_days(r.months)),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.confirm', 'landlord', r.landlord_id,
+    format('Confirmed %s %s scale %s subscription from %s, now runs to %s', public.ugx(r.amount), r.tier, r.plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end, 'FMDD Mon YYYY')));
+  return json_build_object('until', v_end, 'start', v_start);
+end $$;
+
+-- ── Main admin: a subscription paid in cash → recorded as paid, extended at once ──
+create or replace function public.admin_record_subscription_cash(
+  p_landlord uuid, p_tier text, p_plan text, p_paid_on date default null, p_note text default null
+) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_note text := nullif(left(trim(coalesce(p_note, '')), 200), '');
+  v_units int;
+  v_amount bigint;
+  v_months int;
+  v_start date;
+  v_end date;
+  v_id uuid;
+begin
+  perform public.admin_require();
+  select * into p from public.profiles where id = p_landlord and role = 'landlord' for update;
+  if not found then raise exception 'Landlord not found.'; end if;
+  if p.subscription_exempt then raise exception 'This is the permanent free account: there is nothing to pay.'; end if;
+  if p_tier not in ('small', 'big') then raise exception 'Choose Small scale or Big scale.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 366 then raise exception 'The payment date is more than a year ago.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  v_units := public.landlord_unit_count(p_landlord);
+  if p_tier = 'small' and v_units > s.small_max_units then
+    raise exception 'This landlord has % houses and rooms. Small scale covers up to %, so choose Big scale.', v_units, s.small_max_units;
+  end if;
+
+  v_amount := case
+    when p_tier = 'big' and p_plan = 'yearly' then s.big_yearly
+    when p_tier = 'big' then s.big_monthly
+    when p_plan = 'yearly' then s.small_yearly
+    else s.small_monthly end;
+  v_months := case p_plan when 'yearly' then 12 else 1 end;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := v_start + public.subscription_days(v_months) - 1;
+
+  insert into public.subscription_payments (
+    landlord_id, tier, plan, months, amount, network, sender_phone, sender_name, reference, paid_on,
+    status, period_start, period_end, reviewed_by, reviewed_at, note
+  ) values (
+    p_landlord, p_tier, p_plan, v_months, v_amount, 'cash', null, 'CASH', null, v_paid_on,
+    'confirmed', v_start, v_end, auth.uid(), now(), v_note
+  ) returning id into v_id;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = p_plan, subscription_tier = p_tier where id = p_landlord;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (p_landlord, 'subscription', 'Subscription paid in cash',
+    format('Thank you! Renta UG received your cash payment of %s for %s scale, %s. Your subscription now runs until %s (%s days).',
+      public.ugx(v_amount), initcap(p_tier), p_plan, to_char(v_end, 'FMDD Mon YYYY'), public.subscription_days(v_months)),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.cash', 'landlord', p_landlord,
+    format('Recorded %s cash for %s scale %s subscription from %s, now runs to %s%s', public.ugx(v_amount), p_tier, p_plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end, 'FMDD Mon YYYY'), coalesce(' (' || v_note || ')', '')));
+
+  return json_build_object('id', v_id, 'amount', v_amount, 'start', v_start, 'until', v_end);
+end $$;
+revoke execute on function public.admin_record_subscription_cash(uuid, text, text, date, text) from public, anon;
+grant execute on function public.admin_record_subscription_cash(uuid, text, text, date, text) to authenticated;
+
+-- ────────────── 54_browser_write_limits.sql ──────────────
+
+-- 54 · what the browser may write (safe to run again; no data is deleted)
+--
+--  The app talks to the database straight from the browser. Row rules (08) already stop anyone touching
+--  another person's rows; this file also limits WHICH columns and values a signed-in user can write, so
+--  nobody can edit the database through the browser beyond what the app itself does:
+--   • Rent months, payments and receipts: written only by the database functions (confirming a payment,
+--     recording cash…). A landlord can no longer insert, change or delete them directly.
+--   • Tenants: only the fields the app edits (name, email, phone, house, managed / ended). Rental time
+--     (lease dates), the linked app account and the connection code are set by the database only.
+--   • Notices from a landlord: always a plain "general" notice, 1–1,000 characters. Nobody can fake a
+--     "payment confirmation" or a security alert.
+--   • Sensible sizes for names, phone numbers, addresses and rents.
+--  Database functions (security definer) and the server are not affected.
+
+-- ── Rent months, payments, receipts: database functions only ──
+revoke insert, update, delete on public.payments from anon, authenticated;
+revoke insert, update, delete on public.payment_receipts from anon, authenticated;
+
+-- ── Tenants: only the fields the app edits ──
+revoke insert, update on public.tenants from anon, authenticated;
+grant insert (full_name, email, phone, property_id, managed_by_landlord) on public.tenants to authenticated;
+grant update (full_name, email, phone, property_id, last_property_id, ended_at, managed_by_landlord) on public.tenants to authenticated;
+
+-- ── Notices written from the app ──
+revoke insert on public.notifications from anon, authenticated;
+grant insert (tenant_id, type, title, body) on public.notifications to authenticated;
+
+create or replace function public.guard_app_notice() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  -- Only writes made directly from the browser; database functions run as the owner and are not limited
+  if current_user in ('authenticated', 'anon') then
+    new.type := 'general';
+    new.title := left(trim(coalesce(new.title, '')), 120);
+    new.body := trim(coalesce(new.body, ''));
+    if length(new.body) < 1 or length(new.body) > 1000 then
+      raise exception 'Write a message of up to 1,000 characters.';
+    end if;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists notifications_guard_app on public.notifications;
+create trigger notifications_guard_app
+  before insert on public.notifications
+  for each row execute function public.guard_app_notice();
+
+-- ── Sensible sizes (checked for new and changed rows; old rows are left as they are) ──
+do $$
+declare c text[];
+begin
+  foreach c slice 1 in array array[
+    array['properties', 'properties_rent_range', 'check (rent is null or (rent >= 0 and rent <= 100000000000))'],
+    array['properties', 'properties_name_length', 'check (char_length(name) between 1 and 120)'],
+    array['properties', 'properties_location_length', 'check (location is null or char_length(location) <= 200)'],
+    array['rentals', 'rentals_name_length', 'check (char_length(name) between 1 and 120)'],
+    array['rentals', 'rentals_location_length', 'check (location is null or char_length(location) <= 200)'],
+    array['tenants', 'tenants_name_length', 'check (char_length(full_name) between 1 and 120)'],
+    array['tenants', 'tenants_email_length', 'check (email is null or char_length(email) <= 254)'],
+    array['tenants', 'tenants_phone_length', 'check (phone is null or char_length(phone) <= 30)'],
+    array['profiles', 'profiles_name_length', 'check (full_name is null or char_length(full_name) <= 120)'],
+    array['profiles', 'profiles_phone_length', 'check (phone is null or char_length(phone) <= 30)'],
+    array['landlord_pay_accounts', 'pay_accounts_name_length', 'check (char_length(account_name) between 1 and 80)'],
+    array['landlord_pay_accounts', 'pay_accounts_phone_length', 'check (char_length(phone) between 9 and 20)']
+  ] loop
+    begin
+      execute format('alter table public.%I add constraint %I %s not valid', c[1], c[2], c[3]);
+    exception when duplicate_object then null;
+    end;
+  end loop;
+end $$;

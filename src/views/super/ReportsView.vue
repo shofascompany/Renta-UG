@@ -1,5 +1,7 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { supabase } from '@/lib/supabase'
+import { heardLabel } from '@/lib/heardFrom'
 import {
   Wallet, TrendingUp, TrendingDown, Percent, Building2, Users, Smartphone, Clock, CalendarCheck2, Star, Hourglass, Receipt,
   CalendarClock, UserPlus, Briefcase, DoorOpen, Download,
@@ -154,6 +156,23 @@ const reasons = computed(() => {
   return [...map.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value)
 })
 
+// ── How people found us ──
+const heard = reactive({ rows: [], landlords: 0, tenants: 0, loading: true, error: '' })
+onMounted(async () => {
+  const { data, error } = await supabase.from('signup_sources').select('source, detail, role, created_at').order('created_at', { ascending: false })
+  heard.loading = false
+  if (error) return (heard.error = error.message)
+  heard.rows = data ?? []
+  heard.landlords = heard.rows.filter((r) => r.role === 'landlord').length
+  heard.tenants = heard.rows.filter((r) => r.role === 'tenant').length
+})
+const heardRows = computed(() => {
+  const map = new Map()
+  for (const r of heard.rows) map.set(r.source, (map.get(r.source) ?? 0) + 1)
+  return [...map.entries()].map(([id, value]) => ({ label: heardLabel(id), value })).sort((a, b) => b.value - a.value)
+})
+const heardOther = computed(() => heard.rows.filter((r) => r.detail).slice(0, 6).map((r) => ({ detail: r.detail, at: r.created_at })))
+
 function exportSummary() {
   const rows = [
     ['Collected all time (UGX)', p.totalCollected.value],
@@ -260,6 +279,21 @@ function exportSummary() {
             <strong class="tabular-nums">{{ r.n }}</strong>
           </li>
         </ul>
+      </Panel>
+    </div>
+
+    <!-- Where people heard about Renta UG (answers given in the old welcome tour, which has been removed) -->
+    <h2 class="section-title mt-8">How people found us</h2>
+    <div class="grid gap-4 lg:grid-cols-3">
+      <Panel class="lg:col-span-2" title="Where they heard about Renta UG" :subtitle="heard.error ? 'Run database/update_existing.sql to start collecting answers.' : `${heard.rows.length} answer${heard.rows.length === 1 ? '' : 's'} · ${heard.landlords} landlord${heard.landlords === 1 ? '' : 's'}, ${heard.tenants} tenant${heard.tenants === 1 ? '' : 's'}`">
+        <RankBars v-if="heard.rows.length" :rows="heardRows" :format="(v) => `${v} (${pct(v, heard.rows.length)}%)`" :limit="8" />
+        <p v-else class="py-6 text-center text-sm text-slate-500">{{ heard.loading ? 'Loading…' : 'No answers were collected.' }}</p>
+      </Panel>
+      <Panel title="“Somewhere else”" subtitle="What people typed in">
+        <ul v-if="heardOther.length" class="space-y-2 text-sm">
+          <li v-for="o in heardOther" :key="o.at" class="rounded-xl bg-slate-50 px-3.5 py-2.5 text-slate-700">{{ o.detail }}</li>
+        </ul>
+        <p v-else class="py-6 text-center text-sm text-slate-500">Nothing typed in yet.</p>
       </Panel>
     </div>
 

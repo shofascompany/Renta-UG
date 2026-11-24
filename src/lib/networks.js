@@ -41,18 +41,18 @@ export const dialCodeOf = (account) => account?.dialCode || NETWORKS[account?.ne
 // tel: link that opens the phone's dialer with the code ready (# must be encoded)
 export const dialHref = (code) => `tel:${encodeURIComponent(code)}`
 
-// The steps the tenant follows on their phone
-export function sendSteps(account, { amount, code }) {
+// The steps followed on the phone. `payee`: whose number it is ("the landlord's", "Renta UG's").
+// No reason / reference code: payments are matched by the names registered on the line used.
+export function sendSteps(account, { amount, payee = "the landlord's" }) {
   const n = NETWORKS[account.network]
   const dial = dialCodeOf(account)
   return [
     dial ? `Dial ${dial} on your ${n.short} line.` : `Open the ${n.label} menu on your ${n.short} line.`,
     `Choose "${n.menu[0]}", then "${n.menu[1]}".`,
-    `Enter the landlord's number: ${prettyPhone(account.phone)}.`,
+    `Enter ${payee} number: ${prettyPhone(account.phone)}.`,
     `Check that the name shown is ${account.accountName.toUpperCase()}.`,
     `Enter the amount: ${formatUGX(amount)}.`,
-    `For the reason, type ${code}.`,
     'Enter your mobile money PIN to send.',
-    'Come back here and tap "I have sent the money".',
+    'Come back here and continue.',
   ]
 }

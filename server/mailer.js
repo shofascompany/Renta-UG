@@ -3,8 +3,15 @@
 //                          optional: SMTP_HOST (default smtp.gmail.com), SMTP_PORT (default 465), MAIL_FROM
 //   2. Resend (resend.com): RESEND_API_KEY + MAIL_FROM  (MAIL_FROM must be on a domain you verified there)
 // Shared by the Express server and the Netlify Function.
+import { randomUUID } from 'node:crypto'
 import nodemailer from 'nodemailer'
 import { HttpError } from './admin.js'
+
+// Headers that help inbox placement for one-to-one account emails (codes, password resets):
+//  · Auto-Submitted marks the email as automatic (RFC 3834): no auto-replies, read as transactional
+//  · a unique X-Entity-Ref-ID stops Gmail folding repeated code emails into one thread, where a new
+//    code can hide under an old one and people think it never came
+const transactionalHeaders = () => ({ 'Auto-Submitted': 'auto-generated', 'X-Entity-Ref-ID': randomUUID() })
 
 // "jo***@gmail.com": enough to recognise in the logs without storing the full address
 const mask = (email) => String(email).replace(/^(.{2})[^@]*/, '$1***')
@@ -18,7 +25,15 @@ export async function sendMail({ to, subject, text, html }, env = process.env) {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: env.MAIL_FROM, to: [to], subject, text, html }),
+      body: JSON.stringify({
+        from: env.MAIL_FROM,
+        to: [to],
+        subject,
+        text,
+        html,
+        ...(env.MAIL_REPLY_TO ? { reply_to: env.MAIL_REPLY_TO } : {}),
+        headers: transactionalHeaders(),
+      }),
     })
     if (!res.ok) {
       const detail = await res.text().catch(() => '')
@@ -45,7 +60,7 @@ export async function sendMail({ to, subject, text, html }, env = process.env) {
     const from = { name, address: env.SMTP_USER }
     let info
     try {
-      info = await transport.sendMail({ from, replyTo: env.SMTP_USER, to, subject, text, html })
+      info = await transport.sendMail({ from, replyTo: env.SMTP_USER, to, subject, text, html, headers: transactionalHeaders() })
     } catch (e) {
       console.error(`[mail] SMTP to ${mask(to)}: ${e.responseCode ?? ''} ${e.message}`)
       if (e.responseCode >= 550 && e.responseCode < 560) {

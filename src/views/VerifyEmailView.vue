@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { MailCheck, CheckCircle2, RotateCw, ArrowLeft, Timer } from '@lucide/vue'
+import { MailCheck, CheckCircle2, RotateCw, ArrowLeft, Timer, Inbox, ExternalLink } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { clearVerification, loadVerification, saveVerification } from '@/lib/verification'
 import Logo from '@/components/Logo.vue'
@@ -25,6 +25,18 @@ const secondsLeft = computed(() => Math.max(0, Math.ceil(((waiting.value?.expire
 const expired = computed(() => secondsLeft.value <= 0)
 const clock = computed(() => `${Math.floor(secondsLeft.value / 60)}:${String(secondsLeft.value % 60).padStart(2, '0')}`)
 const resendIn = computed(() => Math.max(0, Math.ceil(((waiting.value?.resendAt ?? 0) - now.value) / 1000)))
+
+// "Check your spam" tip: for the big email services, a button that opens the spam folder directly
+const SPAM_FOLDERS = [
+  [/@(gmail|googlemail)\.com$/, 'Gmail', 'https://mail.google.com/mail/u/0/#spam'],
+  [/@(outlook|hotmail|live|msn)\.[a-z.]+$/, 'Outlook', 'https://outlook.live.com/mail/0/junkemail'],
+  [/@(yahoo|ymail)\.[a-z.]+$/, 'Yahoo Mail', 'https://mail.yahoo.com/d/folders/6'],
+]
+const spamFolder = computed(() => {
+  const email = String(waiting.value?.email ?? '').toLowerCase()
+  const hit = SPAM_FOLDERS.find(([re]) => re.test(email))
+  return hit ? { name: hit[1], url: hit[2] } : null
+})
 
 onMounted(() => {
   if (!waiting.value) return router.replace({ name: 'signup' })
@@ -148,7 +160,28 @@ function startAgain() {
             <p class="mt-0.5 truncate text-sm font-semibold">{{ waiting.email }}</p>
           </div>
 
-          <div class="px-5 pt-6 pb-6 sm:px-6">
+          <div class="px-5 pt-5 pb-6 sm:px-6">
+            <!-- Not in the inbox? Check spam (first thing they read, before waiting for the email) -->
+            <div class="spam-tip mb-5 flex gap-3 rounded-2xl p-3.5" role="note">
+              <span class="spam-ico flex size-9 shrink-0 items-center justify-center rounded-xl"><Inbox class="size-4.5" /></span>
+              <div class="min-w-0 text-sm leading-relaxed">
+                <p class="font-semibold text-amber-800">Not in your inbox?</p>
+                <p class="mt-0.5 text-amber-700">
+                  Check your <strong>Spam</strong> or <strong>Junk</strong> folder. If the code is there, mark it
+                  <strong>“Not spam”</strong> so our next emails arrive in your inbox.
+                </p>
+                <a
+                  v-if="spamFolder"
+                  :href="spamFolder.url"
+                  target="_blank"
+                  rel="noopener"
+                  class="spam-btn mt-2.5 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
+                >
+                  Open my {{ spamFolder.name }} spam folder <ExternalLink class="size-3.5" />
+                </a>
+              </div>
+            </div>
+
             <p class="mb-3 text-center text-xs font-semibold tracking-wide text-slate-500 uppercase">Enter your code</p>
             <div class="flex justify-center gap-2" @paste="onPaste">
               <input
@@ -197,7 +230,6 @@ function startAgain() {
                 <ArrowLeft class="size-4" /> Wrong email?
               </button>
             </div>
-            <p class="mt-5 text-center text-xs text-slate-400">Can't see it? Look in your spam or promotions folder.</p>
           </div>
         </template>
       </div>
@@ -251,6 +283,26 @@ function startAgain() {
 .code-box.bad { border-color: #f87171; animation: shake 0.35s ease; }
 .code-box:disabled { opacity: 0.6; }
 
+/* Spam tip: warm amber note with a soft accent bar on the left; slides in just after the card */
+.spam-tip {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--color-amber-50), color-mix(in srgb, var(--color-amber-50) 60%, var(--color-white)));
+  box-shadow: inset 0 0 0 1px var(--color-amber-200);
+  animation: tip-in 0.5s 0.35s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.spam-tip::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, #f59e0b, #f97316);
+}
+.spam-ico { color: var(--color-amber-700); background: var(--color-amber-100); box-shadow: inset 0 0 0 1px var(--color-amber-200); }
+.spam-btn { color: #fff; background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 6px 14px -8px rgb(217 119 6 / 0.9); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.spam-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 18px -8px rgb(217 119 6 / 0.9); }
+@keyframes tip-in { from { opacity: 0; transform: translateY(8px); } }
+
 .card-in { animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 .done-ring { animation: pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: 0 0 0 10px rgb(16 185 129 / 0.08); }
 .go { animation: go 1.4s linear forwards; }
@@ -259,7 +311,7 @@ function startAgain() {
 @keyframes go { from { width: 0; } to { width: 100%; } }
 @keyframes shake { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
 @media (prefers-reduced-motion: reduce) {
-  .card-in, .done-ring, .go, .code-box.bad { animation: none; }
+  .card-in, .done-ring, .go, .code-box.bad, .spam-tip { animation: none; }
   .go { width: 100%; }
 }
 </style>

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CheckCircle2, XCircle, Loader2, KeyRound } from '@lucide/vue'
+import { CheckCircle2, XCircle, Loader2 } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { isConfigured } from '@/lib/supabase'
 import Logo from '@/components/Logo.vue'
@@ -15,6 +15,7 @@ const email = ref('')
 const password = ref('')
 const error = ref('')
 const info = ref(route.query.reset === '1' ? 'Your password was changed. Sign in with the new one.' : '')
+if (route.query.why === 'profile') error.value = "We couldn't load your account. Check your internet connection and sign in again."
 const busy = ref(false)
 
 // ── Live email / phone check ──
@@ -71,23 +72,17 @@ function stopLoader() {
 }
 
 const tenantFirst = computed(() => status.value === 'tenant_first_login') // app access just given by their landlord
-const firstLogin = computed(() => status.value === 'first_login' || tenantFirst.value)
+const landlordFirst = computed(() => status.value === 'first_login') // registered by Renta UG: no code needed
+const firstLogin = computed(() => landlordFirst.value || tenantFirst.value)
 const blocked = computed(() => status.value === 'not_found' || status.value === 'suspended')
 const found = computed(() => ['first_login', 'tenant_first_login', 'landlord', 'tenant'].includes(status.value))
-
-// Tenant's first sign-in: nothing to type, go straight on to setting up the account
-let autoTimer = null
-watch(tenantFirst, (yes) => {
-  clearTimeout(autoTimer)
-  if (yes) autoTimer = setTimeout(() => !busy.value && tenantFirst.value && signIn(), 1200)
-})
 
 const hint = computed(
   () =>
     ({
       // The account type is never shown; only whether it's a first sign-in
-      first_login: { ok: true, text: 'First sign-in: no password needed yet' },
-      tenant_first_login: { ok: true, text: 'First sign-in: no password needed yet' },
+      first_login: { ok: true, text: 'First sign-in: tap Continue to create your password' },
+      tenant_first_login: { ok: true, text: 'First sign-in: tap Continue to create your password' },
       suspended: { ok: false, text: 'This account has been suspended. Please contact Renta UG.' },
       not_found: {
         ok: false,
@@ -111,6 +106,7 @@ async function signIn() {
     const addr = identifier()
     const phone = isPhone.value
     if (firstLogin.value) {
+      // First sign-in (landlord or tenant): no code, straight to creating their password
       await (phone ? auth.firstLoginPhoneSignIn(addr) : auth.firstLoginSignIn(addr))
       await minimum
       router.push(auth.home) // the router sends them to "Create your password"
@@ -183,15 +179,14 @@ async function signIn() {
           </p>
         </div>
 
-        <!-- Password: blurred and not needed for a landlord's first sign-in -->
-        <div class="relative">
-          <div :class="firstLogin && 'pointer-events-none blur-[3px] select-none'" :aria-hidden="firstLogin">
+        <!-- Password (a first sign-in needs nothing else: no code, no password) -->
+        <div v-if="!firstLogin" class="relative">
+          <div>
             <div class="flex items-center justify-between">
               <label class="label" for="password">Password</label>
               <RouterLink
                 :to="{ name: 'forgot-password', query: email.includes('@') ? { email: email.trim() } : {} }"
                 class="mb-1.5 text-xs font-medium text-brand-600 hover:text-brand-700"
-                :tabindex="firstLogin ? -1 : 0"
               >
                 Forgot password?
               </RouterLink>
@@ -202,22 +197,15 @@ async function signIn() {
               type="password"
               class="input"
               placeholder="••••••••"
-              :required="!firstLogin"
-              :disabled="firstLogin"
+              required
               autocomplete="current-password"
             />
-          </div>
-          <div v-if="firstLogin" class="absolute inset-0 flex items-center justify-center">
-            <p class="flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs font-medium text-brand-700 shadow-sm">
-              <KeyRound class="size-4 shrink-0" />
-              {{ tenantFirst ? 'No password yet. Setting up your account…' : 'No password yet. Just tap Continue below.' }}
-            </p>
           </div>
         </div>
 
         <p v-if="firstLogin" class="text-sm text-slate-600">
           <template v-if="tenantFirst">Welcome to Renta! Your landlord has set up your account. Next, add your email and create your password.</template>
-          <template v-else>Welcome to Renta! As this is your first sign-in, you'll create your own password on the next page.</template>
+          <template v-else>Welcome to Renta! After this first sign-in you'll create your own password.</template>
         </p>
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         <p v-if="info" class="text-sm text-emerald-700">{{ info }}</p>

@@ -1,5 +1,7 @@
 // The password-reset email: a button with the reset link. Same look as the sign-up code email
 // (tables + inline styles for Gmail, Outlook and Apple Mail).
+import { CONTACT } from './emailTemplates.js'
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const FONT = "'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 
@@ -53,7 +55,9 @@ export function resetEmail({ name, link, minutes, site }) {
       </table>
     </td></tr>
     <tr><td align="center" style="padding:22px 16px 6px;font-family:${FONT};font-size:12px;line-height:1.6;color:#94a3b8">
-      Renta UG &middot; Rent made simple in Uganda<br><a href="${esc(site)}" style="color:#0f766e;text-decoration:none;font-weight:600">${esc(String(site).replace(/^https?:\/\//, ''))}</a>
+      Renta UG &middot; Rent made simple in Uganda<br><a href="${esc(site)}" style="color:#0f766e;text-decoration:none;font-weight:600">${esc(String(site).replace(/^https?:\/\//, ''))}</a><br>
+      Questions? Call or WhatsApp <a href="tel:${CONTACT.phoneIntl}" style="color:#64748b;text-decoration:none">${CONTACT.phone}</a>
+      &middot; <a href="mailto:${CONTACT.email}" style="color:#64748b;text-decoration:none">${CONTACT.email}</a>
     </td></tr>
   </table>
 </td></tr>
@@ -65,7 +69,8 @@ export function resetEmail({ name, link, minutes, site }) {
     `Hi ${first},\n\n` +
     `We got a request to reset your Renta UG password. Open this link to choose a new one:\n\n${link}\n\n` +
     `The link works for ${minutes} minutes and only once. If you didn't ask for this, ignore this email: your password stays the same.\n\n` +
-    `Renta UG · ${site}`
+    `Renta UG · ${site}\n` +
+    `Questions? Call or WhatsApp ${CONTACT.phone} · ${CONTACT.email}`
 
   return { subject: 'Reset your Renta UG password', html, text }
 }

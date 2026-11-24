@@ -5,7 +5,8 @@ import { ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { isConfigured } from '@/lib/supabase'
 
-// Main admin sign-in at /admin2026. Only the superadmin account (ADMIN_* in .env) can get in.
+// Main admin sign-in at /admin2026. Any account with the main admin (superadmin) role can get in;
+// there can be several (see database/12_main_admin.sql).
 const auth = useAuthStore()
 const router = useRouter()
 

@@ -153,7 +153,7 @@ onBeforeUnmount(() => clearTimeout(timer))
   box-shadow: 0 18px 40px -16px rgb(15 23 42 / 0.45), 0 0 0 1px rgb(15 23 42 / 0.06);
   transition: transform 0.25s ease;
 }
-:global(.dark) .toast { background: rgb(30 41 59 / 0.92); }
+:global(.dark) .toast { background: rgb(6 6 6 / 0.94); box-shadow: 0 18px 40px -16px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(255 255 255 / 0.14); }
 .app-icon { background: linear-gradient(140deg, #14b8a6, #0f766e 60%, #0a3b38); box-shadow: 0 6px 14px -8px rgb(15 118 110 / 0.9); }
 .grabber {
   position: absolute;

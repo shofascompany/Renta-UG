@@ -18,7 +18,11 @@ export const supabase = createClient(url || 'http://localhost', key || 'missing-
 export function must({ data, error }) {
   if (error) {
     if (isNetworkError(error)) throw new Error(NETWORK_MESSAGE)
+    // The database refused the change for this account (signed out on another tab, account changed, etc.)
+    if (/row-level security|permission denied/i.test(error.message)) throw new Error(PERMISSION_MESSAGE)
     throw error
   }
   return data
 }
+export const PERMISSION_MESSAGE =
+  "Your account isn't allowed to make this change right now. Sign out and sign in again, then try once more. If it keeps happening, contact Renta UG."

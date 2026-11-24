@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChevronDown, Search, Check, UserCog, Smartphone } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX } from '@/utils/format'
+import PayStatus from './PayStatus.vue'
 
 // A well-designed dropdown to choose one tenant: avatar, house, what they owe. Searchable.
 //   <TenantPicker v-model="tenantId" :tenants="list" />
@@ -19,7 +20,6 @@ const query = ref('')
 const root = ref(null)
 const searchBox = ref(null)
 
-const owes = (t) => rental.duesForTenant(t.id).reduce((s, p) => s + p.balance, 0)
 const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 const selected = computed(() => props.tenants.find((t) => t.id === model.value) ?? null)
 const shown = computed(() => {
@@ -94,8 +94,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside, true)
                 <span class="block truncate text-xs text-slate-500">{{ rental.placeName(t.propertyId) }}</span>
               </span>
               <span class="shrink-0 text-right text-xs">
-                <span v-if="owes(t)" class="font-semibold text-amber-700 tabular-nums">owes {{ formatUGX(owes(t)) }}</span>
-                <span v-else class="font-medium text-emerald-700">paid up</span>
+                <PayStatus :tenant-id="t.id" />
+                <span v-if="rental.payStateFor(t.id)?.owed" class="mt-0.5 block font-semibold text-slate-600 tabular-nums">{{ formatUGX(rental.payStateFor(t.id).owed) }}</span>
               </span>
               <Check v-if="t.id === model" class="size-4 shrink-0 text-brand-600" />
             </button>

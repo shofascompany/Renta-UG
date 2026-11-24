@@ -9,7 +9,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "db:bundle": "node scripts/bundle-sql.js",
-    "share": "vite build && node --env-file-if-exists=.env.production --env-file-if-exists=.env server/index.js"
+    "permanent-account": "node --env-file-if-exists=.env.production --env-file-if-exists=.env scripts/permanent-account.mjs",
+    "share": "vite build && node --env-file-if-exists=.env.production --env-file-if-exists=.env server/index.js",
+    "test": "node --test tests/",
+    "screenshots": "node --env-file-if-exists=.env.production --env-file-if-exists=.env scripts/screenshots.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.72.0",
@@ -29,5 +32,10 @@
     "@vitejs/plugin-vue": "^6.0.10",
     "tailwindcss": "^4.3.5",
     "vite": "^8.3.8"
+  },
+  "overrides": {
+    "axios": "^1.21.1",
+    "joi": "^18.3.2",
+    "body-parser": "^2.4.0"
   }
 }

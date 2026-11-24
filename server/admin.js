@@ -2,6 +2,19 @@
 // Netlify Function (netlify/functions/admin.mjs), so it works locally AND on the live site.
 // `db` is a Supabase client created with the SERVICE ROLE key: never use this in the browser.
 import { randomBytes } from 'node:crypto'
+import { sendSms, smsEnabled } from './sms.js'
+
+// Best effort (when SMS is on): tell the tenant their account is ready. No code is needed.
+async function smsAppAccess(phone) {
+  if (!smsEnabled() || !phone) return false
+  try {
+    await sendSms(phone, 'Renta UG: your landlord has set up your account. Open the Renta UG app, sign in with this phone number and create your password.')
+    return true
+  } catch (e) {
+    console.error('[setup-code] SMS failed:', e.message)
+    return false
+  }
+}
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -52,17 +65,35 @@ export async function createLandlord(db, body) {
   const { error: pErr } = await db
     .from('profiles')
     .upsert({ id: data.user.id, email, full_name: name, phone, role: 'landlord', active: true, must_change_password: true })
-  check(pErr)
+  if (pErr) {
+    // Never leave a half-made login behind: it would sign in as a TENANT and be asked for a connection code
+    await db.auth.admin.deleteUser(data.user.id)
+    check(pErr)
+  }
+  // No setup code for landlords: they sign in the first time with their email (or phone) and choose a password
+  await db.from('setup_codes').delete().eq('user_id', data.user.id)
   return { id: data.user.id }
 }
 
+// The permanent landlord account: can never be deleted or suspended (the database refuses it too,
+// see database/49_protected_account.sql). Matched by its flag, or its email before database/46 ran.
+export const PROTECTED_EMAILS = ['ngumisiriza@gmail.com']
+export const isProtectedProfile = (p) =>
+  Boolean(p && (p.subscription_exempt === true || PROTECTED_EMAILS.includes(String(p.email ?? '').toLowerCase())))
+
 // Update a landlord's details, reset their password (→ first sign-in again), or suspend / reactivate.
 export async function updateLandlord(db, id, body) {
-  const { data: target, error: tErr } = await db.from('profiles').select('role').eq('id', id).maybeSingle()
+  const { data: target, error: tErr } = await db.from('profiles').select('*').eq('id', id).maybeSingle()
   check(tErr)
   if (target?.role !== 'landlord') throw new HttpError(404, 'Landlord not found.')
 
   const { name, phone, resetPassword, active } = body ?? {}
+  if (active === false && isProtectedProfile(target)) {
+    throw new HttpError(403, 'This is the permanent Renta UG landlord account. It cannot be suspended.')
+  }
+  if (resetPassword === true && isProtectedProfile(target)) {
+    throw new HttpError(403, 'This is the permanent Renta UG landlord account. Its password is permanent and cannot be reset.')
+  }
   const authAttrs = {}
   const profile = {}
   if (typeof name === 'string' && name.trim()) {
@@ -118,6 +149,13 @@ export async function requireUserProfile(db, authorization) {
 
 // Landlord gives one of their tenants app access (sign-in with their phone number).
 export async function giveTenantAppAccess(db, landlordId, tenantId) {
+  // The server writes with full rights, so it checks the landlord's subscription itself
+  const { data: me, error: sErr } = await db.from('profiles').select('subscription_until, subscription_exempt').eq('id', landlordId).maybeSingle()
+  if (sErr && !/subscription_(until|exempt)/.test(sErr.message)) check(sErr) // column missing = database update not run yet
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Kampala' })
+  if (!sErr && me && !me.subscription_exempt && (!me.subscription_until || me.subscription_until < today)) {
+    throw new HttpError(402, 'Your Renta UG subscription has ended. Renew it on the Subscription page to keep managing your properties.')
+  }
   const { data: t, error } = await db
     .from('tenants')
     .select('id, landlord_id, user_id, property_id, full_name, phone')
@@ -168,7 +206,11 @@ export async function giveTenantAppAccess(db, landlordId, tenantId) {
     await db.auth.admin.deleteUser(userId)
     check(lErr)
   }
-  return { ok: true, phone: t.phone }
+  // First sign-in needs this code: shown once to the landlord to hand over, and texted when SMS is on
+  // No setup code: their first sign-in with this phone number goes straight to creating a password
+  await db.from('setup_codes').delete().eq('user_id', userId)
+  const texted = await smsAppAccess(t.phone)
+  return { ok: true, phone: t.phone, texted }
 }
 
 // Tenant's first sign-in (after app access was given): add their email and choose a password.
@@ -180,7 +222,9 @@ export async function completeTenantAccount(db, user, profile, body) {
   const password = String(body?.password ?? '')
   if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) throw new HttpError(400, 'Enter a valid email address.')
   if (isPlaceholderEmail(email)) throw new HttpError(400, 'Enter your own email address.')
-  if (password.length < 8) throw new HttpError(400, 'Your password needs at least 8 characters.')
+  if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+    throw new HttpError(400, 'Your password needs at least 8 characters, with letters and numbers.')
+  }
 
   const { data: taken, error: tErr } = await db.from('profiles').select('id').ilike('email', email).neq('id', user.id).limit(1)
   check(tErr)
@@ -212,10 +256,13 @@ export async function archiveAndClear(db, meId, body) {
     }
     throw new HttpError(500, error.message)
   }
-  // Remove the login accounts too (their data is already archived and cleared)
+  // Remove the login accounts too (their data is already archived and cleared).
+  // The database never lists the permanent account; this check is a second lock.
+  const { data: keep } = await db.from('profiles').select('*').in('id', data.user_ids ?? [])
+  const protectedIds = new Set((keep ?? []).filter(isProtectedProfile).map((p) => p.id))
   const failed = []
   for (const id of data.user_ids ?? []) {
-    if (id === meId) continue
+    if (id === meId || protectedIds.has(id)) continue
     const { error: dErr } = await db.auth.admin.deleteUser(id)
     if (dErr && !/not found/i.test(dErr.message)) failed.push(id)
   }
@@ -228,10 +275,13 @@ export async function archiveAndClear(db, meId, body) {
 export async function deleteUser(db, meId, id, opts = {}) {
   const force = opts?.force === true
   if (id === meId) throw new HttpError(400, 'You cannot delete the main admin account.')
-  const { data: target, error } = await db.from('profiles').select('role, active').eq('id', id).maybeSingle()
+  const { data: target, error } = await db.from('profiles').select('*').eq('id', id).maybeSingle()
   check(error)
   if (!target) throw new HttpError(404, 'User not found.')
   if (target.role === 'superadmin') throw new HttpError(400, 'The main admin account cannot be deleted.')
+  if (isProtectedProfile(target)) {
+    throw new HttpError(403, 'This is the permanent Renta UG landlord account. It and its data can never be deleted.')
+  }
   if (target.role === 'landlord' && target.active && !force) {
     throw new HttpError(400, 'Suspend this landlord first. Only inactive landlords can be deleted.')
   }

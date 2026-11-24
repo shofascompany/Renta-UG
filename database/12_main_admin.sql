@@ -4,15 +4,23 @@
 --
 -- To change any detail: edit the values below and run this file again
 -- (it is also included in setup_all.sql). Safe to run any time.
+--
+-- SECURITY: never commit a real password here. Type it into the SQL Editor just before you run
+-- the file, then don't save it. The script refuses a missing or weak password
+-- (at least 12 characters, with letters and numbers).
 
 do $$
 declare
-  v_email    text := 'shofascompany@gmail.com';
-  v_password text := '1234man.';
+  v_email    text := 'manyaabraham123@gmail.com';
+  v_password text := 'TYPE-A-STRONG-PASSWORD-HERE';
   v_name     text := 'Abraham';
   v_phone    text := '0703089488';
   v_id       uuid;
 begin
+  if v_password = 'TYPE-A-STRONG-PASSWORD-HERE' or length(v_password) < 12
+     or v_password !~ '[A-Za-z]' or v_password !~ '[0-9]' then
+    raise exception 'Set a strong main admin password in 12_main_admin.sql first (12+ characters, letters and numbers).';
+  end if;
   v_email := lower(trim(v_email));
   select id into v_id from auth.users where lower(email) = v_email;
 
@@ -50,12 +58,10 @@ begin
   )
   on conflict (provider_id, provider) do nothing;
 
-  -- Make it the one and only main admin
+  -- Make it a main admin. Other main admin accounts are kept (several main admins are allowed).
   insert into public.profiles (id, email, full_name, phone, role, active)
   values (v_id, v_email, v_name, v_phone, 'superadmin', true)
   on conflict (id) do update
     set email = excluded.email, full_name = excluded.full_name, phone = excluded.phone,
         role = 'superadmin', active = true;
-
-  update public.profiles set role = 'tenant' where role = 'superadmin' and id <> v_id;
 end $$;

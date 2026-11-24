@@ -6,6 +6,7 @@ import {
 } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { timeAgo } from '@/utils/format'
+import AppLink from '@/components/AppLink.vue'
 
 // Tenant inbox: a clean list (no cards), grouped by day. Tap → detail sheet with Copy / Share / Delete.
 const { rental, notifications, unread } = useTenant()
@@ -132,7 +133,7 @@ const shareLinks = computed(() => {
   if (!viewing.value) return []
   const text = encodeURIComponent(asText(viewing.value))
   return [
-    { label: 'WhatsApp', icon: MessageCircle, cls: 'text-emerald-600', href: `https://wa.me/?text=${text}` },
+    { label: 'WhatsApp', icon: MessageCircle, cls: 'text-emerald-600', wa: true, text: asText(viewing.value) }, // opens the WhatsApp app
     { label: 'SMS', icon: MessageSquare, cls: 'text-sky-600', href: `sms:?&body=${text}` },
     { label: 'Email', icon: Mail, cls: 'text-brand-700', href: `mailto:?subject=${encodeURIComponent('Renta UG notification')}&body=${text}` },
   ]
@@ -280,9 +281,9 @@ onBeforeUnmount(() => {
                 <p class="text-sm font-semibold text-slate-700">Share with</p>
               </div>
               <div class="grid grid-cols-3">
-                <a v-for="s in shareLinks" :key="s.label" :href="s.href" target="_blank" rel="noopener" class="action" @click="mode = 'view'">
+                <component :is="s.wa ? AppLink : 'a'" v-for="s in shareLinks" :key="s.label" :href="s.wa ? undefined : s.href" :text="s.wa ? s.text : undefined" class="action" @click="mode = 'view'">
                   <span class="action-icon"><component :is="s.icon" class="size-[1.1rem]" :class="s.cls" /></span> {{ s.label }}
-                </a>
+                </component>
               </div>
             </div>
 

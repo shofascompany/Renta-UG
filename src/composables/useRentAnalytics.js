@@ -130,7 +130,7 @@ export function useRentAnalytics() {
     const payment = (id) => rental.payments.find((p) => p.id === id)
     const fromReceipts = rental.payment_receipts.map((r) => {
       const p = payment(r.paymentId)
-      return { id: r.id, tenantId: r.tenantId, propertyId: p?.propertyId, period: p?.period, amount: r.amount, method: r.method, reference: r.reference, note: r.note, at: r.receivedAt }
+      return { id: r.id, paymentId: r.paymentId, tenantId: r.tenantId, propertyId: p?.propertyId, period: p?.period, amount: r.amount, method: r.method, reference: r.reference, note: r.note, at: r.receivedAt }
     })
     // Money paid on a rent charge that has no receipt behind it (e.g. paid before receipts existed):
     // still counted, so Transactions / Revenue always match what the rent charges say was paid.
@@ -139,7 +139,7 @@ export function useRentAnalytics() {
     const uncovered = rental.payments
       .filter((p) => p.amountPaid > (receipted[p.id] ?? 0))
       .map((p) => ({
-        id: `charge-${p.id}`, tenantId: p.tenantId, propertyId: p.propertyId, period: p.period,
+        id: `charge-${p.id}`, paymentId: p.id, tenantId: p.tenantId, propertyId: p.propertyId, period: p.period,
         amount: p.amountPaid - (receipted[p.id] ?? 0), method: p.method, reference: p.reference, note: null, at: p.paidAt ?? p.dueDate,
       }))
     const rows = [...fromReceipts, ...uncovered]

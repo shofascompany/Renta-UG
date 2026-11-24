@@ -3,10 +3,12 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { KeyRound } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
+import { useBillingStore } from '@/stores/billing'
 import Logo from '@/components/Logo.vue'
 
-// Landlord's first sign-in: replace the temporary password from the main admin.
+// Landlord's first sign-in: create their own password. Next: how big their business is, then pay.
 const auth = useAuthStore()
+const billing = useBillingStore()
 const router = useRouter()
 
 const password = ref('')
@@ -30,7 +32,8 @@ async function save() {
   busy.value = true
   try {
     await auth.setOwnPassword(password.value)
-    router.replace(auth.home)
+    // Not subscribed yet → straight to the business-size page, then the packages (full screen)
+    router.replace(auth.isLandlord && !billing.mine.active ? '/landlord/subscription' : auth.home)
   } catch (e) {
     error.value = e.message
   } finally {

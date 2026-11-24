@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   CheckCircle2, Receipt, Wallet, X, Zap, ArrowDownLeft, Clock, AlertCircle, Smartphone, Banknote, Copy, Check, CalendarDays,
+  Download, Loader2, PiggyBank,
 } from '@lucide/vue'
+import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
@@ -10,7 +12,7 @@ import BaseModal from '@/components/BaseModal.vue'
 import { useRouter } from 'vue-router'
 import { payRoute } from '@/lib/payRoute'
 
-const { rental, id, property, payments, dues, balance, firstRent, notStarted } = useTenant()
+const { rental, id, tenant, property, payments, dues, balance, firstRent, notStarted } = useTenant()
 const router = useRouter()
 
 // Nothing is charged yet (new tenant / time ended): paying starts a new month at the house's rent
@@ -61,6 +63,11 @@ watch(paying, (p) => {
 const justPaid = ref(false)
 const filter = ref('all') // all | paid | unpaid
 
+// A month paid in part: "Complete payment" tops it up (the pay page shows what is remaining)
+const partPaid = computed(() => dues.value.find((d) => d.amountPaid > 0 && d.balance > 0) ?? null)
+const waitingTotal = computed(() => myCash.value.filter((c) => c.status === 'pending').reduce((s, c) => s + c.amount, 0))
+const completePart = (d) => (paying.value = { ...d, complete: true, label: `Complete ${formatPeriod(d.period)} rent` })
+
 const overdue = computed(() => dues.value.some((d) => d.status === 'overdue'))
 
 // History: newest month first
@@ -72,11 +79,6 @@ const history = computed(() =>
 
 // ── Payment details (tap a history row) ──
 const detail = ref(null)
-const detailReceipts = computed(() =>
-  detail.value
-    ? rental.payment_receipts.filter((r) => r.paymentId === detail.value.id).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
-    : [],
-)
 const periodRange = (period) => {
   const [y, m] = period.split('-').map(Number)
   const opts = { day: 'numeric', month: 'short', year: 'numeric' }
@@ -108,11 +110,22 @@ const paidOn = (iso) =>
   new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
 const methodIcon = (m) => (/cash/i.test(m ?? '') ? Banknote : Smartphone)
 
+// ── Receipts as a landscape image (only for payments the landlord has confirmed) ──
+// A month paid in several turns: the receipt and the details list every instalment.
+const { saving, saveRevenue, saveCash: saveCashReceipt, instalmentsFor } = useReceiptDownload()
+const plan = computed(() => (detail.value ? instalmentsFor(detail.value.id) : null))
+// One amount received towards a month (from the month's details)
+const saveReceipt = (r) =>
+  saveRevenue({
+    id: r.id, paymentId: r.paymentId ?? detail.value?.id, tenantId: r.tenantId ?? tenant.value?.id, propertyId: detail.value?.propertyId ?? property.value?.id,
+    period: detail.value?.period, amount: r.amount, method: r.method, reference: r.reference, note: r.note, at: r.at ?? r.receivedAt,
+  })
+
 // ── Rotating tips in the banner (change every 4 s) ──
 const tips = computed(() => {
   const list = []
-  if (notStarted.value) list.push({ icon: AlertCircle, text: `Your balance is one month's rent, ${formatUGX(balance.value)}. Pay at least 60% and your month starts today.` })
-  else if (balance.value) list.push({ icon: AlertCircle, text: `You owe ${formatUGX(balance.value)}. Pay part (60% or more) or all of it to keep your rental time running.` })
+  if (notStarted.value) list.push({ icon: AlertCircle, text: `Your balance is one month's rent, ${formatUGX(balance.value)}. Pay all or part of it: your rental time starts the day you pay.` })
+  else if (balance.value) list.push({ icon: AlertCircle, text: `You owe ${formatUGX(balance.value)}. Pay all of it, or part: part of the rent buys part of the month, in days.` })
   else list.push({ icon: CheckCircle2, text: 'You are all paid up. Recharge any time to pay months ahead.' })
   list.push(
     { icon: Zap, text: 'Recharge early: each payment adds a full month on top of the time you already have.' },
@@ -145,7 +158,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
         <p v-if="property" class="mt-1 truncate text-sm text-white/70">{{ property.name }}</p>
 
         <div class="mt-6 grid gap-2.5" :class="dues.length || firstRent ? 'grid-cols-2' : 'grid-cols-1'">
-          <button v-if="dues.length || firstRent" class="hero-btn hero-btn-solid" @click="dues.length ? (paying = dues[0]) : payFirst()">
+          <button v-if="dues.length || firstRent" class="hero-btn hero-btn-solid" @click="dues.length ? (dues[0].amountPaid ? completePart(dues[0]) : (paying = dues[0])) : payFirst()">
             <Wallet class="size-4" /> Pay now
           </button>
           <RouterLink to="/tenant/recharge" class="hero-btn" :class="dues.length || firstRent ? 'hero-btn-glass' : 'hero-btn-solid'">
@@ -163,7 +176,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
     </header>
 
     <!-- Cash reported by the tenant -->
-    <section v-if="myCash.length" class="rise mt-6" style="--d: 60ms">
+    <section v-if="myCash.length" class="rise mt-6" style="--d: 60ms" data-tour="receipts">
       <h2 class="section-title">Payments to your landlord</h2>
       <div class="sheet">
         <ul class="divide-y divide-slate-100">
@@ -176,7 +189,15 @@ onBeforeUnmount(() => clearInterval(tipTimer))
             :value="formatUGX(c.status === 'confirmed' ? c.confirmedAmount : c.amount)"
             :value-sub="c.status === 'pending' ? 'being reviewed' : c.status === 'confirmed' ? 'confirmed' : 'not confirmed'"
             :value-class="c.status === 'confirmed' ? 'text-emerald-700' : c.status === 'rejected' ? 'text-red-600' : 'text-amber-700'"
+            :aria-label="c.status === 'confirmed' ? `Download the receipt for ${formatUGX(c.confirmedAmount ?? c.amount)}` : undefined"
+            @click="c.status === 'confirmed' && saveCashReceipt(c)"
           >
+            <template v-if="c.status === 'confirmed'" #below>
+              <span class="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
+                <Loader2 v-if="saving === c.id" class="size-3.5 animate-spin" /><Download v-else class="size-3.5" />
+                {{ saving === c.id ? 'Saving…' : 'Download receipt' }}
+              </span>
+            </template>
             <template #icon>
               <span class="icon-disc" :class="c.method === 'mobile_money' ? 'disc-emerald' : 'disc-amber'">
                 <Smartphone v-if="c.method === 'mobile_money'" class="size-5" /><Banknote v-else class="size-5" />
@@ -245,12 +266,40 @@ onBeforeUnmount(() => clearInterval(tipTimer))
           <span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span>
           <div class="min-w-0 flex-1">
             <p class="truncate font-medium text-slate-900">{{ thisMonthLabel }}</p>
-            <p class="truncate text-xs text-slate-500">Pay at least 60% to start your month</p>
+            <p class="truncate text-xs text-slate-500">Pay all or part: your time starts the day you pay</p>
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
             <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(firstRent) }}</p>
             <button class="pay-btn" @click="payFirst">Pay</button>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Complete a part payment -->
+    <section v-if="partPaid" class="rise mt-6" style="--d: 70ms">
+      <h2 class="section-title">Complete your payment</h2>
+      <div class="part-card overflow-hidden rounded-3xl">
+        <div class="flex items-start gap-4 p-5">
+          <span class="part-ico flex size-12 shrink-0 items-center justify-center rounded-2xl"><PiggyBank class="size-6" /></span>
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold tracking-[0.12em] text-amber-700 uppercase">{{ formatPeriod(partPaid.period) }} · part paid</p>
+            <p class="mt-1 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{{ formatUGX(partPaid.balance) }} <span class="text-sm font-medium text-slate-500">remaining</span></p>
+            <p class="mt-0.5 text-sm text-slate-600">
+              You paid {{ formatUGX(partPaid.amountPaid) }} of {{ formatUGX(partPaid.amount) }}<template v-if="partPaid.creditedDays">, which covers {{ partPaid.creditedDays }} day{{ partPaid.creditedDays === 1 ? '' : 's' }}</template>.
+              <template v-if="tenant?.leaseEnd"> Your time runs to {{ formatDate(tenant.leaseEnd) }}.</template>
+            </p>
+          </div>
+        </div>
+        <div class="px-5">
+          <div class="h-2.5 overflow-hidden rounded-full bg-amber-100"><span class="part-fill block h-full rounded-full" :style="{ width: `${Math.round((partPaid.amountPaid / partPaid.amount) * 100)}%` }" /></div>
+          <p class="mt-1.5 text-xs text-slate-500">{{ Math.round((partPaid.amountPaid / partPaid.amount) * 100) }}% paid</p>
+        </div>
+        <p v-if="waitingTotal" class="mx-5 mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs text-slate-600">{{ formatUGX(waitingTotal) }} you sent is still waiting for your landlord. It counts once confirmed.</p>
+        <div class="p-5 pt-4">
+          <button type="button" class="btn-primary h-12 w-full rounded-2xl text-[15px]" @click="completePart(partPaid)">
+            <Wallet class="size-4.5" /> Complete payment
+          </button>
         </div>
       </div>
     </section>
@@ -273,14 +322,14 @@ onBeforeUnmount(() => clearInterval(tipTimer))
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
             <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(d.balance) }}</p>
-            <button class="pay-btn" @click="paying = d">Pay</button>
+            <button class="pay-btn" @click="d.amountPaid ? completePart(d) : (paying = d)">{{ d.amountPaid ? 'Complete' : 'Pay' }}</button>
           </div>
         </div>
       </div>
     </section>
 
     <!-- History -->
-    <section class="rise mt-6" style="--d: 140ms">
+    <section class="rise mt-6" style="--d: 140ms" data-tour="pay-history">
       <div class="mb-2.5 flex items-center justify-between gap-3 px-1">
         <h2 class="section-title !m-0">Payment history</h2>
         <div class="flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-xs" role="tablist">
@@ -397,27 +446,46 @@ onBeforeUnmount(() => clearInterval(tipTimer))
                 </div>
               </dl>
 
-              <!-- Each amount received for this month -->
-              <div v-if="detailReceipts.length" class="mt-5">
-                <p class="text-xs font-semibold tracking-[0.12em] text-slate-400 uppercase">Payments received</p>
-                <ul class="mt-2 space-y-2">
-                  <li v-for="r in detailReceipts" :key="r.id" class="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-                    <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm">
-                      <component :is="methodIcon(r.method)" class="size-4" />
+              <!-- Each amount received for this month (paid in turns: every instalment, in order) -->
+              <div v-if="plan?.rows.length" class="mt-5">
+                <div class="flex items-baseline justify-between gap-3">
+                  <p class="text-xs font-semibold tracking-[0.12em] text-slate-400 uppercase">
+                    {{ plan.rows.length > 1 ? `Paid in ${plan.rows.length} payments` : 'Payment received' }}
+                  </p>
+                  <p class="text-xs font-semibold text-brand-700">{{ plan.days }} of 30 days covered</p>
+                </div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <span class="block h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-700" :style="{ width: `${Math.min(100, Math.round((plan.paid / plan.rent) * 100))}%` }" />
+                </div>
+                <p class="mt-1.5 text-xs text-slate-500">
+                  {{ formatUGX(plan.paid) }} of {{ formatUGX(plan.rent) }} paid · {{ plan.balance ? `${formatUGX(plan.balance)} left` : 'paid in full' }}
+                </p>
+                <ul class="mt-3 space-y-2">
+                  <li v-for="r in [...plan.rows].reverse()" :key="r.id" class="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+                    <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-xs font-bold text-brand-700 shadow-sm">
+                      {{ r.n }}
                     </span>
                     <div class="min-w-0 flex-1">
-                      <p class="truncate text-sm font-medium text-slate-900">{{ r.method }}</p>
-                      <p class="truncate text-xs text-slate-500">{{ paidOn(r.receivedAt) }}</p>
+                      <p class="flex items-center gap-1.5 truncate text-sm font-medium text-slate-900"><component :is="methodIcon(r.method)" class="size-3.5 text-slate-400" /> {{ r.method }}</p>
+                      <p class="truncate text-xs text-slate-500">{{ paidOn(r.at) }} · +{{ r.days }} day{{ r.days === 1 ? '' : 's' }} · {{ formatUGX(r.totalAfter) }} paid so far</p>
                     </div>
                     <p class="shrink-0 text-sm font-semibold text-slate-900 tabular-nums">{{ formatUGX(r.amount) }}</p>
+                    <button
+                      class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm transition hover:bg-brand-50 active:scale-95"
+                      :aria-label="`Download the receipt for ${formatUGX(r.amount)}`"
+                      title="Download receipt"
+                      @click="saveReceipt(r)"
+                    >
+                      <Loader2 v-if="saving === r.id" class="size-4 animate-spin" /><Download v-else class="size-4" />
+                    </button>
                   </li>
                 </ul>
               </div>
             </div>
 
             <div v-if="detail.status !== 'paid'" class="border-t border-slate-100 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-              <button class="btn-primary h-12 w-full text-base" @click="paying = detail; detail = null">
-                <Wallet class="size-4.5" /> Pay {{ formatUGX(detail.balance) }}
+              <button class="btn-primary h-12 w-full text-base" @click="detail.amountPaid ? completePart(detail) : (paying = detail); detail = null">
+                <Wallet class="size-4.5" /> {{ detail.amountPaid ? 'Complete payment' : 'Pay' }} · {{ formatUGX(detail.balance) }}
               </button>
             </div>
             <div v-else class="pb-[env(safe-area-inset-bottom)]" />
@@ -508,6 +576,12 @@ onBeforeUnmount(() => clearInterval(tipTimer))
 @media (prefers-reduced-motion: reduce) {
   .sheet-enter-active, .sheet-leave-active { transition: none; }
 }
+
+/* Complete a part payment */
+.part-card { background: linear-gradient(160deg, #fffbeb 0%, var(--color-white) 70%); box-shadow: inset 0 0 0 1.5px #fcd34d, 0 18px 40px -30px rgb(146 64 14 / 0.6); }
+.part-ico { color: #fff; background: linear-gradient(140deg, #fbbf24, #d97706); box-shadow: 0 10px 20px -12px rgb(217 119 6 / 0.9); }
+.part-fill { background: linear-gradient(90deg, #fbbf24, #d97706); }
+:global(html.dark) .part-card { background: var(--color-white); box-shadow: inset 0 0 0 1.5px #574213; }
 
 /* Lists: same .section-title / .sheet / .icon-disc as the landlord pages (main.css) */
 .pay-btn {

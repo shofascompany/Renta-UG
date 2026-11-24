@@ -66,6 +66,18 @@ const UPDATE = [
   '40_app_installs.sql',
   '41_manual_mobile_money.sql',
   '42_tenant_own_details.sql',
+  '43_heard_from.sql',
+  '44_security_hardening.sql',
+  '45_landlord_subscriptions.sql',
+  '46_subscription_tiers.sql',
+  '47_no_free_trial.sql',
+  '48_no_reason_codes.sql',
+  '49_protected_account.sql',
+  '50_permanent_account.sql',
+  '51_capacity_and_cash_subscriptions.sql',
+  '52_part_payment_days.sql',
+  '53_subscription_30_day_months.sql',
+  '54_browser_write_limits.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

@@ -22,9 +22,14 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     isAuthenticated: (s) => Boolean(s.session),
     role: (s) => s.profile?.role ?? 'tenant',
+    // The permanent landlord account (database/49 + 50): never deleted, free for life, fixed password
+    isPermanent: (s) =>
+      s.profile?.subscription_exempt === true || String(s.profile?.email ?? '').toLowerCase() === 'ngumisiriza@gmail.com',
     isSuperadmin: (s) => s.profile?.role === 'superadmin',
     isLandlord: (s) => s.profile?.role === 'landlord',
-    isTenant: (s) => !s.profile || s.profile.role === 'tenant',
+    // Only a REAL tenant profile. (A landlord whose profile hasn't loaded yet must never be treated as a
+    // tenant: that showed new landlords the tenant "Connect to your landlord" code screen.)
+    isTenant: (s) => s.profile?.role === 'tenant',
     // Landlord still on the temporary password from the main admin
     needsPassword: (s) => s.profile?.role === 'landlord' && s.profile?.must_change_password === true,
     // Tenant whose landlord just gave them app access: must add an email + password first
@@ -58,16 +63,34 @@ export const useAuthStore = defineStore('auth', {
       this.session = session
       if (!session) {
         this.profile = null
+        // Signed out (or the session ended): no saved copy of anyone's data stays on this device
+        try {
+          for (const k of Object.keys(localStorage)) if (k.startsWith('renta:data:')) localStorage.removeItem(k)
+        } catch {
+          /* storage blocked */
+        }
         return
       }
       if (this.profile?.id === session.user.id) return
       refreshPushSubscription() // this device's notifications now belong to this account
-      try {
-        this.profile = must(await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle())
-      } catch (e) {
-        console.error('Could not load profile', e)
-        this.profile = null
+      await this.loadProfile(session.user.id)
+    },
+
+    // The account's profile (role, first sign-in…). Tried a few times: right after a first sign-in the
+    // connection can be slow, and without the profile the app can't tell a landlord from a tenant.
+    async loadProfile(userId = this.session?.user?.id) {
+      if (!userId) return null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const row = must(await supabase.from('profiles').select('*').eq('id', userId).maybeSingle())
+          if (row) return (this.profile = row)
+        } catch (e) {
+          console.error('Could not load profile', e)
+        }
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
       }
+      this.profile = null
+      return null
     },
 
     // portal: 'admin' for /admin2026 (main admin only), 'app' for the normal login (landlords + tenants)
@@ -133,9 +156,9 @@ export const useAuthStore = defineStore('auth', {
         /* the number can be added later in Settings */
       }
     },
-    // Landlord's first sign-in: email only (server-issued one-time token), no password.
-    async firstLoginSignIn(email) {
-      const { tokenHash } = await api('/api/auth/first-login', { email })
+    // First sign-in (no password yet) by email. Landlords need no code.
+    async firstLoginSignIn(email, setupCode = undefined) {
+      const { tokenHash } = await api('/api/auth/first-login', { email, setupCode })
       const data = must(await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' }))
       this.profile = null
       await this.setSession(data.session)
@@ -151,9 +174,9 @@ export const useAuthStore = defineStore('auth', {
       await this.finishSignIn(data.session)
     },
 
-    // Landlord's first sign-in by phone number (no password yet).
-    async firstLoginPhoneSignIn(phone) {
-      const { tokenHash } = await api('/api/auth/phone-sign-in', { phone })
+    // First sign-in by phone number (no password yet). Landlords: phone only; tenants: + their setup code.
+    async firstLoginPhoneSignIn(phone, setupCode = undefined) {
+      const { tokenHash } = await api('/api/auth/phone-sign-in', { phone, setupCode })
       const data = must(await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' }))
       this.profile = null
       await this.setSession(data.session)

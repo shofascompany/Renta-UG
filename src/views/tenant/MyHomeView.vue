@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { MapPin, BedDouble, Bath, Wallet, Phone, Mail, MessageCircle, Home, Building2, User, DoorOpen, ChevronRight } from '@lucide/vue'
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX } from '@/utils/format'
+import AppLink from '@/components/AppLink.vue'
 
 // My home: information about the house and the landlord. Nothing else.
 const { rental, property } = useTenant()
@@ -20,7 +21,7 @@ const ownerInitials = computed(() =>
 const whatsapp = computed(() => {
   const d = String(owner.value?.phone ?? '').replace(/\D/g, '')
   if (d.length < 9) return null
-  return `https://wa.me/${d.startsWith('0') ? `256${d.slice(1)}` : d.length === 9 ? `256${d}` : d}`
+  return d.startsWith('0') ? `256${d.slice(1)}` : d.length === 9 ? `256${d}` : d // opened in the WhatsApp app (AppLink)
 })
 </script>
 
@@ -106,7 +107,7 @@ const whatsapp = computed(() => {
           :class="['grid-cols-1', 'grid-cols-2', 'grid-cols-3'][(owner.phone ? 1 : 0) + (whatsapp ? 1 : 0)]"
         >
           <a v-if="owner.phone" :href="`tel:${owner.phone}`" class="action action-primary"><Phone class="size-4.5" /> Call</a>
-          <a v-if="whatsapp" :href="whatsapp" target="_blank" rel="noopener" class="action"><MessageCircle class="size-4.5 text-emerald-600" /> WhatsApp</a>
+          <AppLink v-if="whatsapp" :phone="whatsapp" class="action"><MessageCircle class="size-4.5 text-emerald-600" /> WhatsApp</AppLink>
           <a :href="`mailto:${owner.email}`" class="action"><Mail class="size-4.5 text-sky-600" /> Email</a>
         </div>
       </div>

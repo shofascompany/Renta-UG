@@ -4,11 +4,13 @@ import { useRouter } from 'vue-router'
 import {
   Smartphone, CalendarClock, Building2, Banknote, BellRing, BarChart3, ShieldCheck, Download, ChevronDown, ArrowRight, ArrowUp,
   Users, Home, Check, Menu, X, KeyRound, Wallet, Share, Plus, Phone, MessageSquareText, Lock, EyeOff, CircleCheck, Sparkles,
-  LayoutDashboard,
+  LayoutDashboard, MapPin, Mail, MessageCircle,
 } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { SITE } from '@/lib/site'
 import Logo from '@/components/Logo.vue'
+import AppLink from '@/components/AppLink.vue'
+import LQIP from '@/lib/heroPlaceholders'
 
 // Public landing page. Everything said here must be TRUE of the app as it works today
 // (no invented user numbers or reviews). Check this page whenever a feature changes.
@@ -117,15 +119,78 @@ const vTilt = {
 const words = ['pay rent', 'track rent', 'confirm rent', 'manage homes']
 const wordIndex = ref(0)
 
-// ── Hero phone: a notification drops in, again and again ──
-const toastOn = ref(false)
+// ── Photos of homes, inside and out (Unsplash licence, saved in /public/landing) ──
+// They are pictures of homes in general, not listings on Renta UG.
+const HOMES = [
+  { file: 'kampala-homes', label: 'Homes in Kampala', kind: 'out', by: 'Yu Gu' },
+  { file: 'home-08', label: 'A bright living room', kind: 'in', by: 'Nha Chill' },
+  { file: 'home-01', label: 'Apartments in Nairobi', kind: 'out', by: 'Isaac Mugwe' },
+  { file: 'home-13', label: 'Kitchen and dining', kind: 'in', by: 'Prydumano Design' },
+  { file: 'home-02', label: 'A duplex in Lagos', kind: 'out', by: 'Ferdinand Asakome' },
+  { file: 'home-15', label: 'A bedroom', kind: 'in', by: 'Andrea Davis' },
+  { file: 'home-03', label: 'Apartments in Kigali', kind: 'out', by: 'Reagan M' },
+  { file: 'home-09', label: 'A modern living room', kind: 'in', by: 'Home Makers Interior' },
+  { file: 'home-04', label: 'A modern house', kind: 'out', by: 'Aalo Lens' },
+  { file: 'home-10', label: 'A sunny sitting room', kind: 'in', by: 'Clay Banks' },
+  { file: 'home-05', label: 'Apartments with balconies', kind: 'out', by: 'Denise Jans' },
+  { file: 'home-14', label: 'An open-plan apartment', kind: 'in', by: 'Daegyu Bae' },
+  { file: 'kampala-skyline', label: 'Kampala', kind: 'out', by: 'Keith Kasaija' },
+  { file: 'home-16', label: 'A cosy bedroom', kind: 'in', by: 'Clay Banks' },
+  { file: 'home-06', label: 'An apartment block', kind: 'out', by: 'MARCO' },
+  { file: 'home-11', label: 'A family sitting room', kind: 'in', by: 'Collov Home Design' },
+  { file: 'home-07', label: 'A family house', kind: 'out', by: 'ubeyonroad' },
+  { file: 'home-12', label: 'A calm living room', kind: 'in', by: 'Alexey Aladashvili' },
+  { file: 'home-17', label: 'A neat bedroom', kind: 'in', by: 'Annie Spratt' },
+  { file: 'home-18', label: 'Keys to a new home', kind: 'in', by: 'Jakub Żerdzicki' },
+]
+// Footer contact details (WhatsApp uses the same number)
+const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'shofascompany@gmail.com' }
+const photo = (file) => ({ src: `/landing/${file}.webp`, srcset: `/landing/${file}-sm.webp 760w, /landing/${file}.webp 1600w` })
+
+// Hero background slideshow, built to load fast:
+//  · a 24-px blurred preview of every photo is inside the page, so the hero shows a picture at once;
+//    the sharp photo fades in over it when it arrives (first photo is also preloaded from index.html)
+//  · photos are compressed (they sit under a dark wash) and phones get the small 760-px version
+//  · only the current, previous and next photos are in the page, and the slideshow moves on only
+//    once the next photo has fully downloaded, so it never fades into an empty frame
+//  · on Data Saver or a 2G connection it stays on the first photo
+const photoIndex = ref(0)
+const prevIndex = ref(-1)
+const ready = ref({}) // photo index → its <img> has loaded
+const near = (n) => n === photoIndex.value || n === prevIndex.value || n === (photoIndex.value + 1) % HOMES.length
+const conn = typeof navigator !== 'undefined' ? navigator.connection : null
+const slowNet = Boolean(conn?.saveData || /(^|-)2g$/.test(conn?.effectiveType ?? ''))
+let photoTimer = null
+const warmed = new Set()
+function warm(n) {
+  if (warmed.has(n)) return Promise.resolve()
+  const img = new Image()
+  img.sizes = '100vw'
+  const { src, srcset } = photo(HOMES[n].file)
+  img.srcset = srcset
+  img.src = src
+  return img.decode().catch(() => {}).then(() => warmed.add(n))
+}
+let switching = false
+async function showPhoto(n) {
+  if (switching || n === photoIndex.value) return
+  switching = true
+  await warm(n)
+  prevIndex.value = photoIndex.value
+  photoIndex.value = n
+  switching = false
+  warm((n + 1) % HOMES.length) // fetch the one after in the background
+}
+function nextPhoto() {
+  if (!document.hidden) showPhoto((photoIndex.value + 1) % HOMES.length)
+}
 
 // ── "Pay with mobile money" walkthrough (auto-plays, tap a step to jump) ──
 const MOMO = [
   { icon: Smartphone, title: 'Choose your SIM', text: 'MTN or Airtel.' },
   { icon: Phone, title: 'Send the money', text: 'Follow the simple steps on your phone.' },
   { icon: CircleCheck, title: 'Your payment is verified', text: 'Your rent updates straight away.' },
-  { icon: MessageSquareText, title: 'Get instant confirmation', text: 'A notification and an SMS tell you your payment was received.' },
+  { icon: MessageSquareText, title: 'Get instant confirmation', text: 'A notification tells you the moment your payment is received.' },
 ]
 const momoStep = ref(0)
 let momoTimer = null
@@ -139,7 +204,6 @@ function pickStep(i) {
 const audience = ref('tenant')
 
 let wordTimer = null
-let toastTimer = null
 onMounted(() => {
   document.documentElement.style.scrollBehavior = 'smooth'
   window.addEventListener('scroll', onScroll, { passive: true })
@@ -147,12 +211,10 @@ onMounted(() => {
   onScroll()
   if (reduced) return
   wordTimer = setInterval(() => (wordIndex.value = (wordIndex.value + 1) % words.length), 7000) // each word stays 7 s
-  const loop = () => {
-    toastOn.value = true
-    setTimeout(() => (toastOn.value = false), 3400)
+  if (!slowNet) {
+    setTimeout(() => warm(1), 1200) // after the first paint
+    photoTimer = setInterval(nextPhoto, 6000)
   }
-  setTimeout(loop, 1400)
-  toastTimer = setInterval(loop, 7000)
   pickStep(0)
 })
 onBeforeUnmount(() => {
@@ -160,14 +222,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('beforeinstallprompt', onBeforeInstall)
   clearInterval(wordTimer)
-  clearInterval(toastTimer)
+  clearInterval(photoTimer)
   clearInterval(momoTimer)
   io?.disconnect()
 })
 
 // ── Content (all true of the app today) ──
 const marquee = [
-  [Smartphone, 'MTN Mobile Money'], [Smartphone, 'Airtel Money'], [Banknote, 'Cash'], [MessageSquareText, 'SMS confirmations'],
+  [Smartphone, 'MTN Mobile Money'], [Smartphone, 'Airtel Money'], [Banknote, 'Cash'], [MessageSquareText, 'Payment notifications'],
   [BellRing, 'Phone notifications'], [Building2, 'Houses & rooms'], [BarChart3, 'Clear records'],
 ]
 
@@ -175,7 +237,7 @@ const features = [
   { icon: Smartphone, title: 'Pay with MTN or Airtel', text: 'Send rent from your own phone straight to your landlord, with simple steps to follow.', tone: 'teal' },
   { icon: Banknote, title: 'Cash works too', text: 'Pay your landlord in cash. They record it and your rent updates.', tone: 'amber' },
   { icon: CalendarClock, title: 'Always know your time', text: 'See when your rent month started, when it ends and what you owe.', tone: 'sky' },
-  { icon: MessageSquareText, title: 'SMS confirmations', text: 'Get a text from Renta UG every time your landlord confirms a payment.', tone: 'rose' },
+  { icon: MessageSquareText, title: 'Payment notifications', text: 'Get a notification from Renta UG every time your landlord confirms a payment.', tone: 'rose' },
   { icon: Building2, title: 'Houses and rooms', text: 'Landlords keep every house, room and tenant in one place.', tone: 'violet' },
   { icon: BarChart3, title: 'Clear records', text: 'Every confirmed payment is kept, so landlord and tenant see the same numbers.', tone: 'emerald' },
 ]
@@ -183,7 +245,7 @@ const features = [
 const tenantPoints = [
   [Wallet, 'See what you owe and when your month ends'],
   [Smartphone, 'Pay with MTN, Airtel or cash'],
-  [MessageSquareText, 'Get an SMS when your payment is confirmed'],
+  [MessageSquareText, 'Get a notification when your payment is confirmed'],
   [BellRing, 'Receive notices from your landlord'],
 ]
 const landlordPoints = [
@@ -202,13 +264,13 @@ const security = [
 const steps = [
   { icon: KeyRound, title: 'Create your account', text: 'Sign up with your email. We send a 6-character code to confirm it is you.' },
   { icon: Home, title: 'Connect to your home', text: 'Tenants connect with the code from their landlord. Landlords add houses, rooms and tenants.' },
-  { icon: Wallet, title: 'Pay and stay up to date', text: 'Pay by mobile money or cash and get an SMS when it is confirmed.' },
+  { icon: Wallet, title: 'Pay and stay up to date', text: 'Pay by mobile money or cash and get a notification when it is confirmed.' },
 ]
 
 const faq = [
   { q: 'Is Renta UG free?', a: 'Creating an account is free. MTN and Airtel may charge their normal fees when you send money.' },
   { q: 'Does Renta UG hold my money?', a: 'No. Your money goes straight to your landlord. Renta only keeps the record.' },
-  { q: 'How do I know my payment worked?', a: 'Your landlord confirms it in the app, and you get a notification and an SMS.' },
+  { q: 'How do I know my payment worked?', a: 'Your landlord confirms it in the app, and you get a notification straight away.' },
   { q: 'Can I pay in cash?', a: 'Yes. Your landlord records it and your rent updates straight away.' },
   { q: 'I am a landlord. How do I join?', a: 'Landlord accounts are set up by the Renta UG team. Contact us and we will get you started.' },
 ]
@@ -233,7 +295,7 @@ const tones = {
     <div class="progress" :style="{ transform: `scaleX(${progress})` }" aria-hidden="true" />
 
     <!-- Top bar -->
-    <header class="nav fixed inset-x-0 top-0 z-40 transition" :class="scrolled || menu ? 'nav-solid' : ''">
+    <header class="nav fixed inset-x-0 top-0 z-40 transition" :class="scrolled || menu ? 'nav-solid' : 'nav-over'">
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Logo />
         <nav class="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex">
@@ -248,7 +310,7 @@ const tones = {
             <RouterLink to="/login" class="btn-secondary hidden h-10 rounded-xl px-4 text-sm sm:inline-flex">Sign in</RouterLink>
             <RouterLink to="/signup" class="btn-primary shine hidden h-10 rounded-xl px-4 text-sm sm:inline-flex">Get started</RouterLink>
           </template>
-          <button class="flex size-10 items-center justify-center rounded-xl text-slate-700 md:hidden" :aria-label="menu ? 'Close menu' : 'Open menu'" @click="menu = !menu">
+          <button class="menu-btn flex size-10 items-center justify-center rounded-xl text-slate-700 md:hidden" :aria-label="menu ? 'Close menu' : 'Open menu'" @click="menu = !menu">
             <X v-if="menu" class="size-5" /><Menu v-else class="size-5" />
           </button>
         </div>
@@ -267,89 +329,62 @@ const tones = {
       </Transition>
     </header>
 
-    <!-- Hero -->
-    <section class="hero relative overflow-hidden pt-28 pb-16 sm:pt-36 sm:pb-24" :style="{ '--gx': `${glow.x}%`, '--gy': `${glow.y}%` }" @pointermove="onPointer">
-      <div class="aurora" aria-hidden="true" />
-      <div class="grid-lines" aria-hidden="true" />
-      <div class="orb orb-1" aria-hidden="true" />
-      <div class="orb orb-2" aria-hidden="true" />
-      <div class="orb orb-3" aria-hidden="true" />
-      <div class="relative mx-auto grid max-w-6xl items-center gap-12 px-4 sm:px-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div class="text-center lg:text-left">
-          <p class="hero-in mx-auto inline-flex items-center gap-2 rounded-full bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-brand-700 ring-1 ring-brand-200/70 backdrop-blur lg:mx-0" style="--d: 0ms">
-            <span class="live size-2 rounded-full bg-emerald-500" /> Made for rent in Uganda
+    <!-- Hero: photos of homes behind a deep teal wash with a soft light beam. Words on the left,
+         a "rent journey" glass panel on the right, a glass ribbon of key points along the bottom. -->
+    <section class="hero hero-dark relative flex min-h-[100svh] flex-col overflow-hidden pt-24 sm:pt-28 lg:min-h-[46rem]" :style="{ '--gx': `${glow.x}%`, '--gy': `${glow.y}%` }" @pointermove="onPointer">
+      <div class="photos" aria-hidden="true">
+        <!-- Blurred preview: inside the page, so it shows instantly -->
+        <div class="photo-lqip" :style="{ backgroundImage: `url(${LQIP[HOMES[photoIndex].file]})` }" />
+        <template v-for="(p, n) in HOMES" :key="p.file">
+          <img
+            v-if="near(n)"
+            v-bind="photo(p.file)"
+            sizes="100vw"
+            alt=""
+            :fetchpriority="n === 0 ? 'high' : 'low'"
+            decoding="async"
+            class="photo"
+            :class="[photoIndex === n && ready[n] && 'photo-on', `drift-${n % 3}`]"
+            @load="ready[n] = true"
+          />
+        </template>
+        <div class="hero-shade" />
+        <div class="hero-beam" />
+        <div class="cine-grain" />
+      </div>
+
+      <div class="relative mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 items-center px-4 pb-10 sm:px-6">
+        <div class="min-w-0 max-w-3xl">
+          <p class="hero-in hx-eyebrow flex items-center gap-3 text-xs font-semibold tracking-[0.22em] uppercase sm:text-[13px]" style="--d: 0ms">
+            <span class="hx-eyebrow-line" /> Made for rent in Uganda <span class="live size-1.5 rounded-full bg-teal-300" />
           </p>
-          <h1 class="hero-in mt-5 text-[2.35rem] leading-[1.08] font-extrabold tracking-tight text-slate-900 sm:text-6xl" style="--d: 80ms">
+          <h1 class="hero-in hx-title mt-5 text-[2.6rem] leading-[1.04] font-extrabold tracking-tight sm:text-6xl lg:text-[4.6rem]" style="--d: 80ms">
             The easy way to
             <span class="word-wrap">
               <Transition name="word" mode="out-in">
-                <span :key="wordIndex" class="grad grad-move block">{{ words[wordIndex] }}</span>
+                <span :key="wordIndex" class="hx-word block">{{ words[wordIndex] }}</span>
               </Transition>
             </span>
           </h1>
-          <p class="hero-in mx-auto mt-5 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg lg:mx-0" style="--d: 160ms">
-            A simple, secure platform for rent payments. Tenants pay by MTN Mobile Money, Airtel Money or cash, and every payment is verified and recorded in one transparent account.
+          <p class="hero-in mt-5 text-xs font-semibold tracking-[0.22em] text-teal-200 uppercase sm:text-sm" style="--d: 120ms">
+            Convenience · Security · Accuracy
           </p>
-          <div class="hero-in mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row lg:justify-start" style="--d: 240ms">
-            <button v-if="signedIn" class="btn-primary shine h-13 rounded-2xl px-7 text-base" @click="goApp">Open my dashboard <ArrowRight class="size-4.5" /></button>
+          <p class="hero-in hx-lead mt-4 max-w-xl text-base leading-relaxed sm:text-lg" style="--d: 160ms">
+            Renta UG brings rent collection and record-keeping together in one secure platform. Tenants pay through MTN Mobile Money, Airtel Money or cash, landlords confirm each payment, and both parties work from the same accurate, up-to-date account.
+          </p>
+          <div class="hero-in mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center" style="--d: 240ms">
+            <button v-if="signedIn" class="btn-primary hx-primary shine h-13 rounded-full px-7 text-base" @click="goApp">Open my dashboard <ArrowRight class="size-4.5" /></button>
             <template v-else>
-              <RouterLink to="/signup" class="btn-primary shine h-13 rounded-2xl px-7 text-base">Create free account <ArrowRight class="arrow size-4.5" /></RouterLink>
-              <RouterLink to="/login" class="btn-secondary h-13 rounded-2xl px-7 text-base">I already have an account</RouterLink>
+              <RouterLink to="/signup" class="btn-primary hx-primary shine h-13 rounded-full px-7 text-base">Create free account <ArrowRight class="arrow size-4.5" /></RouterLink>
+              <RouterLink to="/login" class="hx-ghost inline-flex h-13 items-center justify-center gap-2 rounded-full px-7 text-base font-semibold">I already have an account</RouterLink>
             </template>
-          </div>
-          <ul class="hero-in mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-slate-500 lg:justify-start" style="--d: 320ms">
-            <li class="flex items-center gap-1.5"><Check class="size-4 text-emerald-600" /> MTN &amp; Airtel</li>
-            <li class="flex items-center gap-1.5"><Check class="size-4 text-emerald-600" /> Confirmed by your landlord</li>
-            <li class="flex items-center gap-1.5"><Check class="size-4 text-emerald-600" /> SMS for every confirmation</li>
-          </ul>
-        </div>
-
-        <!-- Phone preview, built in CSS -->
-        <div class="hero-in relative mx-auto w-full max-w-[19rem]" style="--d: 200ms">
-          <div class="float-chip chip-a"><span class="size-2 rounded-full bg-emerald-500" /> Payment confirmed</div>
-          <div class="float-chip chip-b"><CalendarClock class="size-3.5 text-brand-600" /> 28 days left</div>
-          <div class="float-chip chip-c"><MessageSquareText class="size-3.5 text-sky-600" /> SMS sent</div>
-          <div class="phone">
-            <div class="screen relative overflow-hidden">
-              <!-- Notification dropping in -->
-              <Transition name="toast">
-                <div v-if="toastOn" class="mock-toast">
-                  <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-teal-400 to-teal-800 text-white"><Wallet class="size-3.5" /></span>
-                  <div class="min-w-0">
-                    <p class="text-[10px] font-semibold text-slate-900">Renta UG · now</p>
-                    <p class="truncate text-[10px] text-slate-600">Payment confirmation: UGX 300,000 received</p>
-                  </div>
-                </div>
-              </Transition>
-              <p class="text-[10px] font-semibold tracking-[0.14em] text-slate-400 uppercase">Good morning</p>
-              <p class="mt-1 text-lg leading-tight font-bold text-slate-900">Welcome, <span class="grad">Grace</span></p>
-              <div class="mock-card">
-                <p class="flex items-center gap-1.5 text-[11px] font-medium text-white/85"><Wallet class="size-3.5" /> Rent account</p>
-                <div class="mt-3 grid grid-cols-2 overflow-hidden rounded-xl bg-white/12 ring-1 ring-white/15">
-                  <div class="p-2.5"><p class="text-[9px] tracking-wide text-white/70 uppercase">Paid</p><p class="mt-0.5 text-[13px] font-semibold">UGX 300,000</p></div>
-                  <div class="border-l border-white/15 p-2.5"><p class="text-[9px] tracking-wide text-white/70 uppercase">Balance due</p><p class="mt-0.5 text-[13px] font-semibold">UGX 0</p></div>
-                </div>
-                <div class="mt-3 rounded-lg bg-white py-2 text-center text-[12px] font-semibold text-teal-900">Recharge</div>
-              </div>
-              <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <p class="text-[10px] text-slate-500">This rent month</p>
-                <p class="text-xl font-bold text-slate-900">28 <span class="text-xs font-medium text-slate-500">days left</span></p>
-                <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div class="mock-bar h-full rounded-full" /></div>
-              </div>
-              <div class="mt-3 flex items-center gap-2.5 rounded-xl border border-slate-200 p-2.5">
-                <span class="flex size-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><Check class="size-4" /></span>
-                <div class="min-w-0 flex-1"><p class="truncate text-[11px] font-semibold text-slate-900">Rent received</p><p class="text-[10px] text-slate-500">MTN Mobile Money</p></div>
-                <p class="text-[11px] font-semibold text-emerald-700">UGX 300,000</p>
-              </div>
-            </div>
           </div>
         </div>
       </div>
-      <a href="#features" class="scroll-cue" aria-label="Scroll down"><ChevronDown class="size-5" /></a>
     </section>
 
     <!-- Moving strip -->
-    <section class="marquee border-y border-slate-200/70 bg-white/60" aria-label="What Renta UG includes">
+    <section class="marquee marquee-rule border-y border-slate-200/70 bg-white/60" aria-label="What Renta UG includes">
       <div class="marquee-track">
         <template v-for="copy in 2" :key="copy">
           <span v-for="m in marquee" :key="`${copy}-${m[1]}`" class="marquee-item" :aria-hidden="copy === 2">
@@ -377,7 +412,10 @@ const tones = {
 
     <!-- Mobile money walkthrough -->
     <section id="momo" class="momo relative scroll-mt-16 overflow-hidden py-16 sm:py-24">
-      <span class="blob blob-a" aria-hidden="true" /><span class="blob blob-b" aria-hidden="true" />
+      <div class="photos" aria-hidden="true">
+        <img v-bind="photo('kampala-homes')" sizes="100vw" alt="" loading="lazy" decoding="async" class="photo photo-on drift-slow" />
+        <div class="photo-wash photo-wash-even" />
+      </div>
       <div class="mx-auto grid max-w-6xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_0.9fr]">
         <div>
           <div v-reveal>
@@ -425,15 +463,15 @@ const tones = {
                     <p class="mt-1 text-[11px] text-slate-600">UGX 300,000 · MTN Mobile Money</p>
                     <p class="mt-3 rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-semibold text-emerald-700">Rent updated</p>
                   </div>
-                  <!-- 4 notification + SMS -->
+                  <!-- 4 notification -->
                   <div v-else class="space-y-2.5 pt-2">
                     <div class="mock-note flex items-center gap-2 rounded-xl bg-white p-2 shadow-md ring-1 ring-slate-100">
                       <span class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-teal-400 to-teal-800 text-white"><BellRing class="size-3.5" /></span>
                       <div class="min-w-0"><p class="text-[10px] font-semibold text-slate-900">Renta UG · now</p><p class="truncate text-[10px] text-slate-600">Payment received</p></div>
                     </div>
-                    <p class="pt-1 text-[10px] font-semibold text-slate-400">Messages · Renta UG</p>
+                    <p class="pt-1 text-[10px] font-semibold text-slate-400">Notifications · Renta UG</p>
                     <div class="sms rounded-2xl rounded-tl-sm bg-slate-100 p-3 text-[11px] leading-relaxed text-slate-800">
-                      Renta UG: Your payment of UGX 300,000 has been received. Thank you!
+                      Payment confirmation: your payment of UGX 300,000 has been received. Thank you!
                     </div>
                   </div>
                 </div>
@@ -511,8 +549,12 @@ const tones = {
     </section>
 
     <!-- How it works -->
-    <section id="how" class="bg-slate-50/70 py-16 sm:py-24">
-      <div class="mx-auto max-w-6xl scroll-mt-20 px-4 sm:px-6">
+    <section id="how" class="relative overflow-hidden py-16 sm:py-24">
+      <div class="photos" aria-hidden="true">
+        <img v-bind="photo('home-11')" sizes="100vw" alt="" loading="lazy" decoding="async" class="photo photo-on drift-slow" />
+        <div class="photo-wash photo-wash-even" />
+      </div>
+      <div class="relative mx-auto max-w-6xl scroll-mt-20 px-4 sm:px-6">
         <div v-reveal class="mx-auto max-w-2xl text-center">
           <p class="eyebrow">How it works</p>
           <h2 class="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Up and running in three steps</h2>
@@ -532,6 +574,10 @@ const tones = {
     <!-- Install -->
     <section id="install" class="scroll-mt-20 px-4 py-16 sm:px-6 sm:py-24">
       <div v-reveal class="install mx-auto max-w-6xl overflow-hidden rounded-[2rem] p-7 text-white sm:p-12">
+        <div class="photos" aria-hidden="true">
+          <img v-bind="photo('home-03')" sizes="(min-width: 1152px) 1152px, 100vw" alt="" loading="lazy" decoding="async" class="photo photo-on drift-slow" />
+          <div class="photo-dark" />
+        </div>
         <div class="relative text-center">
           <div>
             <p class="text-xs font-bold tracking-[0.16em] text-white/70 uppercase">Get the app</p>
@@ -563,6 +609,10 @@ const tones = {
     <!-- Final call -->
     <section class="px-4 pb-16 sm:px-6 sm:pb-24">
       <div v-reveal class="cta relative mx-auto max-w-4xl overflow-hidden rounded-[2rem] px-6 py-12 text-center text-white sm:py-16">
+        <div class="photos" aria-hidden="true">
+          <img v-bind="photo('kampala-skyline')" sizes="(min-width: 896px) 896px, 100vw" alt="" loading="lazy" decoding="async" class="photo photo-on drift-slow" />
+          <div class="photo-dark" />
+        </div>
         <span class="cta-ring cta-ring-1" aria-hidden="true" /><span class="cta-ring cta-ring-2" aria-hidden="true" />
         <Sparkles class="relative mx-auto size-8 text-white/80" />
         <h2 class="relative mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">Ready to make rent easy?</h2>
@@ -579,32 +629,40 @@ const tones = {
 
     <!-- Footer -->
     <footer class="border-t border-slate-200 bg-white">
-      <div class="mx-auto grid max-w-6xl gap-8 px-4 py-10 text-sm sm:grid-cols-[1.4fr_1fr_1fr] sm:px-6">
+      <div class="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-10 text-sm sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div>
           <Logo />
           <p class="mt-3 max-w-xs leading-relaxed text-slate-500">Rent made simple in Uganda.</p>
         </div>
         <div>
-          <p class="font-semibold text-slate-900">Product</p>
-          <ul class="mt-3 space-y-2 text-slate-500">
-            <li><a href="#features" class="hover:text-slate-900">Features</a></li>
-            <li><a href="#momo" class="hover:text-slate-900">How to pay</a></li>
-
-            <li><a href="#install" class="hover:text-slate-900">Get the app</a></li>
-          </ul>
-        </div>
-        <div>
-          <p class="font-semibold text-slate-900">Legal & account</p>
-          <ul class="mt-3 space-y-2 text-slate-500">
-            <li><RouterLink to="/privacy" class="hover:text-slate-900">Privacy policy</RouterLink></li>
-            <li><RouterLink to="/terms" class="hover:text-slate-900">Terms and conditions</RouterLink></li>
-            <li><RouterLink to="/delete-account" class="hover:text-slate-900">Delete account</RouterLink></li>
-            <li><RouterLink to="/login" class="hover:text-slate-900">Sign in</RouterLink></li>
+          <p class="font-semibold text-slate-900">Contact us</p>
+          <ul class="mt-3 space-y-2.5 text-slate-600">
+            <li>
+              <a :href="`tel:${CONTACT.phoneIntl}`" class="inline-flex items-center gap-2.5 hover:text-brand-700">
+                <span class="flex size-8 items-center justify-center rounded-full bg-brand-50 text-brand-700"><Phone class="size-4" /></span>
+                {{ CONTACT.phone }}
+              </a>
+            </li>
+            <li>
+              <AppLink :phone="CONTACT.phoneIntl" class="inline-flex items-center gap-2.5 hover:text-brand-700">
+                <span class="flex size-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><MessageCircle class="size-4" /></span>
+                WhatsApp {{ CONTACT.phone }}
+              </AppLink>
+            </li>
+            <li>
+              <a :href="`mailto:${CONTACT.email}`" class="inline-flex items-center gap-2.5 break-all hover:text-brand-700">
+                <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700"><Mail class="size-4" /></span>
+                {{ CONTACT.email }}
+              </a>
+            </li>
           </ul>
         </div>
       </div>
       <div class="border-t border-slate-100 py-5 text-center text-xs text-slate-400">
-        © {{ new Date().getFullYear() }} {{ SITE.name }}. Renta UG does not hold or transfer money; payments go directly between tenants and landlords.
+        © {{ new Date().getFullYear() }} {{ SITE.name }}
+        <span class="mx-1.5">·</span><RouterLink to="/privacy" class="hover:text-slate-700">Privacy</RouterLink>
+        <span class="mx-1.5">·</span><RouterLink to="/terms" class="hover:text-slate-700">Terms</RouterLink>
+        <span class="mx-1.5">·</span><RouterLink to="/delete-account" class="hover:text-slate-700">Delete account</RouterLink>
       </div>
     </footer>
 
@@ -643,7 +701,7 @@ const tones = {
 
 /* Top bar */
 .nav { background: transparent; }
-.nav-solid { background: color-mix(in srgb, var(--color-white) 88%, transparent); backdrop-filter: blur(14px); box-shadow: 0 1px 0 var(--color-slate-200); }
+.nav-solid { background: color-mix(in srgb, var(--color-white) 88%, transparent); backdrop-filter: blur(14px); box-shadow: 0 1px 0 color-mix(in srgb, var(--color-brand-500) 35%, transparent), 0 10px 24px -18px rgb(15 118 110 / 0.35); }
 .nav-link { position: relative; transition: color 0.2s ease; }
 .nav-link:hover { color: var(--color-slate-900); }
 .nav-link::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 2px; border-radius: 2px; background: var(--color-brand-500); transform: scaleX(0); transition: transform 0.25s ease; }
@@ -659,22 +717,120 @@ const tones = {
 .arrow { transition: transform 0.2s ease; }
 
 /* Hero */
-.hero {
+/* Photos of Uganda behind sections: cross-fade + a slow drift (Ken Burns), under a wash that keeps text readable */
+.photos { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.photo {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; transform: scale(1.06);
+  transition: opacity 1.8s ease, transform 9s ease-out;
+  will-change: opacity, transform;
+}
+.photo-on { opacity: 1; transform: scale(1.14); }
+.drift-0.photo-on { transform: scale(1.14) translate(-1.5%, 1%); }
+.drift-1.photo-on { transform: scale(1.14) translate(1.5%, -1%); }
+.drift-2.photo-on { transform: scale(1.14) translate(-1%, -1.5%); }
+.drift-slow { transition: none; animation: slow-drift 30s ease-in-out infinite alternate; }
+@keyframes slow-drift {
+  from { transform: scale(1.05) translate(0, 0); }
+  to { transform: scale(1.16) translate(-2%, -1.5%); }
+}
+/* Light wash: strong where the words are, thinner where the photo shows through */
+.photo-wash {
+  position: absolute; inset: 0;
   background:
-    radial-gradient(28rem circle at var(--gx) var(--gy), color-mix(in srgb, var(--color-brand-100) 70%, transparent), transparent 70%),
-    radial-gradient(70% 55% at 85% 0%, color-mix(in srgb, var(--color-brand-100) 90%, transparent), transparent 70%),
-    radial-gradient(55% 45% at 0% 30%, color-mix(in srgb, var(--color-sky-100) 80%, transparent), transparent 70%);
+    radial-gradient(28rem circle at var(--gx, 50%) var(--gy, 40%), color-mix(in srgb, var(--color-brand-50) 45%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 55%, transparent) 0%, color-mix(in srgb, var(--color-white) 80%, transparent) 70%, var(--color-white) 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-white) 88%, transparent) 0%, color-mix(in srgb, var(--color-white) 70%, transparent) 55%, color-mix(in srgb, var(--color-white) 35%, transparent) 100%);
 }
-.grid-lines {
-  position: absolute; inset: 0; pointer-events: none;
-  background-image: linear-gradient(var(--color-slate-200) 1px, transparent 1px), linear-gradient(90deg, var(--color-slate-200) 1px, transparent 1px);
-  background-size: 44px 44px; opacity: 0.35;
-  mask-image: radial-gradient(70% 60% at 50% 30%, #000, transparent 75%);
+@media (max-width: 1023px) {
+  .photo-wash {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-white) 72%, transparent), color-mix(in srgb, var(--color-white) 86%, transparent) 60%, var(--color-white));
+  }
 }
-.orb { position: absolute; border-radius: 9999px; filter: blur(60px); opacity: 0.5; pointer-events: none; animation: drift 16s ease-in-out infinite alternate; }
-.orb-1 { width: 20rem; height: 20rem; top: 4rem; left: -6rem; background: #5eead4; }
-.orb-2 { width: 18rem; height: 18rem; bottom: -4rem; right: -4rem; background: #7dd3fc; animation-duration: 20s; }
-.orb-3 { width: 12rem; height: 12rem; top: 40%; left: 45%; background: #c4b5fd; opacity: 0.3; animation-duration: 24s; }
+/* Hero: photos of homes under a deep teal wash (the brand's own dark teal), so white words read clearly.
+   Colours are written out (#fff, teal rgb) because dark mode remaps the light tokens. */
+.hero-dark { background: #0a3b38; color: #fff; }
+.hero-dark ::selection { background: #14b8a6; color: #fff; }
+.photo-lqip {
+  position: absolute; inset: -2rem; background-size: cover; background-position: center;
+  filter: blur(22px) saturate(1.1); transform: scale(1.08);
+  transition: background-image 0.6s ease;
+}
+.hero-shade {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(30rem circle at var(--gx, 30%) var(--gy, 40%), rgb(45 212 191 / 0.12), transparent 70%),
+    linear-gradient(90deg, rgb(4 30 28 / 0.88) 0%, rgb(6 45 42 / 0.7) 45%, rgb(6 45 42 / 0.35) 100%),
+    linear-gradient(180deg, rgb(4 30 28 / 0.35) 0%, transparent 30%, transparent 70%, rgb(4 30 28 / 0.75) 100%);
+}
+@media (max-width: 1023px) {
+  .hero-shade {
+    background:
+      linear-gradient(180deg, rgb(4 30 28 / 0.7) 0%, rgb(6 45 42 / 0.78) 45%, rgb(4 30 28 / 0.92) 100%);
+  }
+}
+.cine-grain {
+  position: absolute; inset: 0; opacity: 0.07; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* A soft diagonal light beam across the photo, drifting slowly */
+.hero-beam {
+  position: absolute; inset: -20% -10%;
+  background: linear-gradient(115deg, transparent 35%, rgb(94 234 212 / 0.1) 47%, rgb(255 255 255 / 0.06) 50%, transparent 62%);
+  animation: beam 14s ease-in-out infinite alternate;
+}
+@keyframes beam { from { transform: translateX(-8%); } to { transform: translateX(8%); } }
+
+/* Words */
+.hx-eyebrow { color: #99f6e4; }
+.hx-eyebrow-line { width: 2.5rem; height: 2px; border-radius: 9999px; background: linear-gradient(90deg, transparent, #5eead4); }
+.hx-title { color: #fff; text-shadow: 0 2px 24px rgb(0 0 0 / 0.35); }
+.hx-title .word-wrap { height: 1.14em; }
+.hx-word {
+  background: linear-gradient(90deg, #99f6e4, #2dd4bf 45%, #7dd3fc); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: hue 6s ease-in-out infinite alternate;
+}
+.hx-lead { color: rgb(255 255 255 / 0.84); }
+
+/* Buttons: pill shaped */
+.hx-primary { color: #042f2e; background: linear-gradient(135deg, #99f6e4, #5eead4 40%, #2dd4bf); box-shadow: 0 0 0 1px rgb(153 246 228 / 0.6), 0 14px 34px -10px rgb(45 212 191 / 0.7); }
+.hx-primary:hover { background: linear-gradient(135deg, #ccfbf1, #99f6e4 40%, #5eead4); box-shadow: 0 0 0 1px rgb(204 251 241 / 0.8), 0 18px 42px -10px rgb(45 212 191 / 0.85); }
+.hx-ghost { color: #fff; background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.35); backdrop-filter: blur(8px); transition: background-color 0.2s ease, box-shadow 0.2s ease; }
+.hx-ghost:hover { background: rgb(255 255 255 / 0.14); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.65); }
+
+
+/* Top bar while it sits over the dark hero */
+.nav-over .nav-link { color: rgb(255 255 255 / 0.85); }
+.nav-over .nav-link:hover { color: #fff; }
+.nav-over .nav-link::after { background: #5eead4; }
+.nav-over :deep(.text-slate-900) { color: #fff; }
+.nav-over :deep(.text-brand-600) { color: #5eead4; }
+.nav-over .btn-secondary { color: #fff; background: rgb(255 255 255 / 0.08); border-color: rgb(255 255 255 / 0.4); box-shadow: none; }
+.nav-over .btn-secondary:hover { background: rgb(255 255 255 / 0.16); }
+.nav-over .btn-primary { color: #fff; background: linear-gradient(135deg, #2dd4bf, #14b8a6 45%, #0f766e); box-shadow: 0 8px 24px -8px rgb(20 184 166 / 0.8); }
+.nav-over .menu-btn { color: #fff; }
+
+/* Moving strip: a thin teal rule under it */
+.marquee.marquee-rule { border-bottom-color: color-mix(in srgb, var(--color-brand-500) 40%, transparent); box-shadow: 0 10px 30px -22px rgb(15 118 110 / 0.5); }
+.photo-wash-even {
+  background: linear-gradient(180deg, var(--color-white), color-mix(in srgb, var(--color-white) 84%, transparent) 18%, color-mix(in srgb, var(--color-white) 84%, transparent) 82%, var(--color-white));
+}
+/* Dark teal wash for the white-text panels */
+.photo-dark { position: absolute; inset: 0; background: linear-gradient(135deg, rgb(10 59 56 / 0.92), rgb(15 118 110 / 0.78) 50%, rgb(3 105 161 / 0.72)); }
+.place-chip {
+  position: absolute; z-index: 2; right: 1rem; bottom: 1rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  border-radius: 9999px; padding: 0.35rem 0.75rem;
+  font-size: 0.72rem; font-weight: 600; color: var(--color-slate-700);
+  background: color-mix(in srgb, var(--color-white) 75%, transparent);
+  box-shadow: 0 0 0 1px var(--color-slate-200);
+  backdrop-filter: blur(8px);
+}
+.place-enter-active, .place-leave-active { transition: opacity 0.6s ease, transform 0.6s ease; }
+.place-enter-from { opacity: 0; transform: translateY(6px); }
+.place-leave-to { opacity: 0; transform: translateY(-6px); }
 .grad { background: linear-gradient(90deg, #0f766e, #14b8a6 55%, #0284c7); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .grad-move { background-size: 200% 100%; animation: hue 6s ease-in-out infinite alternate; }
 .word-wrap { display: block; height: 1.2em; overflow: hidden; }
@@ -699,16 +855,6 @@ const tones = {
 .phone-still { animation: none; }
 .phone::before { content: ''; position: absolute; top: 0.95rem; left: 50%; width: 4.2rem; height: 1.1rem; transform: translateX(-50%); border-radius: 9999px; background: #0f172a; z-index: 4; }
 .screen { border-radius: 2.1rem; background: #fff; padding: 2.4rem 1rem 1.1rem; color: #0f172a; }
-.mock-card { margin-top: 0.8rem; border-radius: 1.1rem; padding: 0.9rem; color: #fff; background: linear-gradient(135deg, #14918a, #0f766e 50%, #0a3b38); }
-.mock-bar { width: 0; background: linear-gradient(90deg, #14b8a6, #0284c7); animation: fill 2.4s 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
-.mock-toast { position: absolute; z-index: 3; top: 2.1rem; left: 0.5rem; right: 0.5rem; display: flex; align-items: center; gap: 0.5rem; border-radius: 0.9rem; padding: 0.5rem; background: rgb(255 255 255 / 0.95); box-shadow: 0 12px 26px -12px rgb(15 23 42 / 0.5), 0 0 0 1px rgb(15 23 42 / 0.06); }
-.toast-enter-active { transition: transform 0.5s cubic-bezier(0.2, 1.3, 0.35, 1), opacity 0.3s ease; }
-.toast-leave-active { transition: transform 0.35s ease-in, opacity 0.3s ease; }
-.toast-enter-from, .toast-leave-to { transform: translateY(-140%); opacity: 0; }
-.float-chip { position: absolute; z-index: 5; display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 9999px; padding: 0.45rem 0.8rem; font-size: 0.72rem; font-weight: 600; color: #0f172a; background: #fff; box-shadow: 0 12px 28px -10px rgb(15 23 42 / 0.35); animation: bob 5s ease-in-out infinite; }
-.chip-a { top: 18%; left: -1.2rem; }
-.chip-b { bottom: 16%; right: -1rem; animation-delay: 1.2s; }
-.chip-c { top: 46%; right: -1.6rem; animation-delay: 2.2s; }
 
 /* Moving strip */
 .marquee { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
@@ -723,7 +869,7 @@ const tones = {
 .feature:hover .feature-ico { transform: rotate(-8deg) scale(1.12); }
 
 /* Mobile money walkthrough */
-.momo { background: radial-gradient(60% 50% at 100% 50%, color-mix(in srgb, var(--color-brand-50) 90%, transparent), transparent 70%), color-mix(in srgb, var(--color-slate-50) 70%, transparent); }
+.momo { background: var(--color-white); }
 .momo-step { transition: background-color 0.25s ease, box-shadow 0.25s ease; }
 .momo-step:hover { background: var(--color-white); }
 .momo-on { background: var(--color-white); box-shadow: 0 14px 30px -20px rgb(15 118 110 / 0.5), 0 0 0 1px var(--color-brand-200); }
@@ -771,14 +917,15 @@ const tones = {
 
 /* Install + CTA */
 .install { background: linear-gradient(135deg, #0f766e, #0a3b38 60%, #082f2d); --color-white: #fff; position: relative; }
-.install::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 90% -10%, rgb(255 255 255 / 0.18), transparent 55%); }
+.install::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(circle at 90% -10%, rgb(255 255 255 / 0.18), transparent 55%); }
+.install > .relative { z-index: 2; }
 .how { background: rgb(255 255 255 / 0.1); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18); transition: background-color 0.2s ease; }
 .how:hover { background: rgb(255 255 255 / 0.16); }
 .install-btn { display: inline-flex; align-items: center; gap: 0.6rem; height: 3.25rem; padding: 0 1.5rem; border-radius: 1rem; font-weight: 700; background: #fff; color: #0a3b38; box-shadow: 0 10px 24px -10px rgb(0 0 0 / 0.5); transition: transform 0.15s ease; }
 .install-btn:hover { transform: translateY(-2px); }
 .install-btn:active { transform: scale(0.98); }
 .bounce { animation: dl 1.6s ease-in-out infinite; }
-.cta { background: linear-gradient(135deg, #14b8a6, #0f766e 40%, #0369a1 80%, #4f46e5); background-size: 200% 200%; animation: pan 10s ease-in-out infinite alternate; --color-white: #fff; }
+.cta { background: #0a3b38; --color-white: #fff; }
 .cta-ring { position: absolute; border-radius: 9999px; border: 1.5px solid rgb(255 255 255 / 0.2); animation: spin 30s linear infinite; }
 .cta-ring-1 { width: 26rem; height: 26rem; top: -13rem; right: -8rem; }
 .cta-ring-2 { width: 18rem; height: 18rem; bottom: -10rem; left: -6rem; animation-direction: reverse; }
@@ -813,7 +960,7 @@ const tones = {
 .blob { position: absolute; border-radius: 9999px; filter: blur(70px); opacity: 0.35; pointer-events: none; }
 .blob-a { width: 22rem; height: 22rem; top: -6rem; left: -6rem; background: #5eead4; animation: drift 18s ease-in-out infinite alternate; }
 .blob-b { width: 18rem; height: 18rem; bottom: -6rem; right: -4rem; background: #93c5fd; animation: drift 22s ease-in-out infinite alternate-reverse; }
-.momo > div { position: relative; }
+.momo > div:not(.photos) { position: relative; }
 
 /* Cards lean toward the pointer, with a soft light under it */
 .tilt { transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, border-color 0.3s ease; }
@@ -859,19 +1006,17 @@ const tones = {
 @keyframes ring-green { 0% { box-shadow: 0 0 0 0 rgb(16 185 129 / 0.4); } 100% { box-shadow: 0 0 0 18px rgb(16 185 129 / 0); } }
 @keyframes note-drop { from { transform: translateY(-120%); opacity: 0; } }
 
-@media (max-width: 380px) {
-  .chip-a { left: -0.2rem; }
-  .chip-b, .chip-c { right: -0.2rem; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .hero-in, .orb, .phone, .float-chip, .live, .shine::after, .grad-move, .scroll-cue, .marquee-track, .mock-copy, .dial, .pulse-amber,
+  .photo, .drift-slow { transition: none; animation: none; transform: none; }
+  .photo-lqip { transition: none; }
+  .hx-word, .hero-beam { animation: none; }
+  .hero-in, .orb, .phone, .live, .shine::after, .grad-move, .scroll-cue, .marquee-track, .mock-copy, .dial, .pulse-amber,
   .tap, .sms, .verified, .mock-note, .point, .bounce, .cta, .cta-ring, .menu-link, .aurora, .blob, .eyebrow { animation: none; }
   .tilt, .feature.tilt:hover { transform: none; }
   .reveal { opacity: 1; transform: none; filter: none; transition: none; }
-  .mock-bar { animation: none; width: 78%; }
   .grow-bar { animation: none; width: var(--w); }
   .col { animation: none; height: var(--h); }
   .steps-line.reveal { transform: none; }
-  .word-enter-active, .word-leave-active, .faq-body, .toast-enter-active, .toast-leave-active, .swap-enter-active, .swap-leave-active { transition: none; }
+  .word-enter-active, .word-leave-active, .faq-body, .swap-enter-active, .swap-leave-active { transition: none; }
 }
 </style>

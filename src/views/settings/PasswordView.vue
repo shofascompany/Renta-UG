@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { KeyRound, Eye, EyeOff, CheckCircle2 } from '@lucide/vue'
+import { KeyRound, Eye, EyeOff, CheckCircle2, ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import SettingsSubpage from '@/components/SettingsSubpage.vue'
 
@@ -49,7 +49,18 @@ async function save() {
     back-to="account"
     back-label="Account details"
   >
-    <div v-if="done" class="card flex items-start gap-4 border-emerald-200 bg-emerald-50 p-5">
+    <!-- The permanent account: its password is fixed and never changes -->
+    <div v-if="auth.isPermanent" class="card flex items-start gap-4 border-amber-200 bg-amber-50 p-5">
+      <ShieldCheck class="mt-0.5 size-5 shrink-0 text-amber-700" />
+      <div class="flex-1 text-sm">
+        <p class="font-semibold text-amber-900">This account has a permanent password</p>
+        <p class="mt-0.5 text-amber-900/80">
+          This is the permanent Renta UG landlord account. Its password is fixed, so it can't be changed here, by "Forgot password" or by an admin. Keep it private.
+        </p>
+      </div>
+    </div>
+
+    <div v-else-if="done" class="card flex items-start gap-4 border-emerald-200 bg-emerald-50 p-5">
       <CheckCircle2 class="mt-0.5 size-5 shrink-0 text-emerald-700" />
       <div class="flex-1 text-sm">
         <p class="font-medium text-emerald-700">Password changed</p>
@@ -91,7 +102,7 @@ async function save() {
       </div>
     </form>
 
-    <p class="px-1 text-xs text-slate-400">
+    <p v-if="!auth.isPermanent" class="px-1 text-xs text-slate-400">
       Forgot your current password? Sign out, then use <strong>Forgot password</strong> on the sign-in page.
     </p>
   </SettingsSubpage>

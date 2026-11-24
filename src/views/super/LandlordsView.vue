@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, Search, CheckCircle2, Briefcase, Building2, Users, Wallet, ShieldOff } from '@lucide/vue'
+import { Plus, Search, CheckCircle2, Briefcase, Building2, Users, Wallet, ShieldOff, BadgeCheck } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useLandlordStats } from '@/composables/useLandlordStats'
 import { formatUGX } from '@/utils/format'
@@ -20,9 +20,13 @@ const flash = ref('')
 
 const list = computed(() => {
   const q = query.value.trim().toLowerCase()
-  return rows.value
-    .filter((l) => (show.value === 'all' ? true : show.value === 'active' ? l.active : !l.active))
-    .filter((l) => !q || `${l.name} ${l.email} ${l.phone ?? ''}`.toLowerCase().includes(q))
+  // The permanent account stays on the list whatever the filter or search
+  return rows.value.filter(
+    (l) =>
+      l.subscriptionExempt ||
+      ((show.value === 'all' ? true : show.value === 'active' ? l.active : !l.active) &&
+        (!q || `${l.name} ${l.email} ${l.phone ?? ''}`.toLowerCase().includes(q))),
+  )
 })
 const totals = computed(() => ({
   active: rows.value.filter((l) => l.active).length,
@@ -59,7 +63,7 @@ async function save() {
   try {
     await rental.createLandlord({ name: form.name, email: form.email.trim(), phone: form.phone })
     rental.adminNote('landlord.create', 'landlord', null, `Registered landlord ${form.name} (${form.email.trim()})`)
-    showFlash(`${form.name} is registered. They sign in with ${form.email.trim()} and create their own password.`)
+    showFlash(`${form.name} is registered. They sign in with ${form.email.trim()}${form.phone ? ' or their phone number' : ''}, then create their own password.`)
     open.value = false
   } catch (e) {
     error.value = e.message
@@ -104,15 +108,17 @@ async function save() {
           :key="l.id"
           :to="`/admin2026/landlords/${l.id}`"
           :title="l.name || l.email"
-          :subtitle="`${l.properties} propert${l.properties === 1 ? 'y' : 'ies'} · ${l.tenants} tenant${l.tenants === 1 ? '' : 's'} · ${l.email}`"
+          :subtitle="`${l.subscriptionExempt ? 'Permanent · Never deleted · Free for life · ' : ''}${l.properties} propert${l.properties === 1 ? 'y' : 'ies'} · ${l.tenants} tenant${l.tenants === 1 ? '' : 's'} · ${l.email}`"
           :value="formatUGX(l.collected)"
-          :value-sub="l.active ? 'this month' : 'suspended'"
+          :value-sub="l.subscriptionExempt ? 'this month · permanent' : l.active ? 'this month' : 'suspended'"
+          :class="l.subscriptionExempt && 'permanent-row'"
           :value-class="l.active ? 'text-slate-900' : 'text-slate-400'"
         >
           <template #icon>
             <span class="avatar relative flex size-11 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white" :class="!l.active && 'grayscale'">
               {{ initials(l.name) }}
-              <ShieldOff v-if="!l.active" class="absolute -right-1 -bottom-1 size-4.5 rounded-full bg-white p-0.5 text-red-600" />
+              <BadgeCheck v-if="l.subscriptionExempt" class="absolute -right-1 -bottom-1 size-4.5 rounded-full bg-white p-0.5 text-amber-500" aria-label="Permanent account" />
+              <ShieldOff v-else-if="!l.active" class="absolute -right-1 -bottom-1 size-4.5 rounded-full bg-white p-0.5 text-red-600" />
             </span>
           </template>
         </ListRow>
@@ -150,6 +156,8 @@ async function save() {
 </template>
 
 <style scoped>
+/* The permanent free account: a soft gold wash so it stands out at the top */
+.permanent-row { background: linear-gradient(90deg, rgb(250 204 21 / 0.1), transparent 70%); }
 .avatar {
   --color-white: #fff;
   background: linear-gradient(140deg, #2dd4bf, #0f766e 55%, #0a3b38);

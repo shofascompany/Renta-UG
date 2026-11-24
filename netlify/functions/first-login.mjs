@@ -1,9 +1,10 @@
-// Netlify Function: a landlord's FIRST sign-in (email only, no password yet).
-// Same as POST /api/auth/first-login in server/index.js, so the live site works without the Express server.
+// Netlify Function: a landlord's FIRST sign-in: email + the one-time setup code from Renta UG
+// (shown to the main admin when the landlord was registered, and emailed to the landlord).
+// Same as POST /api/auth/first-login in server/index.js. Logic in server/signIn.js.
 // Needs SUPABASE_SERVICE_ROLE_KEY in Netlify → Site configuration → Environment variables (scope: Functions).
-// NOTE: by design, a landlord who hasn't set a password yet can be signed in with just their email,
-// until they choose a password on the next page.
 import { createClient } from '@supabase/supabase-js'
+import { HttpError } from '../../server/admin.js'
+import { firstLoginByEmail } from '../../server/signIn.js'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -27,23 +28,12 @@ export default async (req) => {
     return json({ error: 'First sign-in is not set up yet. Add SUPABASE_SERVICE_ROLE_KEY to the Netlify environment variables.' }, 500)
   }
 
-  const body = await req.json().catch(() => ({}))
-  const email = String(body?.email ?? '').trim().toLowerCase()
-  if (!email) return json({ error: 'Enter your email.' }, 400)
-
   const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
-
-  const { data: profile, error } = await db
-    .from('profiles')
-    .select('id, role, active, must_change_password')
-    .eq('email', email)
-    .maybeSingle()
-  if (error) return json({ error: error.message }, 500)
-  if (!(profile?.role === 'landlord' && profile.active && profile.must_change_password)) {
-    return json({ error: 'Please enter your password.' }, 400)
+  try {
+    const body = await req.json().catch(() => ({}))
+    return json(await firstLoginByEmail(db, body))
+  } catch (e) {
+    if (!(e instanceof HttpError)) console.error(e)
+    return json({ error: e instanceof HttpError ? e.message : 'Something went wrong. Please try again.' }, e.status || 500)
   }
-
-  const { data, error: linkError } = await db.auth.admin.generateLink({ type: 'magiclink', email })
-  if (linkError) return json({ error: linkError.message }, 400)
-  return json({ tokenHash: data.properties.hashed_token })
 }

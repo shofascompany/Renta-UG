@@ -20,7 +20,7 @@ export function useTenant() {
   const notifications = computed(() => rental.notificationsForTenant(id.value).filter((n) => !n.tenantHidden))
   const unread = computed(() => notifications.value.filter((n) => !n.tenantHidden && !n.read))
 
-  // Rental time: starts the day they pay (at least 60% of a month), so a new tenant has none yet
+  // Rental time: starts the day they first pay (part of the rent buys days), so a new tenant has none yet
   const rent = computed(() => Number(property.value?.rent ?? 0))
   const notStarted = computed(() => Boolean(tenant.value?.propertyId) && !tenant.value?.leaseEnd)
   const timeEnded = computed(() => Boolean(tenant.value?.leaseEnd) && daysUntil(tenant.value.leaseEnd) < 0)

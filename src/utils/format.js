@@ -27,10 +27,11 @@ export function timeLeft(days) {
   if (days === null || days === undefined) return 'Starts when they pay'
   if (days < 0) return `${Math.abs(days)} debt day${days === -1 ? '' : 's'}` // month ended, not paid yet
   if (days === 0) return 'Ends today'
-  if (days < 31) return `${days} day${days === 1 ? '' : 's'} left`
-  const months = Math.floor(days / 30.44)
+  // A rent month is 30 days
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} left`
+  const months = Math.floor(days / 30)
   if (months < 12) {
-    const rest = Math.round(days - months * 30.44)
+    const rest = days - months * 30
     return `${months} month${months === 1 ? '' : 's'}${rest ? `, ${rest} day${rest === 1 ? '' : 's'}` : ''} left`
   }
   const years = Math.floor(months / 12)

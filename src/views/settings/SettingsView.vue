@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { Bell, Info, LogOut, FileText } from '@lucide/vue'
+import { Bell, Info, LogOut, FileText, LifeBuoy } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { pushStatus } from '@/lib/push'
 import { useSignOut } from '@/composables/useSignOut'
@@ -29,7 +29,10 @@ const groups = computed(() => [
   },
   {
     title: 'Support',
-    items: [{ to: 'about', icon: Info, tile: 'tile-sky', label: 'About & help', hint: 'App version, install on your phone, tips' }],
+    items: [
+      { to: 'help', icon: LifeBuoy, tile: 'tile-teal', label: 'Help & support', hint: 'Step-by-step guides, answers and how to reach us' },
+      { to: 'about', icon: Info, tile: 'tile-sky', label: 'About Renta UG', hint: 'What Renta UG is, version, install, safety and contacts' },
+    ],
   },
   {
     title: 'Legal',
@@ -75,7 +78,7 @@ async function doSignOut() {
         <ul class="divide-y divide-slate-100">
           <ListRow
             v-for="item in group.items"
-            :key="item.to"
+            :key="item.label"
             :to="`${base}/${item.to}`"
             :title="item.label"
             :subtitle="item.hint"

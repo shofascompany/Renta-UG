@@ -15,6 +15,7 @@ import { startHealthChecks, runHealthCheck, reportServerError } from './health.j
 import * as admin from './admin.js'
 import * as verifyEmail from './verify.js'
 import * as passwordReset from './passwordReset.js'
+import * as signIn from './signIn.js'
 
 const { HttpError } = admin
 
@@ -115,19 +116,13 @@ app.post(
   }),
 )
 
-// Signs a first-time landlord in without a password: returns a one-time token the browser
-// exchanges for a session. The app then forces them to the "set your password" page.
+// A first-time landlord: email + one-time setup code → a one-time token the browser exchanges for a
+// session. The app then forces them to the "set your password" page. Logic in ./signIn.js.
 app.post(
   '/api/auth/first-login',
   handle(async (req, res) => {
     requireDb()
-    const email = req.body?.email?.trim().toLowerCase()
-    if (!email || !(await firstLoginLandlord(email))) throw new HttpError(400, 'Please enter your password.')
-
-    const { data, error } = await db.auth.admin.generateLink({ type: 'magiclink', email })
-    if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
-    if (error) throw new HttpError(400, error.message)
-    res.json({ tokenHash: data.properties.hashed_token })
+    res.json(await signIn.firstLoginByEmail(db, req.body))
   }),
 )
 
@@ -155,62 +150,20 @@ app.post(
 // The account's email is looked up here on the server, so it is never revealed to the browser.
 // Numbers match on their last 9 digits: 0772 123456 = +256772123456 = 256772123456.
 
-const phoneDigits = (v) => String(v ?? '').replace(/\D/g, '')
-
-async function profileByPhone(phone) {
-  const want = phoneDigits(phone).slice(-9)
-  if (want.length < 9) return null
-  const { data, error } = await db
-    .from('profiles')
-    .select('id, email, phone, role, active, must_change_password, created_at')
-    .not('phone', 'is', null)
-  check(error)
-  return (
-    (data ?? [])
-      .filter((p) => phoneDigits(p.phone).slice(-9) === want)
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null
-  )
-}
-
-function phoneStatus(p) {
-  if (!p) return 'not_found'
-  if (p.role === 'landlord' && !p.active) return 'suspended'
-  if (p.role === 'landlord' && p.must_change_password) return 'first_login'
-  if (p.role === 'tenant' && p.must_change_password) return 'tenant_first_login' // app access just given by the landlord
-  return p.role === 'landlord' || p.role === 'tenant' ? p.role : 'not_found'
-}
-
-// { phone, password }   → { accessToken, refreshToken }  (normal sign-in)
-// { phone }             → { tokenHash }                   (landlord's first sign-in, no password yet)
+// { phone, password }   → { accessToken, refreshToken }  (normal sign-in; 5 wrong → 15 min lock)
+// { phone, setupCode }  → { tokenHash }                   (first sign-in with the one-time setup code)
 // { phone, check: true } → { status }  live check fallback if 20_login_phone_check.sql hasn't been run
+// Logic in ./signIn.js (shared with the Netlify Function).
 app.post(
   '/api/auth/phone-sign-in',
   handle(async (req, res) => {
     requireDb()
-    const profile = await profileByPhone(req.body?.phone)
-    const status = phoneStatus(profile)
-    if (req.body?.check) return res.json({ status })
-    if (status === 'not_found' || !profile?.email) throw new HttpError(400, 'No account uses this phone number.')
-    if (status === 'suspended') throw new HttpError(403, 'This account has been suspended. Please contact Renta UG.')
-
-    const password = String(req.body?.password ?? '')
-    if ((status === 'first_login' || status === 'tenant_first_login') && !password) {
-      const { data, error } = await db.auth.admin.generateLink({ type: 'magiclink', email: profile.email })
-      if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
-      if (error) throw new HttpError(400, error.message)
-      return res.json({ tokenHash: data.properties.hashed_token })
-    }
-    if (!password) throw new HttpError(400, 'Please enter your password.')
-
-    // A throwaway client so this server never keeps the user's session.
+    // A throwaway client for the password check, so this server never keeps the user's session.
     const client = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { fetch: retryFetch() },
     })
-    const { data, error } = await client.auth.signInWithPassword({ email: profile.email, password })
-    if (error && isNetworkError(error)) throw new HttpError(503, NETWORK_MESSAGE)
-    if (error) throw new HttpError(400, error.message)
-    res.json({ accessToken: data.session.access_token, refreshToken: data.session.refresh_token })
+    res.json(await signIn.phoneSignIn(db, client, req.body))
   }),
 )
 
@@ -286,6 +239,8 @@ app.post(
 // ── The web app itself (after `npm run build`), so one address serves app + API ──
 const DIST = fileURLToPath(new URL('../dist', import.meta.url))
 if (existsSync(join(DIST, 'index.html'))) {
+  // Built files have a content hash in their name, so the browser can keep them for a year
+  app.use('/assets', express.static(join(DIST, 'assets'), { index: false, immutable: true, maxAge: '1y' }))
   app.use(express.static(DIST, { index: false }))
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next()

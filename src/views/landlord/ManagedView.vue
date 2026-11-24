@@ -6,6 +6,7 @@ import { formatUGX } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
+import PayStatus from '@/components/PayStatus.vue'
 
 // Tenants without a smartphone, whose accounts the landlord runs. Tap one for their mini account page.
 const rental = useRentalStore()
@@ -15,7 +16,7 @@ const adding = ref(false)
 const people = computed(() =>
   rental.currentTenants
     .filter((t) => t.managedByLandlord && !t.userId)
-    .map((t) => ({ ...t, owed: rental.duesForTenant(t.id).reduce((s, p) => s + p.balance, 0) }))
+    .map((t) => ({ ...t, pay: rental.payStateFor(t.id), owed: rental.payStateFor(t.id)?.owed ?? 0 }))
     .sort((a, b) => b.owed - a.owed || a.name.localeCompare(b.name)),
 )
 const rows = computed(() => {
@@ -49,10 +50,13 @@ const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('')
           :to="`/landlord/managed/${t.id}`"
           :title="t.name"
           :subtitle="`${rental.placeName(t.propertyId)}${t.phone ? ` · ${t.phone}` : ''}`"
-          :value="t.owed ? formatUGX(t.owed) : 'Paid up'"
-          :value-sub="t.owed ? 'owed' : ''"
-          :value-class="t.owed ? 'text-red-600' : 'text-emerald-700'"
+          value="-"
         >
+          <!-- Paid / Part paid / Not paid, and what is owed -->
+          <template #value>
+            <PayStatus :tenant-id="t.id" />
+            <p class="mt-1 text-[11px] text-slate-500">{{ t.pay?.detail }}</p>
+          </template>
           <template #icon><span class="icon-disc disc-solid size-11 rounded-full text-xs font-bold">{{ initials(t.name) }}</span></template>
         </ListRow>
       </ul>

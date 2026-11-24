@@ -23,6 +23,7 @@ const receipts = computed(() =>
 )
 const notes = computed(() => rental.notificationsForTenant(props.id).slice(0, 8))
 const owed = computed(() => rental.duesForTenant(props.id).reduce((s, x) => s + x.balance, 0))
+const pay = computed(() => rental.payStateFor(props.id)) // Paid / Part paid / Not paid
 const paid = computed(() => charges.value.reduce((s, x) => s + x.amountPaid, 0))
 const left = computed(() => (t.value?.leaseEnd ? daysUntil(t.value.leaseEnd) : null))
 const tab = ref('money') // money | charges | messages
@@ -75,7 +76,7 @@ const endTenancy = () => run(() => rental.adminEndTenancy(props.id, reason.value
           <StatTile glass label="Place" :value="rental.placeName(placeId)" :hint="t.propertyId ? 'Renting now' : `Left ${formatDate(t.endedAt)}`" :icon="House" />
           <StatTile glass label="Landlord" :value="landlord?.name ?? '—'" :hint="landlord?.phone ?? landlord?.email" :icon="Briefcase" tile="tile-sky" :to="landlord ? `/admin2026/landlords/${landlord.id}` : null" />
           <StatTile glass label="Rental time" :value="t.leaseEnd ? timeLeft(left) : 'Not started'" :hint="t.leaseEnd ? `Paid to ${formatDate(t.leaseEnd)}` : 'Starts when they pay'" :icon="CalendarClock" tile="tile-violet" />
-          <StatTile glass label="Unpaid" :value="formatUGX(owed)" :hint="`${formatUGX(paid)} paid in total`" :icon="owed ? TriangleAlert : Wallet" tile="tile-amber" :alert="owed > 0" />
+          <StatTile glass :label="pay?.label ?? 'Rent'" :value="pay?.key === 'paid' ? 'Paid' : formatUGX(pay?.owed ?? owed)" :hint="`${pay?.detail ?? ''} · ${formatUGX(paid)} paid in total`" :icon="pay?.key === 'paid' ? Wallet : TriangleAlert" tile="tile-amber" :alert="pay?.key !== 'paid'" />
         </div>
       </template>
     </SuperHero>

@@ -2,7 +2,9 @@ import { defineStore } from 'pinia'
 import { supabase, must } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { useAuthStore } from './auth'
+import { useBillingStore } from './billing'
 import { rentCycle, isoDay } from '@/utils/rentCycle'
+import { payState } from '@/utils/payState'
 
 // Sender line for a landlord's message, shown under the "Renta UG" title
 export function landlordSenderLine() {
@@ -58,7 +60,6 @@ const map = {
     endedAt: r.ended_at ?? null,
     personId: r.person_id ?? r.id, // same person across stays
     managedByLandlord: r.managed_by_landlord === true, // no smartphone: the landlord manages them
-    payCode: r.pay_code ?? null, // their one-word reason when sending mobile money
     createdAt: r.created_at,
   }),
   // Numbers a landlord receives mobile money on (one per network)
@@ -99,6 +100,10 @@ const map = {
     amount: Number(r.amount),
     amountPaid: Number(r.amount_paid ?? (r.status === 'paid' ? r.amount : 0)),
     balance: r.status === 'paid' ? 0 : Number(r.amount) - Number(r.amount_paid ?? 0), // still owed
+    // Rental time this month has given (database/52): part payments give days, a full month a month
+    creditedDays: Number(r.credited_days ?? 0),
+    monthCredited:
+      r.month_credited ?? (r.status === 'paid' || (Number(r.amount) > 0 && Number(r.amount_paid ?? 0) * 10 >= Number(r.amount) * 6)),
     dueDate: r.due_date,
     paidAt: r.paid_at,
     method: r.method,
@@ -161,6 +166,19 @@ const map = {
 const TABLES = Object.keys(map)
 const byNewest = (field) => (a, b) => new Date(b[field]) - new Date(a[field])
 let channel = null
+
+// ── Speed ──
+// 1. Copy of the last loaded data on this device, per account: the app opens instantly with it and
+//    refreshes in the background. Removed on sign-out.
+// 2. Live updates are batched: confirming one payment changes ~10 rows, which used to reload whole
+//    tables 20+ times. Now each changed table reloads once, 350 ms after the changes stop.
+const CACHE_VERSION = 1
+const CACHED = [...TABLES, 'landlords', 'owner']
+const cacheKey = (userId) => `renta:data:v${CACHE_VERSION}:${userId}`
+let cachedFor = null
+let saveTimer = null
+const pendingReloads = new Set()
+let reloadTimer = null
 
 export const useRentalStore = defineStore('rental', {
   state: () => ({
@@ -237,6 +255,13 @@ export const useRentalStore = defineStore('rental', {
       s.payments.filter((p) => p.tenantId === tenantId).sort((a, b) => b.period.localeCompare(a.period)),
     duesForTenant: (s) => (tenantId) =>
       s.payments.filter((p) => p.tenantId === tenantId && p.status !== 'paid').sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+    // Paid / Part paid / Not paid: the same answer on every page (utils/payState.js)
+    payStateFor: (s) => (tenantId) => {
+      const t = s.tenants.find((x) => x.id === tenantId)
+      if (!t) return null
+      const rent = Number(s.properties.find((p) => p.id === t.propertyId)?.rent ?? 0)
+      return payState(t, s.payments.filter((p) => p.tenantId === tenantId), rent)
+    },
     cashForTenant: (s) => (tenantId) => s.cash_payments.filter((c) => c.tenantId === tenantId).sort(byNewest('createdAt')),
     pendingMoveOuts: (s) => s.move_out_requests.filter((r) => r.status === 'pending').sort(byNewest('createdAt')),
     // Tenant: their latest request to leave
@@ -280,6 +305,8 @@ export const useRentalStore = defineStore('rental', {
     async load() {
       this.error = ''
       const auth = useAuthStore()
+      // Show this device's last copy straight away (if any), then refresh it below
+      if (!this.loaded && this.hydrate(auth.user?.id)) this.loaded = true
       try {
         // Newer, optional tables (receipts, inbox) must never stop the app from loading
         const OPTIONAL = new Set(['payment_receipts', 'staff_notifications', 'cash_payments', 'rentals', 'move_out_requests', 'landlord_pay_accounts'])
@@ -294,14 +321,69 @@ export const useRentalStore = defineStore('rental', {
         ])
         if (auth.isTenant) await this.loadOwner()
         this.loaded = true
+        this.saveCache()
       } catch (e) {
-        this.error = e.message
+        // Already showing this device's copy (e.g. weak signal): keep it on screen instead of an error
+        if (cachedFor && this.loaded) console.warn(`[renta] refresh failed, showing saved data: ${e.message}`)
+        else this.error = e.message
       }
     },
 
     async reload(table) {
       const rows = must(await supabase.from(table).select('*').order('created_at', { ascending: false }))
       this[table] = rows.map(map[table])
+      this.saveCache()
+    },
+
+    // Reload a table once after a burst of live changes (see "Speed" above)
+    queueReload(...tables) {
+      tables.forEach((t) => pendingReloads.add(t))
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => {
+        const list = [...pendingReloads]
+        pendingReloads.clear()
+        list.forEach((t) => (t === 'admin_audit' ? this.loadAudit() : this.reload(t)).catch(() => {}))
+      }, 350)
+    },
+
+    // This device's saved copy for the signed-in account
+    hydrate(userId) {
+      if (!userId) return false
+      try {
+        const saved = JSON.parse(localStorage.getItem(cacheKey(userId)) || 'null')
+        if (!saved || saved.role !== useAuthStore().role) return false
+        for (const k of CACHED) if (k in saved.data) this[k] = saved.data[k]
+        cachedFor = userId
+        return true
+      } catch {
+        return false
+      }
+    },
+    saveCache() {
+      const auth = useAuthStore()
+      const userId = auth.user?.id
+      if (!userId || !this.loaded) return
+      clearTimeout(saveTimer)
+      saveTimer = setTimeout(() => {
+        try {
+          const data = Object.fromEntries(CACHED.map((k) => [k, this[k]]))
+          localStorage.setItem(cacheKey(userId), JSON.stringify({ role: auth.role, at: Date.now(), data }))
+          cachedFor = userId
+        } catch {
+          /* storage full or blocked: the app still works, it just loads from the network */
+        }
+      }, 800)
+    },
+    forgetCache() {
+      clearTimeout(saveTimer)
+      try {
+        if (cachedFor) localStorage.removeItem(cacheKey(cachedFor))
+        // Any other account's copy on this device goes too (shared phones)
+        for (const k of Object.keys(localStorage)) if (k.startsWith('renta:data:')) localStorage.removeItem(k)
+      } catch {
+        /* storage blocked */
+      }
+      cachedFor = null
     },
 
     // Tenant: contact details of the landlord they're connected to.
@@ -317,19 +399,31 @@ export const useRentalStore = defineStore('rental', {
       const rows = must(
         await supabase.from('profiles').select('*').eq('role', 'landlord').order('created_at', { ascending: false }),
       )
-      this.landlords = rows.map((r) => ({
-        id: r.id,
-        name: r.full_name,
-        email: r.email,
-        phone: r.phone,
-        active: r.active,
-        createdAt: r.created_at,
-      }))
+      // The permanent free account (ngumisiriza@gmail.com) is always listed first
+      const permanent = (r) => r.subscription_exempt === true || String(r.email ?? '').toLowerCase() === 'ngumisiriza@gmail.com'
+      this.landlords = rows
+        .map((r) => ({
+          id: r.id,
+          name: r.full_name,
+          email: r.email,
+          phone: r.phone,
+          active: r.active,
+          createdAt: r.created_at,
+          subscriptionUntil: r.subscription_until ?? null,
+          subscriptionPlan: r.subscription_plan ?? null,
+          subscriptionTier: r.subscription_tier ?? null,
+          subscriptionExempt: permanent(r),
+          plannedUnits: r.planned_units ?? null, // business size given at first sign-in
+          billingCode: r.billing_code ?? null,
+        }))
+        .sort((a, b) => Number(b.subscriptionExempt) - Number(a.subscriptionExempt))
     },
 
+    // Returns { id }. The landlord's first sign-in needs only their email or phone (no code).
     async createLandlord({ name, email, phone }) {
-      await api('/api/admin/landlords', { name: titleCase(name), email, phone })
+      const res = await api('/api/admin/landlords', { name: titleCase(name), email, phone })
       await this.loadLandlords()
+      return res
     },
 
     // Tenant accounts that aren't renting anything right now (deletable by the main admin)
@@ -357,9 +451,11 @@ export const useRentalStore = defineStore('rental', {
     },
 
     // changes: { name?, phone?, resetPassword?, active? }
+    // With resetPassword: their next sign-in is a first sign-in again (email or phone, then a new password)
     async updateLandlord(id, changes) {
-      await api(`/api/admin/landlords/${id}`, changes, 'PATCH')
+      const res = await api(`/api/admin/landlords/${id}`, changes, 'PATCH')
       await this.loadLandlords()
+      return res
     },
 
     // ── Main admin console: every change is checked + logged by the database ──
@@ -423,13 +519,13 @@ export const useRentalStore = defineStore('rental', {
       channel = supabase.channel('renta-live')
       for (const table of ['notifications', 'payments', 'tenants', 'staff_notifications', 'cash_payments', 'properties', 'rentals', 'move_out_requests', 'landlord_pay_accounts']) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
-          this.reload(table).catch(() => {})
-          if (table === 'payments') this.reload('payment_receipts').catch(() => {}) // receipts change with payments
-          if (table === 'payments' || table === 'cash_payments') this.reload('tenants').catch(() => {}) // rental time moves with payments
+          this.queueReload(table)
+          if (table === 'payments') this.queueReload('payment_receipts') // receipts change with payments
+          if (table === 'payments' || table === 'cash_payments') this.queueReload('tenants') // rental time moves with payments
         })
       }
       if (useAuthStore().isSuperadmin) {
-        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'admin_audit' }, () => this.loadAudit().catch(() => {}))
+        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'admin_audit' }, () => this.queueReload('admin_audit'))
       }
       channel.subscribe()
     },
@@ -437,6 +533,9 @@ export const useRentalStore = defineStore('rental', {
     clear() {
       if (channel) supabase.removeChannel(channel)
       channel = null
+      clearTimeout(reloadTimer)
+      pendingReloads.clear()
+      this.forgetCache()
       this.$reset()
     },
 
@@ -484,7 +583,22 @@ export const useRentalStore = defineStore('rental', {
 
 
     // ── Owner actions ────────────────────────────────────────
+    // The landlord's package limits how many houses + rooms they can have (the database checks it too)
+    checkUnitLimit(adding = 1) {
+      const limit = useBillingStore().unitLimit
+      if (limit == null) return
+      const have = this.properties.length
+      if (have + adding > limit) {
+        const left = Math.max(0, limit - have)
+        throw new Error(
+          `Your Small scale package covers up to ${limit} houses and rooms. You have ${have}` +
+            `${left ? `, so you can add ${left} more` : ''}. Upgrade to Big scale on the Subscription page to add more.`,
+        )
+      }
+    },
+
     async addProperty(data) {
+      this.checkUnitLimit(1)
       const row = must(
         await supabase.from('properties').insert({ ...data, name: titleCase(data.name), location: titleCase(data.location) }).select().single(),
       )
@@ -509,6 +623,7 @@ export const useRentalStore = defineStore('rental', {
     // rooms: [{ name, rent }] — each becomes a property linked to the rental
     async addRental({ name, location, type, rooms }) {
       if (!rooms?.length) throw new Error('Add at least one room.')
+      this.checkUnitLimit(rooms.length)
       const { data, error } = await supabase
         .from('rentals')
         .insert({ name: titleCase(name), location: titleCase(location), type })
@@ -527,6 +642,7 @@ export const useRentalStore = defineStore('rental', {
     },
 
     async addRooms(rentalId, rooms, defaults = null) {
+      if (!defaults) this.checkUnitLimit(rooms.length) // addRental already checked
       const r = defaults ?? this.rentalById(rentalId)
       const rows = must(
         await supabase
@@ -574,7 +690,7 @@ export const useRentalStore = defineStore('rental', {
       await this.load()
     },
 
-    async addTenant({ name, email, phone, propertyId, leaseStart, leaseEnd, managedByLandlord = false }) {
+    async addTenant({ name, email, phone, propertyId, managedByLandlord = false }) {
       const row = must(
         await supabase
           .from('tenants')
@@ -583,8 +699,7 @@ export const useRentalStore = defineStore('rental', {
             email: email?.trim().toLowerCase() || null,
             phone: phone || null,
             property_id: propertyId || null,
-            lease_start: leaseStart || null,
-            lease_end: leaseEnd || null,
+            // Rental time (lease dates) is set by the database when rent is paid, never from the browser
             ...(managedByLandlord ? { managed_by_landlord: true } : {}),
           })
           .select()
@@ -611,6 +726,19 @@ export const useRentalStore = defineStore('rental', {
     },
 
     // Moves the tenant to Records: frees the house, remembers it, keeps all their history.
+    // Landlord: delete a tenant for good: the tenant record and everything recorded for it (rent months,
+    // payments, receipts, notices, requests to leave). The tenant's own app login, if any, is not deleted:
+    // it is simply no longer linked to this landlord. (To keep the history, end the tenancy instead.)
+    async deleteTenant(tenantId) {
+      const rows = must(await supabase.from('tenants').delete().eq('id', tenantId).select('id'))
+      if (!rows?.length) throw new Error('This tenant could not be deleted. Refresh the page and try again.')
+      this.tenants = this.tenants.filter((x) => x.id !== tenantId)
+      for (const table of ['payments', 'payment_receipts', 'cash_payments', 'notifications', 'move_out_requests']) {
+        if (Array.isArray(this[table])) this[table] = this[table].filter((x) => x.tenantId !== tenantId)
+      }
+      this.saveCache()
+    },
+
     async endTenancy(tenantId) {
       const t = this.tenants.find((x) => x.id === tenantId)
       const row = must(

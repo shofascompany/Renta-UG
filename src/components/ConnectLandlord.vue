@@ -44,6 +44,7 @@ async function submit() {
       <label class="label" for="code">Connection code</label>
       <input
         id="code"
+        data-tour="connect-code"
         :value="code"
         class="input text-center font-mono text-2xl tracking-[0.4em] uppercase"
         placeholder="ABC123"

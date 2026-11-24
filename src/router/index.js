@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppShell from '@/layouts/AppShell.vue'
 import { isInstalledApp } from '@/lib/runtime'
+import { updateThemeForPath } from '@/lib/theme'
 
 // Settings: same screens for landlords and tenants; each option is its own page.
 const settingsRoutes = (role) => [
@@ -10,6 +11,7 @@ const settingsRoutes = (role) => [
   { path: 'settings/password', name: `${role}-settings-password`, component: () => import('@/views/settings/PasswordView.vue') },
   { path: 'settings/notifications', name: `${role}-settings-notifications`, component: () => import('@/views/settings/NotificationsSettingsView.vue') },
   { path: 'settings/about', name: `${role}-settings-about`, component: () => import('@/views/settings/AboutView.vue') },
+  { path: 'settings/help', name: `${role}-settings-help`, component: () => import('@/views/settings/HelpView.vue') },
   { path: 'settings/terms', name: `${role}-settings-terms`, component: () => import('@/views/settings/TermsView.vue') },
 ]
 
@@ -90,6 +92,8 @@ const routes = [
       { path: 'notifications', name: 'landlord-notifications', component: () => import('@/views/landlord/NotificationsView.vue') },
       { path: 'inbox', name: 'landlord-inbox', component: () => import('@/views/InboxView.vue') },
       { path: 'move-outs', name: 'landlord-move-outs', component: () => import('@/views/MoveOutsView.vue') },
+      // Monthly / yearly subscription to Renta UG: status, plans, pay with mobile money, billing history
+      { path: 'subscription', name: 'landlord-subscription', component: () => import('@/views/landlord/SubscriptionView.vue') },
       { path: 'messages', redirect: '/landlord/notifications' },
       ...settingsRoutes('landlord'),
     ],
@@ -109,6 +113,7 @@ const routes = [
       { path: '/admin2026/properties', name: 'super-properties', component: () => import('@/views/super/PropertiesView.vue') },
       { path: '/admin2026/transactions', name: 'super-transactions', component: () => import('@/views/super/TransactionsView.vue') },
       { path: '/admin2026/reports', name: 'super-reports', component: () => import('@/views/super/ReportsView.vue') },
+      { path: '/admin2026/subscriptions', name: 'super-subscriptions', component: () => import('@/views/super/SubscriptionsView.vue') },
       { path: '/admin2026/broadcast', name: 'super-broadcast', component: () => import('@/views/super/BroadcastView.vue') },
       { path: '/admin2026/activity', name: 'super-activity', component: () => import('@/views/super/ActivityView.vue') },
       { path: '/admin2026/archives', name: 'super-archives', component: () => import('@/views/super/ArchivesView.vue') },
@@ -140,6 +145,16 @@ router.beforeEach(async (to) => {
     const area = to.matched.find((r) => r.meta.role)?.meta.role
     return area === 'superadmin' ? { name: 'admin-login' } : { name: 'login', query: { redirect: to.fullPath } }
   }
+  // Signed in but the profile didn't load: try again, never guess "tenant" (that sent new landlords to
+  // the tenant connection-code screen). Still nothing → sign out with a clear message.
+  if (!auth.profile) {
+    await auth.loadProfile()
+    if (!auth.profile) {
+      await auth.signOut().catch(() => {})
+      return { name: 'login', query: { why: 'profile' } }
+    }
+  }
+
   const role = to.matched.find((r) => r.meta.role)?.meta.role
   if (role && role !== auth.role) return auth.home
 
@@ -152,5 +167,9 @@ router.beforeEach(async (to) => {
   if (!auth.needsSetup && to.name === 'complete-account') return auth.home
   return true
 })
+
+// Public pages stay light; dark mode (when the device uses it) applies inside the app
+// (a cancelled or redirected-away navigation keeps the page that is actually on screen)
+router.afterEach((to, from, failure) => updateThemeForPath(failure ? router.currentRoute.value.path : to.path))
 
 export default router

@@ -75,7 +75,7 @@ async function submit() {
                 <EyeOff v-if="show" class="size-4.5" /><Eye v-else class="size-4.5" />
               </button>
             </div>
-            <p class="mt-1 text-xs text-slate-500">At least 8 characters.</p>
+            <p class="mt-1 text-xs text-slate-500">At least 8 characters, with letters and numbers.</p>
           </div>
           <p v-if="error" class="text-sm text-red-600">
             {{ error }}
