@@ -21,7 +21,7 @@ import BaseModal from '@/components/BaseModal.vue'
 // No reason / pay code: the landlord matches the money by the sender's registered names.
 const route = useRoute()
 const router = useRouter()
-const { rental, tenant, property, dues } = useTenant()
+const { rental, tenant, property, dues, balance } = useTenant()
 
 const suggested = computed(() => Math.max(0, Math.round(Number(route.query.amount) || 0)) || property.value?.rent || 0)
 const completing = computed(() => route.query.complete === '1')
@@ -33,7 +33,7 @@ const waiting = computed(() =>
 )
 // The part-paid month being completed (money always goes to the oldest unpaid month first)
 const partMonth = computed(() => dues.value.find((d) => d.amountPaid > 0) ?? dues.value[0] ?? null)
-const owedTotal = computed(() => dues.value.reduce((s, d) => s + d.balance, 0))
+const owedTotal = computed(() => balance.value) // every month in debt
 const sim = computed(() => (NETWORK_IDS.includes(route.query.sim) ? route.query.sim : null))
 
 const accounts = computed(() => (tenant.value ? rental.payAccountsOf(tenant.value.landlordId) : []))
@@ -52,8 +52,8 @@ const amountTouched = ref(false)
 const quick = computed(() => {
   const list = []
   if (completing.value && partMonth.value) list.push({ label: 'All remaining', value: partMonth.value.balance })
+  if (!dues.value.length && rent.value) list.push({ label: 'One month', value: rent.value })
   if (owedTotal.value && owedTotal.value !== partMonth.value?.balance) list.push({ label: 'Everything owed', value: owedTotal.value })
-  if (!owedTotal.value && rent.value) list.push({ label: 'One month', value: rent.value })
   const base = completing.value ? partMonth.value?.balance : owedTotal.value || rent.value
   if (base >= 1000) list.push({ label: 'Half', value: Math.round(base / 2 / 500) * 500 })
   return list.filter((q, i, all) => q.value >= 500 && all.findIndex((x) => x.value === q.value) === i)

@@ -1,9 +1,11 @@
 // Netlify Function: tenants without a smartphone → app access. Same as server/index.js:
 //   POST /api/landlord/tenants/:id/app-access → landlord creates the tenant's login (phone sign-in)
+//   POST /api/landlord/tenants/:id/invite-link → a one-time link to send on WhatsApp
 //   POST /api/auth/complete-tenant            → tenant's first sign-in: add email + choose password
 // Needs SUPABASE_SERVICE_ROLE_KEY in Netlify → Site configuration → Environment variables (scope: Functions).
 import { createClient } from '@supabase/supabase-js'
 import { HttpError, requireUserProfile, giveTenantAppAccess, completeTenantAccount } from '../../server/admin.js'
+import { createInvite } from '../../server/invite.js'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -33,6 +35,11 @@ export default async (req) => {
     if (access) {
       if (profile?.role !== 'landlord' || !profile.active) throw new HttpError(403, 'Only landlords can do this.')
       return json(await giveTenantAppAccess(db, user.id, access[1]))
+    }
+    const link = path.match(/\/tenants\/([^/]+)\/invite-link\/?$/)
+    if (link) {
+      if (profile?.role !== 'landlord' || !profile.active) throw new HttpError(403, 'Only landlords can do this.')
+      return json(await createInvite(db, user.id, link[1]))
     }
     if (/complete-tenant\/?$/.test(path)) return json(await completeTenantAccount(db, user, profile, body))
     return json({ error: 'Not found' }, 404)

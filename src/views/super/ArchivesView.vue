@@ -4,6 +4,7 @@ import {
   ChevronLeft, Archive, Briefcase, Users, Building2, Wallet, DoorOpen, Bell, Download, Search, ArrowDownLeft, Banknote,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { searcher } from '@/lib/search'
 import { formatUGX, formatDate } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
@@ -75,8 +76,8 @@ const rows = computed(() => {
   if (tab.value === 'payments') out = (x.payment_receipts ?? []).map((r) => ({ id: r.id, cash: /cash/i.test(r.method ?? ''), title: nameOfTenant(r.tenant_id), sub: `${r.method} · ${nameOfLandlord(r.landlord_id)} · ${formatDate(r.received_at)}`, value: formatUGX(r.amount) })).reverse()
   if (tab.value === 'moveouts') out = (x.move_out_requests ?? []).map((m) => ({ id: m.id, title: nameOfTenant(m.tenant_id), sub: `${m.reason}${m.rating ? ` · ${m.rating}/5` : ''}`, value: m.status }))
   if (tab.value === 'messages') out = (x.notifications ?? []).map((n) => ({ id: n.id, title: n.title, sub: `${nameOfTenant(n.tenant_id)} · ${n.body}`, value: formatDate(n.created_at) })).reverse()
-  const q = query.value.trim().toLowerCase()
-  return q ? out.filter((r) => `${r.title} ${r.sub} ${r.value}`.toLowerCase().includes(q)) : out
+  const hit = searcher(query.value)
+  return out.filter((r) => hit(r.title, r.sub, r.value, ...String(r.sub ?? '').split(' · ')))
 })
 const shown = ref(50)
 watch([tab, query], () => (shown.value = 50))

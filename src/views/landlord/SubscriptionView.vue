@@ -113,7 +113,7 @@ const planLabel = computed(() => {
 const meter = computed(() => {
   if (!s.value.active || s.value.exempt) return 0
   const total = s.value.plan === 'yearly' ? 365 : 30
-  return Math.max(4, Math.min(100, Math.round(((s.value.daysLeft + 1) / total) * 100)))
+  return Math.max(4, Math.min(100, Math.round((s.value.daysLeft / total) * 100)))
 })
 
 // ── 1. Package ──
@@ -143,9 +143,9 @@ const addDays = (iso, n) => {
   return d.toISOString().slice(0, 10)
 }
 const period = computed(() => {
-  const start = s.value.active && s.value.until ? addDays(s.value.until, 1) : today()
+  const start = s.value.active && s.value.until ? s.value.until : today()
   // A subscription month is 30 days; a year is 365 (same as database/53)
-  return { start, end: addDays(start, (months.value === 12 ? 365 : 30 * months.value) - 1) }
+  return { start, end: addDays(start, months.value === 12 ? 365 : 30 * months.value) }
 })
 
 // ── 2. Line to pay to ──
@@ -237,7 +237,7 @@ const statusPill = {
   rejected: ['Not confirmed', CircleX, 'pill-bad'],
   cancelled: ['Withdrawn', CircleSlash, 'pill-off'],
 }
-const days = (p) => (p.periodStart && p.periodEnd ? daysBetween(p.periodStart, p.periodEnd) + 1 : null)
+const days = (p) => (p.periodStart && p.periodEnd ? daysBetween(p.periodStart, p.periodEnd) : null)
 
 // ── The subscription the landlord has paid for (latest confirmed payment) ──
 const paid = computed(() => {
@@ -245,15 +245,17 @@ const paid = computed(() => {
   if (!list.length) return null
   // The period running today, otherwise the latest one
   const t = today()
-  const p = list.find((x) => x.periodStart <= t && x.periodEnd >= t) ?? [...list].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0]
+  const p = list.find((x) => x.periodStart <= t && x.periodEnd > t) ?? [...list].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd))[0]
   const total = days(p)
-  const used = Math.min(total, Math.max(0, daysBetween(p.periodStart, t) + 1))
-  const ahead = list.filter((x) => x.periodStart > p.periodEnd).length // renewals already paid on top
+  // A day is used once its 24 hours are complete: what is left of this period is counted to its exact end
+  const left = s.value.ends ? Math.max(0, s.value.daysLeft - daysBetween(p.periodEnd, s.value.until)) : daysBetween(t, p.periodEnd)
+  const used = Math.min(total, Math.max(0, total - left))
+  const ahead = list.filter((x) => x.periodStart >= p.periodEnd).length // renewals already paid on top
   return {
     ...p,
     total,
     used: p.periodStart > t ? 0 : used,
-    left: Math.max(0, daysBetween(t, s.value.until ?? p.periodEnd)),
+    left: s.value.ends ? s.value.daysLeft : Math.max(0, daysBetween(t, p.periodEnd)),
     pct: p.periodStart > t ? 0 : Math.round((used / total) * 100),
     length: p.months === 12 ? '1 year (365 days)' : `${p.months} month${p.months === 1 ? '' : 's'} (${p.months * 30} days)`,
     ahead,
@@ -334,7 +336,7 @@ const lastRejected = computed(() => (history.value[0]?.status === 'rejected' ? h
           <p class="mt-4 flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-[2rem]"><InfinityIcon v-if="s.exempt" class="size-7" /> {{ headline }}</p>
           <p class="status-sub mt-1.5 text-sm">
             <template v-if="s.exempt">This landlord account uses Renta UG at no cost, with every feature and no time limit.</template>
-            <template v-else-if="s.daysLeft === 0">Today is the last day covered.</template>
+            <template v-else-if="s.endsIn <= 0">It ends today. Renew now: new time is added on top.</template>
             <template v-else>{{ s.daysLeft }} day{{ s.daysLeft === 1 ? '' : 's' }} left. Renew any time: new time is added on top.</template>
           </p>
           <div v-if="s.active && !s.exempt" class="meter mt-5 h-2 max-w-md overflow-hidden rounded-full"><span class="block h-full rounded-full" :style="{ width: `${meter}%` }" /></div>

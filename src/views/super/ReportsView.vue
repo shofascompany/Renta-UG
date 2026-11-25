@@ -1,17 +1,20 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { supabase } from '@/lib/supabase'
+import { computed, onMounted, reactive } from 'vue'
+import { fetchAll, supabase } from '@/lib/supabase'
 import { heardLabel } from '@/lib/heardFrom'
 import {
   Wallet, TrendingUp, TrendingDown, Percent, Building2, Users, Smartphone, Clock, CalendarCheck2, Star, Hourglass, Receipt,
   CalendarClock, UserPlus, Briefcase, DoorOpen, Download,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { usePlatformStats } from '@/composables/usePlatformStats'
 import { compactUGX, downloadCSV } from '@/composables/useRentAnalytics'
-import { formatUGX, formatPeriod } from '@/utils/format'
+import { formatUGX, formatPeriod, dayOf, monthOf } from '@/utils/format'
+import { rentDaysLeft, rentEnded } from '@/lib/now'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
+import LiveBar from '@/components/super/LiveBar.vue'
 import Panel from '@/components/admin/Panel.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
 import RankBars from '@/components/charts/RankBars.vue'
@@ -22,7 +25,7 @@ import EmptyState from '@/components/EmptyState.vue'
 // Everything is computed from live data, so the numbers always match the rest of the app.
 const rental = useRentalStore()
 const p = usePlatformStats()
-const range = ref(6) // months shown in the charts
+const range = useFilter('range', 6) // 3 | 6 | 12 months shown in the charts
 
 const pad = (n) => String(n).padStart(2, '0')
 const periodOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
@@ -48,7 +51,7 @@ const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
 const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0)
 
 // ── Money ──
-const receivedIn = (period) => sum(rental.payment_receipts.filter((r) => String(r.receivedAt).startsWith(period)), (r) => r.amount)
+const receivedIn = (period) => sum(rental.payment_receipts.filter((r) => monthOf(r.receivedAt) === period), (r) => r.amount)
 const thisMonth = computed(() => receivedIn(thisP))
 const lastMonth = computed(() => receivedIn(lastP))
 const growth = computed(() => (lastMonth.value ? Math.round(((thisMonth.value - lastMonth.value) / lastMonth.value) * 100) : null))
@@ -61,11 +64,11 @@ const billedVsCollected = computed(() =>
 const billedAll = computed(() => sum(rental.payments, (x) => x.amount))
 const collectionRate = computed(() => pct(p.totalCollected.value, billedAll.value))
 const avgPayment = computed(() => (rental.payment_receipts.length ? Math.round(sum(rental.payment_receipts, (r) => r.amount) / rental.payment_receipts.length) : 0))
-const paymentsThisMonth = computed(() => rental.payment_receipts.filter((r) => String(r.receivedAt).startsWith(thisP)).length)
+const paymentsThisMonth = computed(() => rental.payment_receipts.filter((r) => monthOf(r.receivedAt) === thisP).length)
 
 // On time: fully paid on or before the due date
 const paidCharges = computed(() => rental.payments.filter((x) => x.status === 'paid' && x.paidAt))
-const onTimeRate = computed(() => pct(paidCharges.value.filter((x) => String(x.paidAt).slice(0, 10) <= x.dueDate).length, paidCharges.value.length))
+const onTimeRate = computed(() => pct(paidCharges.value.filter((x) => dayOf(x.paidAt) <= x.dueDate).length, paidCharges.value.length))
 const monthsAhead = computed(() => rental.payments.filter((x) => x.status === 'paid' && x.period > thisP).length)
 
 // By network
@@ -87,9 +90,10 @@ const arrears = computed(() => {
     { label: '61–90 days', value: 0 },
     { label: 'Over 90 days', value: 0 },
   ]
-  for (const x of rental.payments.filter((y) => y.status === 'overdue')) {
-    const d = days(x.dueDate, today)
-    b[d <= 30 ? 0 : d <= 60 ? 1 : d <= 90 ? 2 : 3].value += x.balance
+  for (const x of rental.unpaidMonths) {
+    const d = days(x.from, today)
+    if (d < 1) continue
+    b[d <= 30 ? 0 : d <= 60 ? 1 : d <= 90 ? 2 : 3].value += x.amount
   }
   return b
 })
@@ -128,12 +132,12 @@ const rentBands = computed(() => {
 })
 
 // ── People & growth ──
-const joinedIn = (list, field, period) => list.filter((x) => String(x[field] ?? '').startsWith(period)).length
+const joinedIn = (list, field, period) => list.filter((x) => monthOf(x[field]) === period).length
 const growthChart = computed(() => periods.value.map((period) => ({ label: short(period), value: joinedIn(rental.tenants, 'createdAt', period) })))
 const newLandlords = computed(() => joinedIn(rental.landlords, 'createdAt', thisP))
 const newTenants = computed(() => joinedIn(rental.tenants, 'createdAt', thisP))
 const current = computed(() => rental.tenants.filter((t) => t.propertyId))
-const adoption = computed(() => pct(current.value.filter((t) => t.userId).length, current.value.length))
+const adoption = computed(() => pct(current.value.filter((t) => t.usesApp).length, current.value.length))
 const managedShare = computed(() => pct(current.value.filter((t) => t.managedByLandlord).length, current.value.length))
 const avgStay = computed(() => {
   const ended = rental.tenants.filter((t) => !t.propertyId && t.endedAt)
@@ -141,9 +145,9 @@ const avgStay = computed(() => {
   return Math.round(sum(ended, (t) => days(t.leaseStart ?? t.createdAt, t.endedAt)) / ended.length / 30)
 })
 const notStarted = computed(() => current.value.filter((t) => !t.leaseEnd).length)
-const ending7 = computed(() => current.value.filter((t) => t.leaseEnd && days(today, t.leaseEnd) >= 0 && days(today, t.leaseEnd) <= 7).length)
-const ending30 = computed(() => current.value.filter((t) => t.leaseEnd && days(today, t.leaseEnd) >= 0 && days(today, t.leaseEnd) <= 30).length)
-const expired = computed(() => current.value.filter((t) => t.leaseEnd && t.leaseEnd < today).length)
+const ending7 = computed(() => current.value.filter((t) => rentDaysLeft(t) > 0 && rentDaysLeft(t) <= 7).length)
+const ending30 = computed(() => current.value.filter((t) => rentDaysLeft(t) > 0 && rentDaysLeft(t) <= 30).length)
+const expired = computed(() => current.value.filter((t) => rentEnded(t)).length)
 
 // ── Leaving ──
 const moveOuts = computed(() => rental.move_out_requests.filter((m) => m.status !== 'cancelled'))
@@ -160,10 +164,14 @@ const reasons = computed(() => {
 // ── How people found us ──
 const heard = reactive({ rows: [], landlords: 0, tenants: 0, loading: true, error: '' })
 onMounted(async () => {
-  const { data, error } = await supabase.from('signup_sources').select('source, detail, role, created_at').order('created_at', { ascending: false })
-  heard.loading = false
-  if (error) return (heard.error = error.message)
-  heard.rows = data ?? []
+  try {
+    heard.rows = await fetchAll(() => supabase.from('signup_sources').select('id:user_id, source, detail, role, created_at').order('created_at', { ascending: false }).order('user_id'))
+  } catch (e) {
+    heard.error = e.message
+    return
+  } finally {
+    heard.loading = false
+  }
   heard.landlords = heard.rows.filter((r) => r.role === 'landlord').length
   heard.tenants = heard.rows.filter((r) => r.role === 'tenant').length
 })
@@ -208,6 +216,8 @@ function exportSummary() {
         </div>
       </template>
     </SuperHero>
+
+    <LiveBar />
 
     <div class="mb-5 flex items-center justify-between gap-3">
       <h2 class="section-title !mb-0">Charts show the last</h2>

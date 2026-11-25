@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useRentalStore } from '@/stores/rental'
 import { channelOf } from '@/composables/useRentAnalytics'
+import { monthOf } from '@/utils/format'
 
 // Main admin: platform-wide figures, computed from everything the store has loaded.
 // Money "collected" = what tenants have actually paid against rent (payments.amount_paid),
@@ -25,17 +26,21 @@ export function usePlatformStats() {
     })
 
   const totalCollected = computed(() => rental.payments.reduce((s, p) => s + p.amountPaid, 0))
-  const monthCollected = computed(() => rental.payments.filter((p) => p.period === thisPeriod).reduce((s, p) => s + p.amountPaid, 0))
-  const monthBilled = computed(() => rental.payments.filter((p) => p.period === thisPeriod).reduce((s, p) => s + p.amount, 0))
-  const outstanding = computed(() => rental.payments.reduce((s, p) => s + p.balance, 0))
-  const overdueTenants = computed(() => new Set(rental.payments.filter((p) => p.status === 'overdue').map((p) => p.tenantId)).size)
+  // Money received this calendar month, by the day it came in (the same number as on Statistics)
+  const monthReceipts = computed(() => rental.payment_receipts.filter((r) => monthOf(r.receivedAt) === monthOf(new Date())))
+  const monthCollected = computed(() => monthReceipts.value.reduce((s, r) => s + r.amount, 0))
+  // All the unpaid rent of all the tenants, for all the months they are behind (utils/payState.js)
+  const outstanding = computed(() => rental.unpaidMonths.reduce((s, m) => s + m.amount, 0))
+  const unpaidCount = computed(() => rental.unpaidMonths.length)
+  // The same tenants as the Overdue filter on the Tenants page
+  const overdueTenants = computed(() => rental.tenants.filter((t) => t.propertyId && rental.payStateFor(t.id)?.late).length)
 
   // Money received per calendar month (by the day it came in)
   const byMonth = computed(() =>
     lastPeriods(6).map((period) => ({
       period,
       label: shortMonth(period),
-      value: rental.payment_receipts.filter((r) => String(r.receivedAt).slice(0, 7) === period).reduce((s, r) => s + r.amount, 0),
+      value: rental.payment_receipts.filter((r) => monthOf(r.receivedAt) === period).reduce((s, r) => s + r.amount, 0),
     })),
   )
 
@@ -76,8 +81,9 @@ export function usePlatformStats() {
     thisPeriod,
     totalCollected,
     monthCollected,
-    monthBilled,
+    monthReceipts,
     outstanding,
+    unpaidCount,
     overdueTenants,
     byMonth,
     channels,

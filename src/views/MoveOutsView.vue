@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import { DoorOpen, Star, CheckCircle2, XCircle, Clock } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { useAuthStore } from '@/stores/auth'
 import { formatDate } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
@@ -13,7 +14,7 @@ import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 // Approve → the tenancy ends (history kept, room vacant) and the tenant is signed out.
 const rental = useRentalStore()
 const auth = useAuthStore()
-const filter = ref('pending') // pending | all
+const filter = useFilter('show', 'pending', ['pending', 'all'])
 
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Tenant'
 const place = (id) => (id && rental.propertyById(id) ? rental.placeName(id) : 'Room')

@@ -2,9 +2,11 @@
 import { computed, ref } from 'vue'
 import {
   CheckCircle2, Banknote, X, Search, FileDown, EllipsisVertical, CalendarDays, Check, ChevronDown,
-  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight, Smartphone, ImageDown, Loader2,
+  AlertCircle, Clock, CircleCheck, History, HandCoins, ChevronRight, Smartphone, ImageDown, Loader2, MessageCircle, TrendingDown,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { useRentAnalytics, longMonth, downloadCSV } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import { NETWORKS } from '@/lib/networks'
@@ -18,9 +20,9 @@ import { useReceiptDownload } from '@/composables/useReceiptDownload'
 // Payments: this month at a glance, cash waiting for confirmation, then every rent charge grouped by month.
 const rental = useRentalStore()
 const a = useRentAnalytics()
-const status = ref('all') // all | pending | overdue | paid
-const query = ref('')
-const month = ref('') // '' = all months
+const status = useFilter('status', 'all', ['all', 'pending', 'overdue', 'paid'])
+const query = useFilter('q', '')
+const month = useFilter('month', '') // '' = all months
 const flash = ref('')
 
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Former tenant'
@@ -28,12 +30,16 @@ const houseName = (id) => rental.placeName(id)
 const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 
 const monthsWithCharges = computed(() => [...new Set(rental.payments.map((p) => p.period))].sort().reverse())
-const list = computed(() => {
-  const q = query.value.trim().toLowerCase()
+// This month and search, before the status (the number beside each status comes from these)
+const inScope = computed(() => {
+  const hit = searcher(query.value)
   return rental.payments
-    .filter((p) => status.value === 'all' || p.status === status.value)
     .filter((p) => !month.value || p.period === month.value)
-    .filter((p) => !q || `${tenantName(p.tenantId)} ${houseName(p.propertyId)} ${p.reference ?? ''}`.toLowerCase().includes(q))
+    .filter((p) => hit(tenantName(p.tenantId), rental.tenantById(p.tenantId)?.phone, houseName(p.propertyId), p.reference, formatPeriod(p.period), p.method))
+})
+const list = computed(() => {
+  return inScope.value
+    .filter((p) => status.value === 'all' || p.status === status.value)
     .sort((x, y) => y.period.localeCompare(x.period) || x.status.localeCompare(y.status) || tenantName(x.tenantId).localeCompare(tenantName(y.tenantId)))
 })
 // Grouped by rent month, newest first
@@ -49,12 +55,15 @@ const groups = computed(() => {
   return [...map.values()]
 })
 const counts = computed(() => ({
-  all: rental.payments.length,
-  paid: rental.payments.filter((p) => p.status === 'paid').length,
-  pending: rental.payments.filter((p) => p.status === 'pending').length,
-  overdue: rental.payments.filter((p) => p.status === 'overdue').length,
+  all: inScope.value.length,
+  paid: inScope.value.filter((p) => p.status === 'paid').length,
+  pending: inScope.value.filter((p) => p.status === 'pending').length,
+  overdue: inScope.value.filter((p) => p.status === 'overdue').length,
 }))
-const dueTotal = computed(() => rental.payments.filter((p) => p.status === 'pending').reduce((s, p) => s + p.balance, 0))
+// Rooms with no tenant earn nothing: the rent they would bring in each month is money lost
+const vacantRooms = computed(() => rental.properties.filter((p) => !rental.tenantForProperty(p.id)))
+const vacantLoss = computed(() => vacantRooms.value.reduce((s, p) => s + (p.rent || 0), 0))
+const owedIn = (key) => inScope.value.filter((p) => p.status === key).reduce((s, p) => s + p.balance, 0)
 
 function showFlash(msg) {
   flash.value = msg
@@ -84,7 +93,7 @@ function cashFromDetails() {
 }
 // Each amount received for the open month, with its receipt as an image
 // (paid in turns: every instalment, numbered, with the days each bought)
-const { saving, saveRevenue, instalmentsFor } = useReceiptDownload()
+const { saving, saveRevenue, shareRevenue, canShare, instalmentsFor } = useReceiptDownload()
 const plan = computed(() => (charge_.value ? instalmentsFor(charge_.value.id) : null))
 const chargeReceipts = computed(() =>
   plan.value
@@ -142,6 +151,27 @@ function exportCSV() {
         </button>
       </div>
     </section>
+
+    <!-- Money lost every month because rooms have no tenant -->
+    <RouterLink
+      :to="{ path: '/landlord/properties', query: { show: 'vacant' } }"
+      class="sheet flex items-center gap-4 p-4 transition hover:bg-slate-50 sm:p-5"
+      data-tour="vacancy-loss"
+    >
+      <span class="icon-tile size-12 shrink-0" :class="vacantLoss ? 'tile-amber' : 'tile-teal'"><component :is="vacantLoss ? TrendingDown : CircleCheck" class="size-6" /></span>
+      <span class="min-w-0 flex-1">
+        <span class="block text-xs font-semibold tracking-[0.12em] text-slate-500 uppercase">Lost to empty rooms</span>
+        <span v-if="vacantLoss" class="mt-0.5 block text-2xl leading-tight font-bold tracking-tight text-slate-900 tabular-nums">
+          {{ formatUGX(vacantLoss) }} <span class="text-sm font-medium text-slate-500">every month</span>
+        </span>
+        <span v-else class="mt-0.5 block text-lg font-semibold text-emerald-700">Nothing lost: every room has a tenant</span>
+        <span class="mt-0.5 block text-xs text-slate-500">
+          <template v-if="vacantRooms.length">{{ vacantRooms.length }} room{{ vacantRooms.length === 1 ? '' : 's' }} without a tenant ({{ formatUGX(vacantLoss * 12) }} a year). Add a tenant to start earning from {{ vacantRooms.length === 1 ? 'it' : 'them' }}.</template>
+          <template v-else>Rent is billed on all {{ rental.properties.length }} of your rooms.</template>
+        </span>
+      </span>
+      <ChevronRight class="size-4 shrink-0 text-slate-300" />
+    </RouterLink>
 
     <!-- No receiving number yet: tenants can't pay by mobile money -->
     <button v-if="!payAccounts.length" type="button" class="flex w-full items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-left" @click="numbersOpen = true">
@@ -236,8 +266,8 @@ function exportCSV() {
           @click="status = s[0]"
         >{{ s[1] }} <span class="text-xs opacity-60 tabular-nums">{{ counts[s[0]] }}</span></button>
       </div>
-      <p v-if="status === 'pending' && dueTotal" class="mt-2 px-1 text-xs text-slate-500">{{ formatUGX(dueTotal) }} due, not yet late.</p>
-      <p v-if="status === 'overdue' && a.overdueTotal.value" class="mt-2 px-1 text-xs font-medium text-red-600">{{ formatUGX(a.overdueTotal.value) }} overdue.</p>
+      <p v-if="status === 'pending' && counts.pending" class="mt-2 px-1 text-xs text-slate-500">{{ formatUGX(owedIn('pending')) }} due, not yet late.</p>
+      <p v-if="status === 'overdue' && counts.overdue" class="mt-2 px-1 text-xs font-medium text-red-600">{{ formatUGX(owedIn('overdue')) }} overdue.</p>
 
       <!-- Months -->
       <div v-for="g in groups" :key="g.period" class="mt-5">
@@ -278,8 +308,8 @@ function exportCSV() {
 
       <div v-if="!groups.length" class="sheet mt-4 flex flex-col items-center px-6 py-14 text-center">
         <span class="icon-tile tile-teal size-12"><CircleCheck class="size-6" /></span>
-        <p class="mt-3 font-semibold text-slate-900">{{ counts.all ? 'Nothing matches' : 'No rent charges yet' }}</p>
-        <p class="mt-1 max-w-xs text-sm text-slate-500">{{ counts.all ? 'Try another month, status or search.' : 'Rent charges for your tenants will appear here.' }}</p>
+        <p class="mt-3 font-semibold text-slate-900">{{ rental.payments.length ? 'Nothing matches' : 'No rent charges yet' }}</p>
+        <p class="mt-1 max-w-xs text-sm text-slate-500">{{ rental.payments.length ? 'Try another month, status or search.' : 'Rent charges for your tenants will appear here.' }}</p>
       </div>
     </section>
 
@@ -323,6 +353,9 @@ function exportCSV() {
               <p class="shrink-0 text-sm font-semibold text-slate-900 tabular-nums">{{ formatUGX(r.amount) }}</p>
               <button type="button" class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm transition hover:bg-brand-50 active:scale-95" :aria-label="`Download the receipt for ${formatUGX(r.amount)}`" title="Download receipt" @click="saveRevenue(r)">
                 <Loader2 v-if="saving === r.id" class="size-4 animate-spin" /><ImageDown v-else class="size-4" />
+              </button>
+              <button v-if="canShare" type="button" class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#128c4a] shadow-sm transition hover:bg-emerald-50 active:scale-95" :aria-label="`Share the receipt for ${formatUGX(r.amount)} on WhatsApp`" title="Share on WhatsApp" @click="shareRevenue(r)">
+                <MessageCircle class="size-4" />
               </button>
             </li>
           </ul>

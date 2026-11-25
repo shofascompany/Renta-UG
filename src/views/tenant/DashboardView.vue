@@ -8,15 +8,19 @@ import {
 } from '@lucide/vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import { useTenant } from '@/composables/useTenant'
-import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import { formatUGX, formatDate, formatPeriod, timeLeft } from '@/utils/format'
+import { rentDaysLeft } from '@/lib/now'
 import PushPrompt from '@/components/PushPrompt.vue'
 import AppLink from '@/components/AppLink.vue'
 import EmptyState from '@/components/EmptyState.vue'
 
 // Only what a tenant needs at a glance: what they owe, their lease, their home.
 // Everything else has its own page (My home, Payments, Notifications via the bell).
-const { rental, tenant, property, payments, dues, balance, rent, notStarted, timeEnded, firstRent } = useTenant()
+const { rental, tenant, property, payments, dues, balance, rent, notStarted, timeEnded, firstRent, firstMonths, firstSince } = useTenant()
 const paidState = computed(() => (tenant.value ? rental.payStateFor(tenant.value.id) : null)) // Paid / Part paid / Not paid
+
+// First time they open their dashboard: from now on their landlord sees them as a smartphone tenant
+watch(() => tenant.value?.managedByLandlord, (managed) => managed && rental.markDashboardOpened(), { immediate: true })
 
 const firstName = computed(() => tenant.value?.name.split(' ')[0] ?? '')
 const nextDue = computed(() => dues.value[0])
@@ -42,9 +46,9 @@ const payWays = computed(() => {
   return Object.values(ways).filter((w) => w.count).sort((a, b) => b.total - a.total)
 })
 
-const daysLeft = computed(() => (tenant.value?.leaseEnd ? daysUntil(tenant.value.leaseEnd) : null))
+const daysLeft = computed(() => rentDaysLeft(tenant.value))
 // New tenant who hasn't paid yet: their rental time has not started, so no days are counted (see useTenant)
-const endingSoon = computed(() => daysLeft.value !== null && daysLeft.value >= 0 && daysLeft.value <= 7)
+const endingSoon = computed(() => daysLeft.value !== null && daysLeft.value > 0 && daysLeft.value <= 7)
 const leaseProgress = computed(() => {
   const t = tenant.value
   if (!t?.leaseStart || !t?.leaseEnd) return 0
@@ -104,7 +108,7 @@ const coverage = computed(() => {
   })
 })
 // "Paid" badge: inside paid rental time (or this month paid, for older records without a rental time)
-const covered = computed(() => (tenant.value?.leaseEnd ? daysLeft.value >= 0 : current.value.paid))
+const covered = computed(() => (tenant.value?.leaseEnd ? daysLeft.value > 0 : current.value.paid))
 const paidUntil = computed(() => {
   const last = coverage.value.at(-1)
   return last && last.state !== 'ended' ? monthBounds(last.period).end : null
@@ -131,10 +135,12 @@ watch(paying, (p) => {
   paying.value = null
 })
 const debtDays = computed(() => (daysLeft.value !== null && daysLeft.value < 0 ? -daysLeft.value : 0))
-const thisMonthLabel = `Rent for ${now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+const thisMonthLabel = computed(() => (firstMonths.value > 1 ? `${firstMonths.value} months' rent` : `Rent for ${now.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`))
+const payFirst = () => (paying.value = { recharge: { total: firstRent.value }, label: thisMonthLabel.value })
 const canPayNow = computed(() => Boolean(nextDue.value || firstRent.value))
 function payNow() {
-  paying.value = nextDue.value ?? { recharge: { months: 1, total: firstRent.value }, label: thisMonthLabel }
+  if (nextDue.value) paying.value = nextDue.value
+  else payFirst()
 }
 
 // Short sentences that fade in one after another, words only (no box around them)
@@ -230,8 +236,9 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
             </p>
             <p class="mt-1 truncate text-xs text-white/60">
               <template v-if="nextDue">
-                {{ formatPeriod(nextDue.period) }}<template v-if="dues.length > 1"> +{{ dues.length - 1 }}</template>
+                {{ formatPeriod(nextDue.period) }}<template v-if="dues.length + firstMonths > 1"> +{{ dues.length + firstMonths - 1 }}</template>
               </template>
+              <template v-else-if="firstMonths > 1">{{ firstMonths }} months</template>
               <template v-else-if="firstRent">Rent for {{ now.toLocaleDateString('en-GB', { month: 'long' }) }}</template>
               <template v-else>{{ formatUGX(property?.rent) }} / month</template>
             </p>
@@ -352,9 +359,9 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         <!-- Paid: count down to the end of the paid rental time -->
         <template v-else-if="tenant?.leaseEnd">
           <div class="mt-4 flex items-end gap-3">
-            <p class="countdown text-5xl leading-none font-bold tracking-tight tabular-nums" :class="debtDays && '!text-red-600'">{{ debtDays || Math.max(0, daysLeft) }}</p>
+            <p class="countdown text-5xl leading-none font-bold tracking-tight tabular-nums" :class="timeEnded && '!text-red-600'">{{ debtDays || Math.max(0, daysLeft) }}</p>
             <p class="pb-1 text-sm leading-snug text-slate-600">
-              <template v-if="debtDays">debt day{{ debtDays === 1 ? '' : 's' }}</template>
+              <template v-if="timeEnded">debt day{{ debtDays === 1 ? '' : 's' }}</template>
               <template v-else>day{{ Math.max(0, daysLeft) === 1 ? '' : 's' }} left</template><br />
               <span class="text-slate-400">{{ timeEnded ? 'Ended' : 'Ends' }} {{ formatDate(tenant.leaseEnd) }}</span>
             </p>
@@ -441,7 +448,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
           <RouterLink to="/tenant/payments" class="mb-2.5 text-xs font-semibold text-brand-700">All payments</RouterLink>
         </div>
         <div class="sheet">
-          <ul v-if="dues.length" class="divide-y divide-slate-100">
+          <ul v-if="dues.length || firstRent" class="divide-y divide-slate-100">
             <ListRow
               v-for="d in dues.slice(0, 4)"
               :key="d.id"
@@ -458,10 +465,8 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
                 </span>
               </template>
             </ListRow>
-          </ul>
-          <ul v-else-if="firstRent">
-            <ListRow :title="thisMonthLabel" subtitle="Pay all or part: your time starts the day you pay" :value="formatUGX(firstRent)" value-class="text-amber-700" @click="payNow">
-              <template #icon><span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span></template>
+            <ListRow v-if="firstRent" :title="thisMonthLabel" :subtitle="firstSince ? `Unpaid since ${formatDate(firstSince)}` : 'Pay all or part: your time starts the day you pay'" :value="formatUGX(firstRent)" :value-class="firstSince ? 'text-red-600' : 'text-amber-700'" @click="payFirst">
+              <template #icon><span class="icon-disc rounded-full" :class="firstSince ? 'disc-red' : 'disc-amber'"><Clock class="size-5" /></span></template>
             </ListRow>
           </ul>
           <ul v-else>

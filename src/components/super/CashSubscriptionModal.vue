@@ -1,7 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { Banknote, Check, Home, Building, CircleCheck, TriangleAlert } from '@lucide/vue'
-import { useBillingStore } from '@/stores/billing'
+import { useBillingStore, subscriptionStatus } from '@/stores/billing'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate } from '@/utils/format'
 import BaseModal from '@/components/BaseModal.vue'
@@ -50,10 +50,10 @@ const addDays = (iso, n) => {
 }
 // Same rule as the database: on top of any time left, otherwise from today
 const period = computed(() => {
-  const until = props.landlord?.subscriptionUntil
-  const start = until && until >= today() ? addDays(until, 1) : today()
+  const s = subscriptionStatus(props.landlord?.subscriptionUntil, null, { clock: props.landlord?.subscriptionClock })
+  const start = s.active ? s.until : today()
   // A subscription month is 30 days; a year is 365 (same as database/53)
-  return { start, end: addDays(start, (form.plan === 'yearly' ? 365 : 30) - 1) }
+  return { start, end: addDays(start, form.plan === 'yearly' ? 365 : 30) }
 })
 
 const scales = computed(() => [
@@ -98,7 +98,7 @@ async function save() {
             <p class="truncate font-semibold text-slate-900">{{ landlord.name || landlord.email }}</p>
             <p class="text-xs text-slate-500">
               {{ units }} house{{ units === 1 ? '' : 's' }}/rooms now<template v-if="landlord.plannedUnits"> · plans {{ landlord.plannedUnits }}</template>
-              · {{ landlord.subscriptionUntil ? `covered until ${formatDate(landlord.subscriptionUntil)}` : 'not paid yet' }}
+              · {{ landlord.subscriptionUntil ? `covered until ${formatDate(addDays(landlord.subscriptionUntil, 1))}` : 'not paid yet' }}
             </p>
           </div>
         </div>

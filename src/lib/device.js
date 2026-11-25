@@ -17,6 +17,24 @@ function prettyModel(model) {
   return model
 }
 
+// The same name from a saved user agent. '' when it says nothing (e.g. a sign-in made by the server for a phone number)
+export function describeAgent(ua, model = '', touch = false) {
+  if (!ua || !/Mozilla/.test(ua)) return ''
+  let device
+  if (/iPhone/.test(ua)) device = 'iPhone'
+  else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && touch)) device = 'iPad'
+  else if (/Android/.test(ua)) {
+    const fromUa = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/)?.[1]
+    const name = prettyModel(model) || prettyModel(fromUa)
+    device = name ? `${name} (Android)` : 'Android phone'
+  } else if (/Windows/.test(ua)) device = 'Windows computer'
+  else if (/CrOS/.test(ua)) device = 'Chromebook'
+  else if (/Macintosh|Mac OS/.test(ua)) device = 'Mac'
+  else if (/Linux/.test(ua)) device = 'Linux computer'
+  else device = 'a device'
+  return `${device} · ${browserName(ua)}`
+}
+
 export async function deviceName() {
   try {
     const ua = navigator.userAgent
@@ -28,21 +46,7 @@ export async function deviceName() {
     } catch {
       /* not supported */
     }
-
-    let device
-    if (/iPhone/.test(ua)) device = 'iPhone'
-    else if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) device = 'iPad'
-    else if (/Android/.test(ua)) {
-      const fromUa = ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|\))/)?.[1]
-      const name = prettyModel(model) || prettyModel(fromUa)
-      device = name ? `${name} (Android)` : 'Android phone'
-    } else if (/Windows/.test(ua)) device = 'Windows computer'
-    else if (/CrOS/.test(ua)) device = 'Chromebook'
-    else if (/Macintosh|Mac OS/.test(ua)) device = 'Mac'
-    else if (/Linux/.test(ua)) device = 'Linux computer'
-    else device = 'a device'
-
-    return `${device} · ${browserName(ua)}`
+    return describeAgent(ua, model, navigator.maxTouchPoints > 1)
   } catch {
     return ''
   }

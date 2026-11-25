@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { ChevronDown, Search, Check, UserCog, Smartphone } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { searcher } from '@/lib/search'
 import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
 import { formatUGX } from '@/utils/format'
 import PayStatus from './PayStatus.vue'
@@ -27,8 +28,8 @@ const { style, upwards, place } = useAnchoredMenu(open, root, panel, { match: tr
 const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 const selected = computed(() => props.tenants.find((t) => t.id === model.value) ?? null)
 const shown = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  return props.tenants.filter((t) => !q || `${t.name} ${rental.placeName(t.propertyId)} ${t.phone ?? ''}`.toLowerCase().includes(q))
+  const hit = searcher(query.value)
+  return props.tenants.filter((t) => hit(t.name, rental.placeName(t.propertyId), t.phone))
 })
 
 function pick(t) {
@@ -86,8 +87,8 @@ watch(shown, () => open.value && nextTick(place))
               <span class="min-w-0 flex-1">
                 <span class="flex items-center gap-1.5 truncate font-medium text-slate-900">
                   {{ t.name }}
-                  <UserCog v-if="t.managedByLandlord && !t.userId" class="size-3.5 shrink-0 text-slate-400" aria-label="No smartphone" />
-                  <Smartphone v-else-if="t.userId" class="size-3.5 shrink-0 text-emerald-500" aria-label="Uses the app" />
+                  <UserCog v-if="t.managedByLandlord" class="size-3.5 shrink-0 text-slate-400" aria-label="No smartphone" />
+                  <Smartphone v-else-if="t.usesApp" class="size-3.5 shrink-0 text-emerald-500" aria-label="Uses the app" />
                 </span>
                 <span class="block truncate text-xs text-slate-500">{{ rental.placeName(t.propertyId) }}</span>
               </span>

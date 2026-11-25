@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { ArrowLeft, Building2, House, Trophy, ChevronRight, ChevronDown } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { useRentAnalytics, compactUGX, lastPeriods, longMonth, shortMonth, periodOf } from '@/composables/useRentAnalytics'
 import { formatUGX } from '@/utils/format'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
@@ -12,11 +13,11 @@ import EmptyState from '@/components/EmptyState.vue'
 const rental = useRentalStore()
 const a = useRentAnalytics()
 
-const range = ref('all') // all | year | 6m | month
+const range = useFilter('range', 'all', ['all', 'year', '6m', 'month'])
 const RANGES = [['all', 'All time'], ['year', 'This year'], ['6m', '6 months'], ['month', 'This month']]
 const now = new Date()
 const fromPeriod = computed(
-  () => ({ all: '0000-00', year: `${now.getFullYear()}-01`, '6m': lastPeriods(6)[0], month: periodOf(now) })[range.value],
+  () => ({ year: `${now.getFullYear()}-01`, '6m': lastPeriods(6)[0], month: periodOf(now) })[range.value],
 )
 const rangeText = computed(() => ({ all: 'since you started', year: `in ${now.getFullYear()}`, '6m': 'in the last 6 months', month: `in ${longMonth(periodOf(now))}` })[range.value])
 
@@ -33,9 +34,11 @@ const places = computed(() => {
 })
 
 const received = (r) => (r.at ? periodOf(new Date(r.at)) : '')
+// "This month", "this year"… end today; all time takes everything
+const inRange = (r) => range.value === 'all' || (received(r) >= fromPeriod.value && received(r) <= periodOf(now))
 const rows = computed(() => {
   const list = places.value.map((p) => {
-    const money = a.revenue.value.filter((r) => p.ids.has(r.propertyId) && received(r) >= fromPeriod.value)
+    const money = a.revenue.value.filter((r) => p.ids.has(r.propertyId) && inRange(r))
     return { ...p, value: money.reduce((s, r) => s + r.amount, 0), count: money.length }
   })
   const total = list.reduce((s, p) => s + p.value, 0)

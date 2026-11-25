@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { Search, UserCog, Plus } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { formatUGX } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import ListRow from '@/components/admin/ListRow.vue'
@@ -10,18 +12,18 @@ import PayStatus from '@/components/PayStatus.vue'
 
 // Tenants without a smartphone, whose accounts the landlord runs. Tap one for their mini account page.
 const rental = useRentalStore()
-const query = ref('')
+const query = useFilter('q', '')
 const adding = ref(false)
 
 const people = computed(() =>
   rental.currentTenants
-    .filter((t) => t.managedByLandlord && !t.userId)
+    .filter((t) => t.managedByLandlord)
     .map((t) => ({ ...t, pay: rental.payStateFor(t.id), owed: rental.payStateFor(t.id)?.owed ?? 0 }))
     .sort((a, b) => b.owed - a.owed || a.name.localeCompare(b.name)),
 )
 const rows = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  return people.value.filter((t) => !q || `${t.name} ${t.phone ?? ''} ${rental.placeName(t.propertyId)}`.toLowerCase().includes(q))
+  const hit = searcher(query.value)
+  return people.value.filter((t) => hit(t.name, t.phone, rental.placeName(t.propertyId)))
 })
 const owedTotal = computed(() => people.value.reduce((s, t) => s + t.owed, 0))
 const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
@@ -49,7 +51,7 @@ const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('')
           :key="t.id"
           :to="`/landlord/managed/${t.id}`"
           :title="t.name"
-          :subtitle="`${rental.placeName(t.propertyId)}${t.phone ? ` · ${t.phone}` : ''}`"
+          :subtitle="`${rental.placeName(t.propertyId)}${t.phone ? ` · ${t.phone}` : ''}${t.userId ? ' · invited, not registered yet' : ''}`"
           value="-"
         >
           <!-- Paid / Part paid / Not paid, and what is owed -->
@@ -63,7 +65,7 @@ const initials = (name) => name.split(' ').map((p) => p[0]).slice(0, 2).join('')
       <div v-else class="flex flex-col items-center px-6 py-14 text-center">
         <span class="icon-disc disc-slate size-12 rounded-full"><UserCog class="size-6" /></span>
         <p class="mt-3 font-semibold text-slate-900">{{ people.length ? 'No matches' : 'No managed accounts' }}</p>
-        <p class="mt-1 max-w-xs text-sm text-slate-500">Add a tenant without a smartphone here, and you run their account for them.</p>
+        <p class="mt-1 max-w-xs text-sm text-slate-500">{{ people.length ? 'Try another name, phone or room.' : 'Add a tenant without a smartphone here, and you run their account for them.' }}</p>
       </div>
     </div>
 

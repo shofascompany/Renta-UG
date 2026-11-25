@@ -34,15 +34,15 @@ GitHub Desktop → this repository → write a summary (e.g. "Mobile money, heal
 Netlify → your site → **Site configuration → Environment variables → Add a variable → Import from a .env file**.
 Open `.env.netlify`, copy everything, paste, keep **All scopes**, import.
 Delete any old variables that are no longer used: `RELWORX_API_KEY`, `RELWORX_ACCOUNT_NO`, `PAYMENTS_TEST_MODE`,
-`PAYMENT_EMAIL_FALLBACK`, `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH`, `SSENTEZO_*`, `PAYMENT_PROVIDER`.
+`PAYMENT_EMAIL_FALLBACK`, `FLW_SECRET_KEY`, `FLW_WEBHOOK_HASH`, `SSENTEZO_*`, `PAYMENT_PROVIDER`, and the text-message
+keys `AT_USERNAME`, `AT_API_KEY`, `AT_SENDER_ID` (SMS has been removed from the app).
 
 ### 4. Deploy
 Netlify → **Deploys → Trigger deploy → Deploy site** (needed after changing keys: `VITE_…` keys are built into the app).
 
 ### 5. Check it is working
 1. Supabase → **Authentication → URL Configuration** → Site URL `https://rentaug.netlify.app`.
-2. Open `https://rentaug.netlify.app/admin2026` → **Health & settings** → **Run checks now** → all green
-   (SMS shows a warning until the Africa's Talking keys are added).
+2. Open `https://rentaug.netlify.app/admin2026` → **Health & settings** → **Run checks now** → all green.
 3. Sign up a test tenant, add them as a landlord with their email, connect with the code, send a test payment and confirm it.
 
 ---
@@ -64,12 +64,7 @@ Netlify → **Deploys → Trigger deploy → Deploy site** (needed after changin
 | `RESEND_API_KEY` | Sends emails through Resend instead of Gmail (better inbox delivery). When set with `MAIL_FROM`, Resend is used | Resend → **API Keys** → Create API key (Sending access) | **YES** |
 | `MAIL_REPLY_TO` | Optional, Resend only: where replies go | Your support email | No |
 | `VITE_SUPPORT_EMAIL` | Contact on Privacy / Terms / Delete-account pages | An email you read | No |
-| `AT_USERNAME` | Africa's Talking app username (`sandbox` = test, no real texts) | africastalking.com | No |
-| `AT_API_KEY` | Africa's Talking API key | Africa's Talking → Settings → API Key | **YES** |
-| `AT_SENDER_ID` | (optional) Sender name, e.g. `RentaUG` | Needs approval from Africa's Talking | No |
-
-`AT_…` are not set yet: SMS stays off until you add them (remove the `#` in `.env.netlify`, fill them in,
-import them in Netlify, redeploy).
+| `SITE_URL` | (optional) The address put in password-reset emails. Netlify's own `URL` is used when this is empty | `https://rentaug.netlify.app` | No |
 
 **Mobile money** needs no keys: each landlord adds their MTN / Airtel number in the app
 (**Payments → Mobile money numbers**). Tenants send money from their own phone; the landlord confirms it.
@@ -80,13 +75,15 @@ import them in Netlify, redeploy).
 
 | Netlify function | Job |
 |---|---|
-| `push-sweep` | Every minute: phone notifications, and SMS when a landlord confirms a payment |
-| `health-check` | Every 20 minutes: database, sign-in, email, SMS, notifications, waiting payments, app errors |
+| `push-sweep` | Every minute: sends the phone notifications |
+| `health-check` | Every 20 minutes: database, sign-in, email, notifications, waiting payments, app errors |
 | `signup` | Emails the 6-character sign-up code and creates the account |
 | `admin` | Main admin: landlords, delete an account, delete all users (with archive), run checks now |
 | `first-login`, `phone-sign-in`, `tenant-account` | First sign-in, sign-in by phone, app access for tenants |
+| `invite` | Opens the one-time links landlords send on WhatsApp (made in `tenant-account`) |
+| `inbox` | Landlords and the main admin: delete a message from their own inbox |
 | `password` | "Forgot password": emails the reset link (never for the permanent account, whose password is fixed) |
 
 ## If a key leaks
-Make a new one straight away (Supabase, Gmail app password, Africa's Talking, or `npx web-push generate-vapid-keys`),
+Make a new one straight away (Supabase, Gmail app password, or `npx web-push generate-vapid-keys`),
 update it in Netlify and in `.env` / `.env.netlify`, then redeploy. The old key stops working once replaced.

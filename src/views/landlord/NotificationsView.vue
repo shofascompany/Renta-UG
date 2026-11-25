@@ -1,11 +1,16 @@
-﻿<script setup>
+<script setup>
 import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, reactive, ref } from 'vue'
-import { Send, CheckCircle2, BellOff, Megaphone, Wallet, CalendarClock, Wrench, Eye } from '@lucide/vue'
+import { Send, CheckCircle2, BellOff, Megaphone, Wallet, CalendarClock, Wrench, Eye, Trash2 } from '@lucide/vue'
 import { useRentalStore, landlordSenderLine } from '@/stores/rental'
 import { timeAgo } from '@/utils/format'
+import { useFilter } from '@/composables/useFilter'
 import NotificationItem from '@/components/NotificationItem.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
+import NotificationCard from '@/components/NotificationCard.vue'
+import PressMenu from '@/components/PressMenu.vue'
+import { usePressMenu } from '@/composables/usePressMenu'
+import { askConfirm } from '@/composables/useConfirm'
 
 // Landlord: write a notice to tenants. Every notification is titled "Renta UG" and shows
 // who it's from; it also appears on tenants' phones.
@@ -14,7 +19,7 @@ const form = reactive({ to: 'all', body: '' })
 const busy = ref(false)
 const error = ref('')
 const flash = ref('')
-const filter = ref('all')
+const filter = useFilter('type', 'all', ['all', 'general', 'maintenance', 'payment', 'reminder'])
 
 const activeTenants = computed(() => rental.currentTenants)
 const preview = computed(() => ({ title: landlordSenderLine(), body: form.body.trim() }))
@@ -41,10 +46,10 @@ async function send() {
 }
 
 const kinds = {
-  general: { label: 'Notice', icon: Megaphone, cls: 'disc-brand' },
-  maintenance: { label: 'Maintenance', icon: Wrench, cls: 'disc-amber' },
-  payment: { label: 'Payment', icon: Wallet, cls: 'disc-emerald' },
-  reminder: { label: 'Automatic reminder', icon: CalendarClock, cls: 'disc-sky' },
+  general: { label: 'Notice', icon: Megaphone, cls: 'disc-brand', tone: 'brand' },
+  maintenance: { label: 'Maintenance', icon: Wrench, cls: 'disc-amber', tone: 'amber' },
+  payment: { label: 'Payment', icon: Wallet, cls: 'disc-emerald', tone: 'emerald' },
+  reminder: { label: 'Automatic reminder', icon: CalendarClock, cls: 'disc-sky', tone: 'sky' },
 }
 // Personal/automatic notices (sign-in alerts, daily rent status, welcome, overdue reminders) aren't listed here
 const SHOWN = new Set(Object.keys(kinds))
@@ -56,11 +61,28 @@ const sent = computed(() => {
     if (!SHOWN.has(n.type)) continue
     if (filter.value !== 'all' && n.type !== filter.value) continue
     const key = `${n.title}|${n.body}|${n.createdAt.slice(0, 16)}`
-    if (!groups.has(key)) groups.set(key, { ...n, recipients: [] })
+    if (!groups.has(key)) groups.set(key, { ...n, ids: [], recipients: [] })
+    groups.get(key).ids.push(n.id)
     groups.get(key).recipients.push({ name: rental.tenantById(n.tenantId)?.name ?? 'Former tenant', read: n.read })
   }
   return [...groups.values()].slice(0, 50)
 })
+
+// Right click, or press and hold → View / Delete. Only notices the landlord wrote can be deleted: payment
+// confirmations and automatic reminders are the tenant's own records.
+const menu = usePressMenu()
+const viewing = ref(null)
+const canDelete = (n) => n?.type === 'general' || n?.type === 'maintenance'
+async function remove(n) {
+  const yes = await askConfirm({
+    title: 'Delete this notice?',
+    text: `It is also removed from the app of ${n.recipients.length === 1 ? n.recipients[0].name : `the ${n.recipients.length} tenants`} it was sent to. This can't be undone.`,
+    note: n.body.length > 140 ? `${n.body.slice(0, 140)}…` : n.body,
+    confirm: 'Delete', working: 'Deleting…', icon: Trash2,
+    action: () => rental.deleteNotices(n.ids),
+  })
+  if (yes && viewing.value?.id === n.id) viewing.value = null
+}
 </script>
 
 <template>
@@ -122,7 +144,7 @@ const sent = computed(() => {
         </div>
         <div class="sheet">
           <ul v-if="sent.length" class="divide-y divide-slate-100">
-            <li v-for="n in sent" :key="n.id" class="flex gap-3.5 px-4 py-4 sm:px-5">
+            <li v-for="n in sent" :key="n.id" class="flex cursor-pointer gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50 sm:px-5" tabindex="0" v-bind="menu.row(n)" @click="menu.consumed() || (viewing = n)" @keydown.enter="viewing = n">
               <span class="icon-disc rounded-full" :class="kinds[n.type].cls"><component :is="kinds[n.type].icon" class="size-[1.15rem]" /></span>
               <div class="min-w-0 flex-1">
                 <div class="flex items-baseline justify-between gap-3">
@@ -141,11 +163,29 @@ const sent = computed(() => {
           </ul>
           <div v-else class="flex flex-col items-center px-6 py-14 text-center">
             <span class="icon-disc disc-slate size-12 rounded-full"><BellOff class="size-6" /></span>
-            <p class="mt-3 font-semibold text-slate-900">Nothing sent yet</p>
+            <p class="mt-3 font-semibold text-slate-900">{{ filter === 'all' ? 'Nothing sent yet' : 'Nothing of this kind' }}</p>
             <p class="mt-1 max-w-xs text-sm text-slate-500">Notices you send, automatic reminders and payment confirmations appear here.</p>
           </div>
         </div>
+        <p v-if="sent.length" class="mt-3 text-center text-xs text-slate-400">Press and hold a notice (or right-click it) for options</p>
       </section>
     </div>
+
+    <PressMenu :menu="menu" label="Notice options">
+      <template #default="{ item, close }">
+        <button type="button" class="menu-item" role="menuitem" @click="close(); viewing = item"><Eye class="size-4 text-slate-500" /> View</button>
+        <button v-if="canDelete(item)" type="button" class="menu-item text-red-600!" role="menuitem" @click="close(); remove(item)"><Trash2 class="size-4" /> Delete</button>
+        <p v-else class="px-3 py-2 text-xs text-slate-500">Sent automatically: it stays in the tenant's records.</p>
+      </template>
+    </PressMenu>
+
+    <NotificationCard
+      :item="viewing"
+      :look="kinds[viewing?.type]"
+      :from="(viewing?.title ?? '').replace(/^[\p{Extended_Pictographic}\s]+/u, '')"
+      :can-delete="canDelete(viewing)"
+      @close="viewing = null"
+      @delete="remove(viewing)"
+    />
   </div>
 </template>

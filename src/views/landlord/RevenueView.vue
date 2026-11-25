@@ -1,8 +1,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, Hash, CalendarDays, Home, User, StickyNote, Smartphone, ImageDown, Loader2 } from '@lucide/vue'
+import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, Hash, CalendarDays, Home, User, StickyNote, Smartphone, ImageDown, Loader2, MessageCircle } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import { useRentAnalytics, downloadCSV, longMonth, periodOf } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
@@ -13,22 +15,23 @@ import EmptyState from '@/components/EmptyState.vue'
 // Every amount received, grouped by month. Tap a row for its details.
 const rental = useRentalStore()
 const a = useRentAnalytics()
-const { saving, saveRevenue } = useReceiptDownload() // receipts as images, like the tenant's
+const { saving, saveRevenue, shareRevenue, canShare } = useReceiptDownload() // receipts as images, like the tenant's
 const route = useRoute()
 const router = useRouter()
 
-const channel = ref('all') // all | Mobile money | Cash
-const query = ref('')
+const channel = useFilter('by', 'all', ['all', 'Mobile money', 'Cash'])
+const query = useFilter('q', '')
 
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Former tenant'
 const place = (id) => (id && rental.propertyById(id) ? rental.placeName(id) : 'Removed house')
 
-const list = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  return a.revenue.value
-    .filter((r) => channel.value === 'all' || r.channel === channel.value)
-    .filter((r) => !q || `${tenantName(r.tenantId)} ${place(r.propertyId)} ${r.reference ?? ''} ${r.method ?? ''}`.toLowerCase().includes(q))
+const found = computed(() => {
+  const hit = searcher(query.value)
+  return a.revenue.value.filter((r) =>
+    hit(tenantName(r.tenantId), rental.tenantById(r.tenantId)?.phone, place(r.propertyId), r.reference, r.method, r.note, r.period && formatPeriod(r.period), formatDate(r.at), String(r.amount), formatUGX(r.amount)),
+  )
 })
+const list = computed(() => found.value.filter((r) => channel.value === 'all' || r.channel === channel.value))
 const total = computed(() => list.value.reduce((s, r) => s + r.amount, 0))
 
 const groups = computed(() => {
@@ -44,9 +47,9 @@ const groups = computed(() => {
 })
 
 const counts = computed(() => ({
-  all: a.revenue.value.length,
-  'Mobile money': a.channels.value[0].count,
-  Cash: a.channels.value[1].count,
+  all: found.value.length,
+  'Mobile money': found.value.filter((r) => r.channel === 'Mobile money').length,
+  Cash: found.value.filter((r) => r.channel === 'Cash').length,
 }))
 
 // Details sheet (also opened from the overview with ?open=<id>)
@@ -80,9 +83,12 @@ function exportCSV() {
 
     <section class="page-hero rise px-5 py-6 sm:px-8 sm:py-7">
       <p class="text-xs font-semibold tracking-[0.14em] text-white/70 uppercase">Transactions</p>
-      <p class="mt-3 text-sm text-white/80">{{ channel === 'all' ? 'Total collected' : `Collected by ${channel.toLowerCase()}` }}</p>
-      <p class="mt-1 text-4xl font-bold tracking-tight tabular-nums">{{ formatUGX(total) }}</p>
-      <p class="mt-1 text-sm text-white/70">{{ list.length }} payment{{ list.length === 1 ? '' : 's' }}</p>
+      <p class="mt-3 text-sm text-white/80">Total collected · all money received</p>
+      <p class="mt-1 text-4xl font-bold tracking-tight tabular-nums">{{ formatUGX(a.totalRevenue.value) }}</p>
+      <p class="mt-1 text-sm text-white/70">
+        {{ a.revenue.value.length }} payment{{ a.revenue.value.length === 1 ? '' : 's' }}
+        <template v-if="list.length !== a.revenue.value.length || channel !== 'all'"> · showing {{ list.length }} worth {{ formatUGX(total) }}</template>
+      </p>
       <div class="mt-5 grid grid-cols-2 gap-2 sm:max-w-md">
         <div class="hero-stat"><p class="hero-stat-label">Mobile money</p><p class="hero-stat-value text-base">{{ formatUGX(a.channels.value[0].value) }}</p></div>
         <div class="hero-stat"><p class="hero-stat-label">Cash</p><p class="hero-stat-value text-base">{{ formatUGX(a.channels.value[1].value) }}</p></div>
@@ -133,6 +139,9 @@ function exportCSV() {
                 <Loader2 v-if="saving === r.id" class="size-3.5 animate-spin" /><ImageDown v-else class="size-3.5" />
                 {{ saving === r.id ? 'Saving…' : 'Receipt' }}
               </span>
+              <span v-if="canShare" role="button" tabindex="0" class="rc-link rc-wa mt-1.5 ml-1.5" :aria-label="`Share the receipt for ${formatUGX(r.amount)} on WhatsApp`" @click.stop="shareRevenue(r)" @keydown.enter.stop.prevent="shareRevenue(r)">
+                <MessageCircle class="size-3.5" /> WhatsApp
+              </span>
             </template>
             <template #icon>
               <span class="icon-disc" :class="r.channel === 'Cash' ? 'disc-amber' : 'disc-emerald'">
@@ -170,6 +179,9 @@ function exportCSV() {
           <button type="button" class="btn-primary h-11" :data-busy="saving === open.id" :disabled="Boolean(saving)" @click="saveRevenue(open)">
             <ImageDown class="size-4" /> {{ saving === open.id ? 'Saving…' : 'Download receipt' }}
           </button>
+          <button v-if="canShare" type="button" class="btn-secondary wa-btn h-11" @click="shareRevenue(open)">
+            <MessageCircle class="size-4" /> Share on WhatsApp
+          </button>
           <RouterLink v-if="open.propertyId && rental.propertyById(open.propertyId)" :to="`/landlord/properties/${open.propertyId}`" class="btn-secondary h-11">Open the house</RouterLink>
         </div>
       </div>
@@ -180,4 +192,6 @@ function exportCSV() {
 <style scoped>
 .rc-link { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 9999px; padding: 0.15rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
 .rc-link:active { transform: scale(0.96); }
+.rc-wa { color: #128c4a; background: #e8f8ef; }
+.wa-btn { color: #128c4a; border-color: #b6e6c9; }
 </style>

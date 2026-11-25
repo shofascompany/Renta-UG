@@ -218,8 +218,8 @@ function startAgain() {
             </button>
             <p class="mt-3 text-center text-xs leading-relaxed text-slate-500">
               By creating your account you agree to the
-              <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink> and
-              <RouterLink to="/privacy" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
+              <RouterLink to="/terms?for=tenant&only=1" target="_blank" class="font-medium text-brand-700">Terms</RouterLink> and
+              <RouterLink to="/privacy?for=tenant&only=1" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
             </p>
 
             <div class="mt-4 flex items-center justify-between gap-3 text-sm">

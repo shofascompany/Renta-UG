@@ -1,8 +1,9 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Plus, Pencil, Trash2, UserPlus, DoorOpen, DoorClosed, Minus, Wallet } from '@lucide/vue'
+import { ArrowLeft, Plus, Pencil, Trash2, UserPlus, DoorOpen, DoorClosed, Minus, Wallet, Smartphone } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { useRentAnalytics } from '@/composables/useRentAnalytics'
 import { formatUGX } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
@@ -31,7 +32,7 @@ const rooms = computed(() =>
 const occupied = computed(() => rooms.value.filter((r) => r.tenant).length)
 const monthly = computed(() => rooms.value.reduce((s, r) => s + r.rent, 0))
 const collected = computed(() => rooms.value.reduce((s, r) => s + (a.byHouse.value.find((h) => h.id === r.id)?.value ?? 0), 0))
-const filter = ref('all')
+const filter = useFilter('show', 'all', ['all', 'occupied', 'vacant'])
 const shown = computed(() =>
   rooms.value.filter((r) => filter.value === 'all' || (filter.value === 'vacant' ? !r.tenant : Boolean(r.tenant))),
 )
@@ -189,6 +190,10 @@ function onSaved(t) {
             :value-sub="r.owed ? `${formatUGX(r.owed)} owed` : 'a month'"
             :chevron="false"
           >
+            <template #subtitle>
+              <span v-if="r.tenant?.usesApp" class="inline-flex max-w-full items-center gap-1"><Smartphone class="size-3.5 shrink-0 text-emerald-600" aria-label="Uses the app" /><span class="truncate">{{ r.tenant.name }}</span></span>
+              <template v-else>{{ r.tenant ? r.tenant.name : 'Vacant' }}</template>
+            </template>
             <template #icon>
               <span class="icon-tile" :class="r.tenant ? 'tile-teal' : 'tile-amber'"><component :is="r.tenant ? DoorClosed : DoorOpen" class="size-[1.35rem]" /></span>
             </template>

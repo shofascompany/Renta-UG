@@ -1,7 +1,8 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Download, Wallet, Percent, AlertCircle, TrendingUp, Table2, BarChart3 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { useRentAnalytics, compactUGX, longMonth, downloadCSV } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
@@ -15,7 +16,7 @@ import RankBars from '@/components/charts/RankBars.vue'
 const rental = useRentalStore()
 const a = useRentAnalytics()
 
-const range = ref(12) // months
+const range = useFilter('range', 12) // months: 6 | 12
 const months = computed(() => (range.value === 12 ? a.months12.value : a.months6.value))
 const totals = computed(() => {
   const billed = months.value.reduce((s, m) => s + m.billed, 0)
@@ -30,7 +31,7 @@ const totals = computed(() => {
   }
 })
 const chart = computed(() => months.value.map((m) => ({ label: m.label, full: longMonth(m.period), value: m.collected, ghost: m.billed })))
-const view = ref('chart') // chart | table (the same numbers as a table)
+const view = useFilter('view', 'chart') // chart | table (the same numbers as a table)
 
 const houses = computed(() =>
   a.byHouse.value.map((h) => ({ label: h.label, sub: h.occupied ? '' : 'vacant', value: h.value })),
@@ -143,7 +144,7 @@ function exportHouses() {
         <SegmentBar :parts="a.methods.value" :format="formatUGX" />
       </Panel>
 
-      <Panel title="Unpaid rent by age" subtitle="How late the money owed is">
+      <Panel title="Unpaid rent by age" subtitle="How late each unpaid month is">
         <RankBars :rows="aging" :format="formatUGX" ramp :limit="5" />
       </Panel>
 

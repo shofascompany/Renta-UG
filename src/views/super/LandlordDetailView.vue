@@ -6,6 +6,7 @@ import {
   Megaphone, MoreVertical, KeyRound, ArrowDownLeft, Banknote, Lock, Crown, Clock,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
 import { useBillingStore, subscriptionStatus, paidWith } from '@/stores/billing'
 import CashSubscriptionModal from '@/components/super/CashSubscriptionModal.vue'
 import PayStatus from '@/components/PayStatus.vue'
@@ -41,8 +42,7 @@ const receipts = computed(() =>
     .slice(0, 8),
 )
 const allTime = computed(() => rental.payments.filter((p) => p.landlordId === props.id).reduce((x, p) => x + p.amountPaid, 0))
-const owedBy = (tenantId) => rental.duesForTenant(tenantId).reduce((x, p) => x + p.balance, 0)
-const tab = ref('properties') // properties | tenants | money
+const tab = useFilter('tab', 'properties', ['properties', 'tenants', 'money'])
 const editingProperty = ref(null)
 
 // ── Actions ──
@@ -97,7 +97,7 @@ const billing = useBillingStore()
 const cashFor = ref(null)
 const sub = computed(() =>
   landlord.value
-    ? subscriptionStatus(landlord.value.subscriptionUntil, landlord.value.subscriptionPlan, { tier: landlord.value.subscriptionTier, exempt: landlord.value.subscriptionExempt })
+    ? subscriptionStatus(landlord.value.subscriptionUntil, landlord.value.subscriptionPlan, { tier: landlord.value.subscriptionTier, exempt: landlord.value.subscriptionExempt, clock: landlord.value.subscriptionClock })
     : null,
 )
 const subPayments = computed(() => billing.payments.filter((p) => p.landlordId === props.id).slice(0, 5))
@@ -149,7 +149,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
           <StatTile glass label="Properties" :value="s.properties" :hint="`${s.occupied} occupied`" :icon="Building2" />
           <StatTile glass label="Tenants" :value="s.tenants" :hint="`${s.connected} use the app`" :icon="Users" tile="tile-violet" />
           <StatTile glass label="Collected" :value="formatUGX(allTime)" :hint="`${formatUGX(s.collected)} this month`" :icon="Wallet" tile="tile-sky" />
-          <StatTile glass label="Unpaid" :value="formatUGX(s.outstanding)" :hint="`${s.overdue} overdue charge${s.overdue === 1 ? '' : 's'}`" :icon="TriangleAlert" tile="tile-amber" :alert="s.overdue > 0" />
+          <StatTile glass label="Unpaid" :value="formatUGX(s.outstanding)" :hint="`${s.overdue} tenant${s.overdue === 1 ? '' : 's'} overdue`" :icon="TriangleAlert" tile="tile-amber" :alert="s.overdue > 0" />
         </div>
       </template>
     </SuperHero>
@@ -238,7 +238,7 @@ const initials = computed(() => (landlord.value?.name ?? '?').split(' ').map((x)
           :key="t.id"
           :to="`/admin2026/tenants/${t.id}`"
           :title="t.name"
-          :subtitle="`${rental.placeName(t.propertyId)} · ${t.userId ? 'uses the app' : t.managedByLandlord ? 'no smartphone' : 'not connected'}`"
+          :subtitle="`${rental.placeName(t.propertyId)} · ${t.usesApp ? 'uses the app' : t.managedByLandlord ? 'no smartphone' : 'not connected'}`"
           value="-"
         >
           <template #value>

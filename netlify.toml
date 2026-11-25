@@ -59,12 +59,72 @@
   status = 200
   force = true
 
+# Landlords and the main admin: delete a message from their own inbox (Netlify Function)
+[[redirects]]
+  from = "/api/inbox/*"
+  to = "/.netlify/functions/inbox/:splat"
+  status = 200
+  force = true
+
+# Opens the one-time links landlords send on WhatsApp (Netlify Function)
+[[redirects]]
+  from = "/api/invite/*"
+  to = "/.netlify/functions/invite/:splat"
+  status = 200
+  force = true
+
 # Never serve project source files (the build itself has no source maps: see vite.config.js)
 [[redirects]]
   from = "/src/*"
   to = "/index.html"
   status = 404
   force = true
+
+# Shared links: these pages have their own title, words and picture (scripts/linkPreviews.js); same app inside
+[[redirects]]
+  from = "/join"
+  to = "/join.html"
+  status = 200
+
+[[redirects]]
+  from = "/i/*"
+  to = "/i.html"
+  status = 200
+
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
+  from = "/signup"
+  to = "/signup.html"
+  status = 200
+
+[[redirects]]
+  from = "/forgot-password"
+  to = "/forgot-password.html"
+  status = 200
+
+[[redirects]]
+  from = "/reset-password"
+  to = "/reset-password.html"
+  status = 200
+
+[[redirects]]
+  from = "/privacy"
+  to = "/privacy.html"
+  status = 200
+
+[[redirects]]
+  from = "/terms"
+  to = "/terms.html"
+  status = 200
+
+[[redirects]]
+  from = "/delete-account"
+  to = "/delete-account.html"
+  status = 200
 
 # Vue Router uses history mode: send every unknown path to index.html
 # so refreshing or opening a deep link (e.g. /login) doesn't 404.

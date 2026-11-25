@@ -4,7 +4,9 @@ import { Crown, Clock, CircleCheck, CircleX, CirclePlus, Settings2, Search, Wall
 import { useBillingStore, subscriptionStatus, paidWith } from '@/stores/billing'
 import CashSubscriptionModal from '@/components/super/CashSubscriptionModal.vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate, timeAgo } from '@/utils/format'
+import { useFilter } from '@/composables/useFilter'
+import { compare, searcher } from '@/lib/search'
+import { formatUGX, formatDate, monthOf, timeAgo } from '@/utils/format'
 import { NETWORKS, prettyPhone } from '@/lib/networks'
 import BaseModal from '@/components/BaseModal.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -21,12 +23,12 @@ const nameOf = (id) => landlordOf(id)?.name || landlordOf(id)?.email || 'Landlor
 const rows = computed(() =>
   rental.landlords.map((l) => ({
     ...l,
-    sub: subscriptionStatus(l.subscriptionUntil, l.subscriptionPlan, { tier: l.subscriptionTier, exempt: l.subscriptionExempt }),
+    sub: subscriptionStatus(l.subscriptionUntil, l.subscriptionPlan, { tier: l.subscriptionTier, exempt: l.subscriptionExempt, clock: l.subscriptionClock }),
     units: rental.properties.filter((p) => p.landlordId === l.id).length,
   })),
 )
 const tierName = (t) => (t === 'big' ? 'Big scale' : 'Small scale')
-const month = new Date().toISOString().slice(0, 7)
+const month = monthOf(new Date())
 const kpis = computed(() => [
   { label: 'Paying', value: rows.value.filter((r) => r.sub.active && !r.sub.exempt).length, icon: Crown, tone: 'teal' },
   { label: 'Not paid yet', value: rows.value.filter((r) => r.sub.state === 'none').length, icon: Hourglass, tone: 'sky' },
@@ -34,7 +36,7 @@ const kpis = computed(() => [
   { label: 'Waiting', value: billing.pending.length, icon: Clock, tone: 'amber' },
   {
     label: 'Received this month',
-    value: formatUGX(billing.payments.filter((p) => p.status === 'confirmed' && (p.reviewedAt ?? '').startsWith(month)).reduce((a, p) => a + p.amount, 0)),
+    value: formatUGX(billing.payments.filter((p) => p.status === 'confirmed' && monthOf(p.reviewedAt) === month).reduce((a, p) => a + p.amount, 0)),
     icon: Wallet,
     tone: 'emerald',
   },
@@ -83,14 +85,14 @@ async function rejectPay() {
 }
 
 // ── Landlords ──
-const q = ref('')
-const filter = ref('all') // all | paying | unpaid | ended
+const q = useFilter('q', '')
+const filter = useFilter('show', 'all', ['all', 'paying', 'unpaid', 'ended'])
 const shown = computed(() => {
-  const term = q.value.trim().toLowerCase()
+  const hit = searcher(q.value)
   return rows.value
     .filter((r) => (filter.value === 'paying' ? r.sub.active && !r.sub.exempt : filter.value === 'unpaid' ? r.sub.state === 'none' : filter.value === 'ended' ? r.sub.state === 'expired' : true))
-    .filter((r) => !term || [r.name, r.email, r.phone].some((v) => String(v ?? '').toLowerCase().includes(term)))
-    .sort((a, b) => String(a.subscriptionUntil ?? '').localeCompare(String(b.subscriptionUntil ?? '')))
+    .filter((r) => hit(r.name, r.email, r.phone))
+    .sort((a, b) => compare(a.subscriptionUntil, b.subscriptionUntil) || compare(a.name || a.email, b.name || b.email))
 })
 const stateLabel = (sub) =>
   sub.exempt ? ['Free for life', 'pill-gold'] : sub.state === 'none' ? ['Not paid yet', 'pill-sky'] : !sub.active ? ['Ended', 'pill-bad'] : sub.state === 'ending' ? ['Ending soon', 'pill-wait'] : ['Active', 'pill-ok']
@@ -230,7 +232,7 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
                 </td>
                 <td class="px-5 py-3 text-slate-700">
                   <template v-if="r.sub.exempt">Never ends</template>
-                  <template v-else>{{ formatDate(r.subscriptionUntil) }}<span v-if="r.sub.active" class="ml-1 text-xs text-slate-400">({{ r.sub.daysLeft }}d left)</span></template>
+                  <template v-else>{{ formatDate(r.sub.until) }}<span v-if="r.sub.active" class="ml-1 text-xs text-slate-400">({{ r.sub.daysLeft }}d left)</span></template>
                 </td>
                 <td class="px-5 py-3 text-right">
                   <span v-if="!r.sub.exempt" class="inline-flex items-center gap-3">
@@ -304,7 +306,7 @@ const recent = computed(() => billing.payments.filter((p) => p.status !== 'pendi
     <!-- Add days -->
     <BaseModal :model-value="Boolean(granting)" center width="max-w-md" title="Add free days" @update:model-value="!$event && (granting = null)">
       <form v-if="granting" class="space-y-4" @submit.prevent="doGrant">
-        <p class="text-sm text-slate-600">{{ granting.name || granting.email }} · covered until {{ formatDate(granting.subscriptionUntil) }}.</p>
+        <p class="text-sm text-slate-600">{{ granting.name || granting.email }} · covered until {{ formatDate(granting.sub.until) }}.</p>
         <div class="flex flex-wrap gap-2">
           <button v-for="d in [7, 30, 90, 365]" :key="d" type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold" :class="Number(grant.days) === d ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600'" @click="grant.days = d">{{ d }} days</button>
         </div>

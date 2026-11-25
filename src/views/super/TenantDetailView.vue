@@ -5,7 +5,9 @@ import {
   Bell, Clock, Smartphone, UserCog,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import { useFilter } from '@/composables/useFilter'
+import { formatUGX, formatDate, formatPeriod, timeLeft } from '@/utils/format'
+import { rentDaysLeft } from '@/lib/now'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
@@ -27,8 +29,8 @@ const notes = computed(() => rental.notificationsForTenant(props.id).slice(0, 8)
 const owed = computed(() => rental.duesForTenant(props.id).reduce((s, x) => s + x.balance, 0))
 const pay = computed(() => rental.payStateFor(props.id)) // Paid / Part paid / Not paid
 const paid = computed(() => charges.value.reduce((s, x) => s + x.amountPaid, 0))
-const left = computed(() => (t.value?.leaseEnd ? daysUntil(t.value.leaseEnd) : null))
-const tab = ref('money') // money | charges | messages
+const left = computed(() => rentDaysLeft(t.value))
+const tab = useFilter('tab', 'money', ['money', 'charges', 'messages'])
 const placeId = computed(() => t.value?.propertyId ?? t.value?.lastPropertyId)
 
 // ── Edit / end ──
@@ -71,13 +73,13 @@ const saveEdit = () => run(() => rental.adminUpdateTenant(props.id, form))
         <div class="mb-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/80">
           <span v-if="t.phone" class="flex items-center gap-1.5"><Phone class="size-4" /> {{ t.phone }}</span>
           <span v-if="t.email && !t.email.endsWith('@phone-signin.example.com')" class="flex items-center gap-1.5"><Mail class="size-4" /> {{ t.email }}</span>
-          <span class="flex items-center gap-1.5"><component :is="t.userId ? Smartphone : UserCog" class="size-4" /> {{ t.userId ? 'Uses the app' : t.managedByLandlord ? 'No smartphone' : 'Not connected' }}</span>
+          <span class="flex items-center gap-1.5"><component :is="t.usesApp ? Smartphone : UserCog" class="size-4" /> {{ t.usesApp ? 'Uses the app' : t.managedByLandlord ? 'No smartphone' : 'Not connected' }}</span>
         </div>
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile glass label="Place" :value="rental.placeName(placeId)" :hint="t.propertyId ? 'Renting now' : `Left ${formatDate(t.endedAt)}`" :icon="House" />
           <StatTile glass label="Landlord" :value="landlord?.name ?? '—'" :hint="landlord?.phone ?? landlord?.email" :icon="Briefcase" tile="tile-sky" :to="landlord ? `/admin2026/landlords/${landlord.id}` : null" />
           <StatTile glass label="Rental time" :value="t.leaseEnd ? timeLeft(left) : 'Not started'" :hint="t.leaseEnd ? `Paid to ${formatDate(t.leaseEnd)}` : 'Starts when they pay'" :icon="CalendarClock" tile="tile-violet" />
-          <StatTile glass :label="pay?.label ?? 'Rent'" :value="pay?.key === 'paid' ? 'Paid' : formatUGX(pay?.owed ?? owed)" :hint="`${pay?.detail ?? ''} · ${formatUGX(paid)} paid in total`" :icon="pay?.key === 'paid' ? Wallet : TriangleAlert" tile="tile-amber" :alert="pay?.key !== 'paid'" />
+          <StatTile glass :label="pay?.label ?? 'Rent'" :value="pay?.key === 'paid' ? 'Paid' : formatUGX(pay?.owed ?? owed)" :hint="`${pay?.how || pay?.detail || ''} · ${formatUGX(paid)} paid in total`" :icon="pay?.key === 'paid' ? Wallet : TriangleAlert" tile="tile-amber" :alert="pay?.key !== 'paid'" />
         </div>
       </template>
     </SuperHero>

@@ -1,4 +1,4 @@
-// Renta UG API: sign-up codes, phone notifications, SMS, health checks and landlord accounts, backed by Supabase.
+// Renta UG API: sign-up codes, phone notifications, health checks and landlord accounts, backed by Supabase.
 // (Mobile money goes straight from the tenant's phone to the landlord's number; the landlord confirms it
 // in the app, so there is no payment company or payment server.)
 // Uses the Supabase service role key, so it must only ever run on a server.
@@ -10,11 +10,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { retryFetch, isNetworkError, NETWORK_MESSAGE } from '../src/lib/retryFetch.js'
 import { startPushSender } from './push.js'
-import { startSmsSender } from './sms.js'
 import { startHealthChecks, runHealthCheck, reportServerError } from './health.js'
 import * as admin from './admin.js'
 import * as verifyEmail from './verify.js'
 import * as passwordReset from './passwordReset.js'
+import { createInvite, openInvite } from './invite.js'
+import { deleteInboxItem } from './inbox.js'
 import * as signIn from './signIn.js'
 
 const { HttpError } = admin
@@ -148,7 +149,7 @@ app.post(
 
 // ── Sign in with a PHONE NUMBER (same box as email on the login page) ──
 // The account's email is looked up here on the server, so it is never revealed to the browser.
-// Numbers match on their last 9 digits: 0772 123456 = +256772123456 = 256772123456.
+// The whole number is compared: 0772 123456 = +256772123456 = 256772123456.
 
 // { phone, password }   → { accessToken, refreshToken }  (normal sign-in; 5 wrong → 15 min lock)
 // { phone, setupCode }  → { tokenHash }                   (first sign-in with the one-time setup code)
@@ -177,6 +178,35 @@ app.post(
     const { user, profile } = await admin.requireUserProfile(db, req.headers.authorization)
     if (profile?.role !== 'landlord' || !profile.active) throw new HttpError(403, 'Only landlords can do this.')
     res.json(await admin.giveTenantAppAccess(db, user.id, req.params.id))
+  }),
+)
+
+// Landlord: a one-time link to send on WhatsApp, and opening it (logic in ./invite.js)
+app.post(
+  '/api/landlord/tenants/:id/invite-link',
+  handle(async (req, res) => {
+    requireDb()
+    const { user, profile } = await admin.requireUserProfile(db, req.headers.authorization)
+    if (profile?.role !== 'landlord' || !profile.active) throw new HttpError(403, 'Only landlords can do this.')
+    res.json(await createInvite(db, user.id, req.params.id))
+  }),
+)
+app.post(
+  '/api/invite/open',
+  handle(async (req, res) => {
+    requireDb()
+    res.set('Cache-Control', 'no-store').json(await openInvite(db, req.body))
+  }),
+)
+
+// Landlord / main admin: delete a message from their own inbox (logic in ./inbox.js)
+app.post(
+  '/api/inbox/delete',
+  handle(async (req, res) => {
+    requireDb()
+    const { user, profile } = await admin.requireUserProfile(db, req.headers.authorization)
+    if (!['landlord', 'superadmin'].includes(profile?.role)) throw new HttpError(403, 'Only landlords can do this.')
+    res.json(await deleteInboxItem(db, user, req.body))
   }),
 )
 
@@ -261,6 +291,5 @@ app.listen(PORT, () => {
   console.log(`Renta API on http://localhost:${PORT}`)
   console.log(`  supabase: ${db ? 'configured' : 'NOT configured'}`)
   startPushSender(db)
-  startSmsSender(db)
   startHealthChecks(db)
 })

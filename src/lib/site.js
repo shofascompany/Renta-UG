@@ -3,6 +3,6 @@ export const SITE = {
   name: 'Renta UG',
   url: 'https://rentaug.netlify.app',
   // Shown on the Privacy and Delete-account pages when set (add VITE_SUPPORT_EMAIL in Netlify)
-  supportEmail: import.meta.env.VITE_SUPPORT_EMAIL || '',
-  updated: '17 November 2026', // date of the current Privacy policy and Terms
+  supportEmail: import.meta.env?.VITE_SUPPORT_EMAIL || '',
+  updated: '25 November 2026', // date of the current Privacy policy and Terms
 }

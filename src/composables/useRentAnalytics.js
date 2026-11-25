@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useRentalStore } from '@/stores/rental'
 import { timeLeft } from '@/utils/format'
+import { rentDaysLeft } from '@/lib/now'
 
 export { timeLeft }
 
@@ -54,8 +55,8 @@ export function useRentAnalytics() {
   const delta = (now, before) => (before ? Math.round(((now - before) / before) * 100) : null)
   const collectedDelta = computed(() => delta(thisMonth.value.collected, lastMonth.value.collected))
 
-  const outstanding = computed(() => rental.payments.filter((p) => p.status !== 'paid').reduce((s, p) => s + p.balance, 0))
-  const overdueTotal = computed(() => rental.payments.filter((p) => p.status === 'overdue').reduce((s, p) => s + p.balance, 0))
+  const outstanding = computed(() => rental.unpaidMonths.reduce((s, m) => s + m.amount, 0))
+  const overdueTotal = computed(() => rental.unpaidMonths.filter((m) => m.from < today()).reduce((s, m) => s + m.amount, 0))
   const totalCollected = computed(() => rental.payments.reduce((s, p) => s + p.amountPaid, 0))
 
   const occupancy = computed(() => {
@@ -92,10 +93,10 @@ export function useRentAnalytics() {
       { label: '61–90 days', min: 61, max: 90, value: 0, count: 0 },
       { label: '90+ days', min: 91, max: Infinity, value: 0, count: 0 },
     ]
-    for (const p of rental.payments.filter((x) => x.status !== 'paid')) {
-      const late = Math.floor((now - new Date(p.dueDate).getTime()) / 86400000)
+    for (const m of rental.unpaidMonths) {
+      const late = Math.floor((now - new Date(m.from).getTime()) / 86400000)
       const b = buckets.find((x) => late >= x.min && late <= x.max)
-      b.value += p.balance
+      b.value += m.amount
       b.count += 1
     }
     return buckets
@@ -110,20 +111,25 @@ export function useRentAnalytics() {
           id: h.id,
           label: rental.placeName(h.id),
           value: charges.reduce((s, p) => s + p.amountPaid, 0),
-          owed: charges.reduce((s, p) => s + p.balance, 0),
+          owed: rental.unpaidMonths.filter((m) => m.propertyId === h.id).reduce((s, m) => s + m.amount, 0),
           occupied: Boolean(rental.tenantForProperty(h.id)),
         }
       })
       .sort((a, b) => b.value - a.value),
   )
 
-  // Tenants with the most unpaid rent
+  // Tenants who owe rent, biggest first. Same answer as every "Not paid" / "Part paid" label in the app
+  // (utils/payState.js), so a tenant who has never paid, or whose paid time has ended, is listed too.
   const topDebtors = computed(() =>
     rental.currentTenants
-      .map((t) => ({ ...t, owed: rental.duesForTenant(t.id).reduce((s, p) => s + p.balance, 0) }))
-      .filter((t) => t.owed > 0)
+      .map((t) => {
+        const pay = rental.payStateFor(t.id)
+        return { ...t, pay, owed: pay?.owed ?? 0 }
+      })
+      .filter((t) => t.pay && t.pay.key !== 'paid' && t.owed > 0)
       .sort((a, b) => b.owed - a.owed),
   )
+  const totalOwed = computed(() => topDebtors.value.reduce((s, t) => s + t.owed, 0))
 
   // Every amount received, newest first (receipts when available, else paid charges)
   const revenue = computed(() => {
@@ -169,7 +175,7 @@ export function useRentAnalytics() {
   const tenancies = computed(() =>
     rental.currentTenants
       .map((t) => {
-        const daysLeft = t.leaseEnd ? daysUntil(t.leaseEnd) : null
+        const daysLeft = rentDaysLeft(t)
         const total = t.leaseStart && t.leaseEnd ? Math.max(1, daysUntil(t.leaseEnd) - daysUntil(t.leaseStart)) : null
         const used = total && daysLeft !== null ? Math.min(100, Math.max(0, Math.round(((total - daysLeft) / total) * 100))) : null
         return { ...t, daysLeft, used, left: timeLeft(daysLeft) }
@@ -179,7 +185,7 @@ export function useRentAnalytics() {
 
   return {
     months6, months12, thisMonth, lastMonth, collectedDelta, outstanding, overdueTotal, totalCollected,
-    occupancy, potentialMonthly, occupiedMonthly, methods, aging, byHouse, topDebtors,
+    occupancy, potentialMonthly, occupiedMonthly, methods, aging, byHouse, topDebtors, totalOwed,
     revenue, totalRevenue, channels, topChannel, tenancies,
   }
 }

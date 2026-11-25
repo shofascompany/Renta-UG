@@ -39,11 +39,12 @@ const paid = computed(() => rental.paymentsForTenant(props.tenant.id).reduce((s,
 const owed = computed(() => rental.duesForTenant(props.tenant.id).reduce((s, p) => s + p.balance, 0))
 const waiting = computed(() => rental.cashForTenant(props.tenant.id).filter((c) => c.status === 'pending').reduce((s, c) => s + c.amount, 0))
 
+const total = computed(() => pay.value?.owed || owed.value) // every month in debt
 // Money not settled. After the stay ends no payment can be recorded for it, so say so now.
 const debt = computed(() => {
-  if (owed.value) return `${formatUGX(owed.value)} still owed`
+  if (owed.value) return `${formatUGX(total.value)} still owed`
   if (pay.value?.key !== 'unpaid') return ''
-  return pay.value.daysLeft < 0 ? `${plural(-pay.value.daysLeft, 'debt day')} not paid` : 'No rent paid yet'
+  return pay.value.ended ? `${pay.value.daysLeft ? plural(-pay.value.daysLeft, 'debt day') : 'Rent'} not paid${total.value ? ` · ${formatUGX(total.value)}` : ''}` : 'No rent paid yet'
 })
 const daysLeft = computed(() => (pay.value?.key === 'paid' && pay.value.daysLeft > 0 ? pay.value.daysLeft : 0))
 
@@ -110,7 +111,7 @@ const next = computed(() =>
         <p class="mt-0.5 text-xs leading-relaxed text-slate-600">
           <template v-if="owed">This stays on their record. </template>Payments can't be recorded once the stay has ended.
         </p>
-        <button v-if="by === 'landlord' && tenant.propertyId" type="button" class="note-act" @click="emit('record', owed)">
+        <button v-if="by === 'landlord' && tenant.propertyId" type="button" class="note-act" @click="emit('record', total)">
           <HandCoins class="size-3.5" /> Record a payment first
         </button>
       </div>

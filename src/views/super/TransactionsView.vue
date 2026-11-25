@@ -1,11 +1,13 @@
-﻿<script setup>
+<script setup>
 import BaseSelect from '@/components/BaseSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Search, Download, ArrowDownLeft, Banknote, Smartphone, Wallet, Receipt } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { usePlatformStats } from '@/composables/usePlatformStats'
 import { downloadCSV } from '@/composables/useRentAnalytics'
-import { formatUGX, formatDate } from '@/utils/format'
+import { formatUGX, formatDate, dayOf, monthOf } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
@@ -14,33 +16,35 @@ import EmptyState from '@/components/EmptyState.vue'
 // Main admin: every amount received on the platform (mobile money and confirmed cash), filterable + CSV.
 const rental = useRentalStore()
 const p = usePlatformStats()
-const query = ref('')
-const method = ref('all') // all | mobile | cash
-const landlordFilter = ref('')
-const month = ref('') // YYYY-MM or ''
+const query = useFilter('q', '')
+const method = useFilter('by', 'all', ['all', 'mobile', 'cash'])
+const landlordFilter = useFilter('landlord', '')
+const month = useFilter('month', '') // YYYY-MM or ''
 const isCash = (r) => /cash/i.test(r.method ?? '')
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Tenant'
 
-const months = computed(() => [...new Set(rental.payment_receipts.map((r) => String(r.receivedAt).slice(0, 7)))].sort().reverse())
+const placeOf = (r) => rental.placeName(rental.tenantById(r.tenantId)?.propertyId ?? rental.tenantById(r.tenantId)?.lastPropertyId)
+const months = computed(() => [...new Set(rental.payment_receipts.map((r) => monthOf(r.receivedAt)).filter(Boolean))].sort().reverse())
 const monthLabel = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
 const list = computed(() => {
-  const q = query.value.trim().toLowerCase()
+  const hit = searcher(query.value)
   return p.recentReceipts.value
     .filter((r) => method.value === 'all' || (method.value === 'cash') === isCash(r))
     .filter((r) => !landlordFilter.value || r.landlordId === landlordFilter.value)
-    .filter((r) => !month.value || String(r.receivedAt).startsWith(month.value))
-    .filter((r) => !q || `${tenantName(r.tenantId)} ${p.landlordName(r.landlordId)} ${r.reference ?? ''} ${r.method}`.toLowerCase().includes(q))
+    .filter((r) => !month.value || monthOf(r.receivedAt) === month.value)
+    .filter((r) => hit(tenantName(r.tenantId), rental.tenantById(r.tenantId)?.phone, placeOf(r), p.landlordName(r.landlordId), r.reference, r.method, formatDate(r.receivedAt), String(r.amount), formatUGX(r.amount)))
 })
 const total = computed(() => list.value.reduce((s, r) => s + r.amount, 0))
 const cashTotal = computed(() => list.value.filter(isCash).reduce((s, r) => s + r.amount, 0))
 const shown = ref(40)
+watch([query, method, landlordFilter, month], () => (shown.value = 40)) // another filter starts at the top
 
 function exportCsv() {
   downloadCSV(`renta-transactions${month.value ? `-${month.value}` : ''}.csv`, [
-    { label: 'Date', value: (r) => String(r.receivedAt).slice(0, 10) },
+    { label: 'Date', value: (r) => dayOf(r.receivedAt) },
     { label: 'Tenant', value: (r) => tenantName(r.tenantId) },
-    { label: 'Place', value: (r) => rental.placeName(rental.tenantById(r.tenantId)?.propertyId ?? rental.tenantById(r.tenantId)?.lastPropertyId) },
+    { label: 'Place', value: placeOf },
     { label: 'Landlord', value: (r) => p.landlordName(r.landlordId) },
     { label: 'Method', value: (r) => r.method },
     { label: 'Reference', value: (r) => r.reference ?? '' },
@@ -72,7 +76,7 @@ function exportCsv() {
         <button v-for="f in [['all', 'All'], ['mobile', 'Mobile'], ['cash', 'Cash']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="method === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="method = f[0]">{{ f[1] }}</button>
       </div>
       <BaseSelect v-model="month" class="lg:w-48" :options="[{ value: '', label: 'All months' }, ...months.map((m) => ({ value: m, label: monthLabel(m) }))]" />
-      <BaseSelect v-model="landlordFilter" class="lg:w-52" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name }))]" />
+      <BaseSelect v-model="landlordFilter" class="lg:w-52" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name || l.email }))]" />
     </div>
 
     <div class="sheet">
@@ -92,7 +96,7 @@ function exportCsv() {
           </template>
         </ListRow>
       </ul>
-      <EmptyState v-else kind="search" title="No payments match" text="Try another name or filter." />
+      <EmptyState v-else :kind="rental.payment_receipts.length ? 'search' : 'money'" :title="rental.payment_receipts.length ? 'No payments match' : 'No payments yet'" :text="rental.payment_receipts.length ? 'Try another name or filter.' : 'They appear here as tenants pay.'" />
       <button v-if="list.length > shown" type="button" class="w-full border-t border-slate-100 py-3.5 text-sm font-semibold text-brand-700 hover:bg-slate-50" @click="shown += 40">Show more ({{ list.length - shown }} left)</button>
     </div>
   </div>

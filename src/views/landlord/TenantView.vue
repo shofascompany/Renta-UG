@@ -6,9 +6,11 @@ import {
   HandCoins, Trash2,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import { formatUGX, formatDate, formatPeriod, timeLeft } from '@/utils/format'
+import { rentDaysLeft, rentEnded } from '@/lib/now'
 import { addMonths } from '@/utils/rentCycle'
 import BaseModal from '@/components/BaseModal.vue'
+import AppInvite from '@/components/AppInvite.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 import RecordPaymentModal from '@/components/RecordPaymentModal.vue'
 import DeleteTenantModal from '@/components/DeleteTenantModal.vue'
@@ -27,11 +29,12 @@ const back = () => (window.history.state?.back ? router.back() : router.push('/l
 const t = computed(() => rental.tenantById(props.id) ?? null)
 const house = computed(() => t.value && rental.propertyById(t.value.propertyId))
 const dues = computed(() => (t.value ? rental.duesForTenant(t.value.id) : []))
-const owed = computed(() => dues.value.reduce((s, p) => s + p.balance, 0))
-const overdue = computed(() => dues.value.some((p) => p.status === 'overdue'))
+const late = computed(() => rentEnded(t.value))
+const owed = computed(() => (dues.value.length || late.value ? pay.value?.owed ?? 0 : 0)) // every month in debt
+const overdue = computed(() => late.value || dues.value.some((p) => p.status === 'overdue'))
 const paid = computed(() => (t.value ? rental.paymentsForTenant(t.value.id).filter((p) => p.amountPaid).reduce((s, p) => s + p.amountPaid, 0) : 0))
 const lastPaid = computed(() => (t.value ? rental.paymentsForTenant(t.value.id).find((p) => p.status === 'paid') : null))
-const left = computed(() => (t.value?.leaseEnd ? daysUntil(t.value.leaseEnd) : null))
+const left = computed(() => rentDaysLeft(t.value))
 const months = computed(() => {
   if (!t.value?.leaseStart || !t.value?.leaseEnd) return null
   const s = new Date(t.value.leaseStart)
@@ -59,10 +62,10 @@ function recordPay(amount = 0) {
   showPay.value = true
 }
 const account = computed(() =>
-  !t.value ? null : t.value.userId
+  !t.value ? null : t.value.usesApp
     ? { text: 'Uses the Renta app', icon: Smartphone, cls: 'bg-emerald-50 text-emerald-700' }
     : t.value.managedByLandlord
-      ? { text: 'No smartphone · managed by you', icon: UserCog, cls: 'bg-slate-100 text-slate-700' }
+      ? { text: t.value.userId ? 'Invited · not registered yet' : 'No smartphone · managed by you', icon: UserCog, cls: 'bg-slate-100 text-slate-700' }
       : { text: 'Not connected yet', icon: KeyRound, cls: 'bg-amber-50 text-amber-700' },
 )
 const initials = (name) => (name ?? '?').split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase()
@@ -84,7 +87,7 @@ async function giveAccess() {
   try {
     const res = await rental.giveAppAccess(t.value.id)
     accessOpen.value = false
-    done.value = `Connected. ${t.value.name.split(' ')[0]} can now sign in with ${res.phone} and create their password.${res.texted ? ' We also sent them a notification.' : ''}`
+    done.value = `Connected. ${t.value.name.split(' ')[0]} can now sign in with ${res.phone} and create their password.`
   } catch (e) {
     error.value = e.message
   } finally {
@@ -135,12 +138,12 @@ const endOpen = ref(false)
         <div class="flex items-start gap-3.5 p-4 sm:p-5">
           <span class="debt-ico flex size-11 shrink-0 items-center justify-center rounded-2xl"><HandCoins class="size-5.5" /></span>
           <div class="min-w-0 flex-1">
-            <p class="text-xs font-semibold tracking-[0.12em] uppercase" :class="overdue ? 'text-red-700' : 'text-amber-700'">Complete payment</p>
+            <p class="text-xs font-semibold tracking-[0.12em] uppercase" :class="overdue ? 'text-red-700' : 'text-amber-700'">{{ partMonth ? 'Complete payment' : 'Unpaid rent' }}</p>
             <p class="mt-0.5 text-2xl font-bold tracking-tight text-slate-900 tabular-nums">{{ formatUGX(owed) }} <span class="text-sm font-medium text-slate-500">still owed</span></p>
             <p v-if="partMonth" class="mt-0.5 text-sm text-slate-600">
               {{ formatPeriod(partMonth.period) }}: {{ formatUGX(partMonth.amountPaid) }} of {{ formatUGX(partMonth.amount) }} paid<template v-if="partMonth.creditedDays"> ({{ partMonth.creditedDays }} day{{ partMonth.creditedDays === 1 ? '' : 's' }} covered)</template>.
             </p>
-            <p v-else class="mt-0.5 text-sm text-slate-600">{{ dues.length }} unpaid month{{ dues.length === 1 ? '' : 's' }}.</p>
+            <p class="mt-0.5 text-sm text-slate-600">{{ pay.how }}</p>
           </div>
         </div>
         <div v-if="partMonth" class="px-4 sm:px-5">
@@ -152,17 +155,17 @@ const endOpen = ref(false)
         </p>
         <div class="grid gap-2 p-4 sm:grid-cols-2 sm:p-5">
           <button type="button" class="btn-primary h-11 rounded-xl" @click="recordPay(partMonth ? partMonth.balance : owed)">
-            <HandCoins class="size-4.5" /> Record the rest · {{ formatUGX(partMonth ? partMonth.balance : owed) }}
+            <HandCoins class="size-4.5" /> Record {{ partMonth ? 'the rest' : 'it all' }} · {{ formatUGX(partMonth ? partMonth.balance : owed) }}
           </button>
           <button type="button" class="btn-secondary h-11 rounded-xl" @click="recordPay(0)">Another amount</button>
         </div>
       </div>
 
       <!-- This rent month: paid on, ends, debt days, days paid for -->
-      <div class="overflow-hidden rounded-2xl border" :class="cycle.debtDays ? 'border-red-200' : 'border-slate-200'">
+      <div class="overflow-hidden rounded-2xl border" :class="cycle.ended ? 'border-red-200' : 'border-slate-200'">
         <div class="flex items-center justify-between gap-3 px-4 pt-4">
-          <p class="flex items-center gap-2 text-sm font-medium text-slate-700"><CalendarClock class="size-4 text-slate-400" /> {{ cycle.debtDays ? 'Rent due' : 'This rent month' }}</p>
-          <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="!cycle.started ? 'bg-slate-100 text-slate-600' : cycle.debtDays ? 'bg-red-50 text-red-700' : left <= 7 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
+          <p class="flex items-center gap-2 text-sm font-medium text-slate-700"><CalendarClock class="size-4 text-slate-400" /> {{ cycle.ended ? 'Rent due' : 'This rent month' }}</p>
+          <span class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="!cycle.started ? 'bg-slate-100 text-slate-600' : cycle.ended ? 'bg-red-50 text-red-700' : left <= 7 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'">
             {{ !cycle.started ? 'Not started' : timeLeft(left) }}
           </span>
         </div>
@@ -170,7 +173,7 @@ const endOpen = ref(false)
         <p v-if="!cycle.started" class="px-4 pt-2 pb-4 text-sm text-slate-500">Nothing paid yet. When you record their first payment, you choose the date it was paid and their first month starts that day.</p>
 
         <template v-else>
-          <div v-if="!cycle.debtDays" class="mx-4 mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div v-if="!cycle.ended" class="mx-4 mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
             <div class="h-full rounded-full bg-gradient-to-r from-teal-400 to-teal-700" :style="{ width: `${used}%` }" />
           </div>
           <dl class="mt-3 grid grid-cols-2 gap-px bg-slate-100 text-sm">
@@ -179,8 +182,8 @@ const endOpen = ref(false)
               <dd class="mt-0.5 font-semibold text-slate-900">{{ lastPaidOn ? formatDate(lastPaidOn) : '—' }}</dd>
             </div>
             <div class="bg-white p-3">
-              <dt class="text-xs text-slate-500">{{ cycle.debtDays ? 'Month ended' : 'Month ends' }}</dt>
-              <dd class="mt-0.5 font-semibold" :class="cycle.debtDays ? 'text-red-600' : 'text-slate-900'">{{ formatDate(cycle.end) }}</dd>
+              <dt class="text-xs text-slate-500">{{ cycle.ended ? 'Month ended' : 'Month ends' }}</dt>
+              <dd class="mt-0.5 font-semibold" :class="cycle.ended ? 'text-red-600' : 'text-slate-900'">{{ formatDate(cycle.end) }}</dd>
             </div>
             <div class="bg-white p-3">
               <dt class="text-xs text-slate-500">Debt days</dt>
@@ -210,7 +213,11 @@ const endOpen = ref(false)
       <dl class="divide-y divide-slate-100 text-sm">
         <div class="flex items-center gap-3 py-3">
           <Phone class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Phone</dt>
-          <dd><a v-if="t.phone" :href="`tel:${t.phone}`" class="font-medium text-brand-700">{{ t.phone }}</a><span v-else class="text-slate-400">—</span></dd>
+          <dd class="flex items-center gap-3">
+            <a v-if="t.phone" :href="`tel:${t.phone}`" class="font-medium text-brand-700">{{ t.phone }}</a><span v-else class="text-slate-400">—</span>
+            <!-- A tenant without a smartphone: change their phone number (and name, email) on their account page -->
+            <RouterLink v-if="t.managedByLandlord" :to="{ path: `/landlord/managed/${t.id}`, query: { edit: '1' } }" class="text-xs font-semibold text-brand-700 underline">Edit</RouterLink>
+          </dd>
         </div>
         <div v-if="t.email && !t.email.endsWith('@phone-signin.example.com')" class="flex items-center gap-3 py-3">
           <Mail class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Email</dt>
@@ -234,8 +241,11 @@ const endOpen = ref(false)
         </div>
       </dl>
     
-      <p v-if="done" class="form-ok" role="status">{{ done }}</p>
+      <p v-if="done && !t.usesApp" class="form-ok" role="status">{{ done }}</p>
       <p v-if="error && !accessOpen" class="form-error" role="alert">{{ error }}</p>
+
+      <!-- App access given: the link to send, then the app icon once they have registered -->
+      <AppInvite v-if="t.userId" :tenant-id="t.id" />
 
       <!-- Actions -->
       <div class="grid gap-2.5 pt-1">

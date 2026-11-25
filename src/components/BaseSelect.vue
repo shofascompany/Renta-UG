@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { Check, ChevronDown, Search } from '@lucide/vue'
 import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
+import { searcher } from '@/lib/search'
 import EmptyState from './EmptyState.vue'
 
 // The one dropdown used across the whole site.
@@ -17,20 +18,21 @@ const props = defineProps({
   required: Boolean,
   searchFrom: { type: Number, default: 6 }, // show the search box from this many options
   emptyText: { type: String, default: 'Nothing to choose from' },
+  wide: Boolean, // the menu is wider than a narrow button (e.g. the country code)
 })
 
 const open = ref(false)
 const search = ref('')
 const root = ref(null)
 const panel = ref(null)
-const { style, upwards, place } = useAnchoredMenu(open, root, panel, { match: true })
+const { style, upwards, place } = useAnchoredMenu(open, root, panel, { match: !props.wide })
 
 const selected = computed(() => props.options.find((o) => o.value === model.value))
 const groups = computed(() => {
-  const q = search.value.trim().toLowerCase()
+  const hit = searcher(search.value.replace(/^\s*\+/, ''))
   const map = new Map()
   for (const o of props.options) {
-    if (q && !`${o.label} ${o.group ?? ''}`.toLowerCase().includes(q)) continue
+    if (!hit(o.label, o.group, o.hint, o.sub)) continue
     const key = o.group ?? ''
     if (!map.has(key)) map.set(key, { key: key || '_', title: key, items: [] })
     map.get(key).items.push(o)
@@ -66,8 +68,8 @@ function pick(o) {
       @click="toggle"
     >
       <component :is="icon" v-if="icon" class="size-4.5 shrink-0" :class="selected ? 'text-brand-600' : 'text-slate-400'" />
-      <span class="min-w-0 flex-1 truncate" :class="selected ? 'font-medium text-slate-900' : 'text-slate-400'">{{ selected ? selected.label : options.length ? placeholder : emptyText }}</span>
-      <span v-if="selected?.hint" class="shrink-0 text-xs font-medium text-slate-500">{{ selected.hint }}</span>
+      <span class="min-w-0 flex-1 truncate" :class="selected ? 'font-medium text-slate-900' : 'text-slate-400'">{{ selected ? selected.short ?? selected.label : options.length ? placeholder : emptyText }}</span>
+      <span v-if="selected?.hint && selected.short === undefined" class="shrink-0 text-xs font-medium text-slate-500">{{ selected.hint }}</span>
       <span class="select-chev" :class="open && 'select-chev-open'"><ChevronDown class="size-4" /></span>
     </button>
     <!-- Lets the browser's own "please fill this in" check work -->
@@ -75,7 +77,7 @@ function pick(o) {
 
     <Teleport to="body">
       <Transition name="menu-pop">
-        <div v-if="open" ref="panel" class="menu-panel menu-from-left" :class="upwards && 'menu-up'" :style="style">
+        <div v-if="open" ref="panel" class="menu-panel menu-from-left" :class="upwards && 'menu-up'" :style="[style, wide && { minWidth: '17rem', maxWidth: 'calc(100vw - 20px)' }]">
           <div v-if="options.length >= searchFrom" class="menu-search">
             <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
             <input v-model="search" type="search" class="input h-10 rounded-xl pl-10 text-sm" placeholder="Search…" autocomplete="off" data-cap="off" aria-label="Search" />
@@ -98,6 +100,7 @@ function pick(o) {
                   <span class="block truncate">{{ o.label }}</span>
                   <span v-if="o.sub" class="menu-sub truncate">{{ o.sub }}</span>
                 </span>
+                <span v-if="wide && o.hint" class="shrink-0 text-xs font-medium text-slate-500 tabular-nums">{{ o.hint }}</span>
                 <span v-if="model === o.value" class="menu-check"><Check class="size-3" stroke-width="3" /></span>
               </button>
             </div>

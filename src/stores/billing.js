@@ -1,13 +1,14 @@
 import { defineStore, acceptHMRUpdate } from 'pinia'
-import { supabase, must } from '@/lib/supabase'
+import { supabase, must, fetchAll } from '@/lib/supabase'
 import { useAuthStore } from './auth'
+import { timeNow } from '@/lib/now'
+import { daysLeftAt, moveDay, subscriptionEnds, ugandaDay } from '@/utils/exactTime'
 
 // Landlord subscriptions to Renta UG (monthly or yearly). See database/45_landlord_subscriptions.sql.
 //   Landlord: their status, Renta UG's prices + receiving numbers, their own payments; submit / cancel.
 //   Main admin: every payment, confirm / reject, add free days, prices and numbers.
 
 const NEEDS_DB_UPDATE = 'This needs a database update: run database/update_existing.sql in Supabase.'
-const kampalaToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Kampala' })
 export const daysBetween = (from, to) => Math.round((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86_400_000)
 
 const mapPayment = (r) => ({
@@ -24,7 +25,7 @@ const mapPayment = (r) => ({
   paidOn: r.paid_on,
   status: r.status,
   periodStart: r.period_start,
-  periodEnd: r.period_end,
+  periodEnd: r.period_end ? moveDay(r.period_end, 1) : null, // the day it ends (period_end = its last whole day)
   reviewedAt: r.reviewed_at,
   rejectReason: r.reject_reason,
   note: r.note ?? null,
@@ -47,17 +48,21 @@ const mapSettings = (r) => ({
   raw: r ?? {},
 })
 
-// One subscription's status from its "last day covered" and plan. There is no free trial: a landlord
+// One subscription's status. It runs to the exact moment (database/61): 'until' saved = its last whole day, so it ends
+// the day after that at its time of day. Returned: until = the day it ends, lastDay = as saved. There is no free trial: a landlord
 // can't use the app until their first payment is confirmed by the main admin (state 'none').
 // exempt = the permanent free landlord account: always active, never pays.
-export function subscriptionStatus(until, plan, { tier = null, exempt = false } = {}) {
-  const today = kampalaToday()
+export function subscriptionStatus(lastDay, plan, { tier = null, exempt = false, clock = null } = {}) {
   if (exempt) return { state: 'free', until: null, daysLeft: Infinity, plan: null, tier: null, active: true, exempt: true }
-  if (!until) return { state: 'none', until: null, daysLeft: 0, plan, tier, active: false }
-  const daysLeft = daysBetween(today, until) // 0 = last day is today
-  const active = daysLeft >= 0
+  if (!lastDay) return { state: 'none', until: null, daysLeft: 0, plan, tier, active: false }
+  const t = timeNow()
+  const ends = subscriptionEnds(lastDay, clock)
+  const daysLeft = Math.max(0, daysLeftAt(ends, t)) // 1 = the last 24 hours
+  const active = ends > t
+  const until = moveDay(lastDay, 1)
+  const endsIn = daysBetween(ugandaDay(t), until) // by the calendar: 0 = today, 1 = tomorrow
   const state = !active ? 'expired' : daysLeft <= 7 ? 'ending' : 'active'
-  return { state, until, daysLeft, plan, tier, active }
+  return { state, until, lastDay, ends, endsIn, daysLeft, plan, tier, active }
 }
 
 let channel = null
@@ -74,7 +79,7 @@ export const useBillingStore = defineStore('billing', {
     // The signed-in landlord's subscription
     mine() {
       const p = useAuthStore().profile
-      return subscriptionStatus(p?.subscription_until, p?.subscription_plan, { tier: p?.subscription_tier ?? null, exempt: p?.subscription_exempt === true })
+      return subscriptionStatus(p?.subscription_until, p?.subscription_plan, { tier: p?.subscription_tier ?? null, exempt: p?.subscription_exempt === true, clock: p?.subscription_clock ?? null })
     },
     pending: (s) => s.payments.filter((p) => p.status === 'pending'),
     price: (s) => (tier, plan) => s.settings.prices[tier]?.[plan] ?? 0,
@@ -101,7 +106,7 @@ export const useBillingStore = defineStore('billing', {
       // Speed: the landlord's lock / unlock comes from their profile (already loaded). Show the last
       // prices + payments saved on this device at once, so pages never wait on this request.
       const key = `renta:data:billing:${auth.user?.id}`
-      if (!this.loaded) {
+      if (!this.loaded && !auth.isSuperadmin) { // the main admin's numbers only ever come from the database
         try {
           const saved = JSON.parse(localStorage.getItem(key) || 'null')
           if (saved) Object.assign(this, { settings: saved.settings, payments: saved.payments, unavailable: saved.unavailable, loaded: true })
@@ -110,6 +115,7 @@ export const useBillingStore = defineStore('billing', {
         }
       }
       const remember = () => {
+        if (auth.isSuperadmin) return
         try {
           localStorage.setItem(key, JSON.stringify({ settings: this.settings, payments: this.payments, unavailable: this.unavailable }))
         } catch {
@@ -120,7 +126,10 @@ export const useBillingStore = defineStore('billing', {
       try {
         ;[s, p] = await Promise.all([
           supabase.from('billing_settings').select('*').eq('id', 1).maybeSingle(),
-          supabase.from('subscription_payments').select('*').order('created_at', { ascending: false }).limit(500),
+          fetchAll(() => supabase.from('subscription_payments').select('*').order('created_at', { ascending: false }).order('id')).then(
+            (data) => ({ data, error: null }),
+            (error) => ({ data: null, error }),
+          ),
         ])
       } catch (e) {
         this.loaded = true // never leave the landlord on a loading screen

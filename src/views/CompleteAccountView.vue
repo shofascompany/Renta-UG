@@ -159,8 +159,8 @@ async function signOut() {
             {{ busy ? 'Finishing…' : 'Finish setup' }}
           </button>
           <p class="text-center text-xs leading-relaxed text-slate-500">
-            By finishing you agree to the <RouterLink to="/terms" target="_blank" class="font-medium text-brand-700">Terms</RouterLink>
-            and <RouterLink to="/privacy" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
+            By finishing you agree to the <RouterLink to="/terms?for=tenant&only=1" target="_blank" class="font-medium text-brand-700">Terms</RouterLink>
+            and <RouterLink to="/privacy?for=tenant&only=1" target="_blank" class="font-medium text-brand-700">Privacy policy</RouterLink>.
           </p>
         </form>
 

@@ -11,6 +11,8 @@ const LINE = '#cbd5e1'
 
 const day = (d) =>
   d ? new Date(String(d).length === 10 ? `${d}T12:00:00` : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
+const shortDay = (d) =>
+  d ? new Date(String(d).length === 10 ? `${d}T12:00:00` : d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
 // An 8-digit receipt number, always the same for the same payment (from its id), e.g. 30591874
 export const receiptNumber = (id) => {
@@ -27,6 +29,24 @@ export const receiptFileName = (r) => {
   return `${name || 'Renta'} Receipt No. ${receiptNumber(r.id)}.png`
 }
 
+// Whole months are shown as months only ("1 month", "2 months"); less than a month is shown in days ("12 days").
+// A rent month is 30 days, so 30 days = 1 month. Days are added only when they are left over ("1 month 15 days").
+export function rentalTime(days) {
+  const n = Math.max(0, Math.round(Number(days) || 0))
+  if (!n) return '—'
+  const months = Math.floor(n / 30)
+  const rest = n % 30
+  return [months && `${months} month${months === 1 ? '' : 's'}`, rest && `${rest} day${rest === 1 ? '' : 's'}`].filter(Boolean).join(' ')
+}
+
+// The "Rent for" line: when the payment was made, how long it lasts, when it ends.
+// Without that information (older payments) it stays the rent month, as before.
+function rentFor(r) {
+  const w = r.window
+  if (w?.days && w.to) return `Paid ${shortDay(r.paidOn)} · ${rentalTime(w.days)} · ends ${shortDay(w.to)}`
+  return r.months?.length ? r.months.join(', ') : '—'
+}
+
 // Shorten text with "…" so it never runs past `max` pixels
 function fit(ctx, text, max) {
   let t = String(text ?? '—')
@@ -38,6 +58,7 @@ function fit(ctx, text, max) {
 /**
  * r = { id, amount, method, paidOn, confirmedOn, confirmedBy, months[], details,
  *       tenantName, tenantPhone, property, landlordName,
+ *       window?: { from, to, days },
  *       instalments?: { period, rent, paid, balance, days, current, rows: [{ id, n, at, method, amount, days, totalAfter }] } }
  * With instalments (a month paid in turns) the receipt grows a table listing every payment.
  */
@@ -50,7 +71,7 @@ export function drawReceipt(r) {
   c.height = H + extra
   const ctx = c.getContext('2d')
   ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, W, H)
+  ctx.fillRect(0, 0, W, H + extra)
   ctx.textBaseline = 'alphabetic'
   const L = 90
   const R = W - 90
@@ -98,7 +119,7 @@ export function drawReceipt(r) {
       ['Tenant phone', r.tenantPhone],
       ['Property', r.property],
       ['Paid to (landlord)', r.landlordName],
-      ['Rent for', r.months?.length ? r.months.join(', ') : '—'],
+      ['Rent for', rentFor(r)],
     ],
     [
       ['Payment method', r.method],
@@ -192,21 +213,9 @@ export function drawReceipt(r) {
   return c
 }
 
-// Draw it and save it as a PNG (phones without download support get the share sheet)
-export async function downloadReceipt(r) {
-  const canvas = drawReceipt(r)
-  const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'))
-  const name = receiptFileName(r)
-  const file = new File([blob], name, { type: 'image/png' })
-  const standaloneIOS = /iP(hone|ad|od)/.test(navigator.userAgent) && window.matchMedia?.('(display-mode: standalone)').matches
-  if (standaloneIOS && navigator.canShare?.({ files: [file] })) {
-    try {
-      await navigator.share({ files: [file], title: name })
-      return
-    } catch {
-      /* cancelled: fall back to a normal download */
-    }
-  }
+const standaloneIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) && window.matchMedia?.('(display-mode: standalone)').matches
+
+function saveBlob(blob, name) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -215,4 +224,51 @@ export async function downloadReceipt(r) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+// Made in one go, with no waiting: phones only open the share list straight from the tap itself
+function makeFile(r) {
+  const bytes = Uint8Array.from(atob(drawReceipt(r).toDataURL('image/png').split(',')[1]), (c) => c.charCodeAt(0))
+  const blob = new Blob([bytes], { type: 'image/png' })
+  const name = receiptFileName(r)
+  return { blob, name, file: new File([blob], name, { type: 'image/png' }) }
+}
+
+// Draw it and save it as a PNG (phones without download support get the share sheet)
+export async function downloadReceipt(r) {
+  const { blob, name, file } = makeFile(r)
+  if (standaloneIOS() && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: name })
+      return
+    } catch {
+      /* cancelled: fall back to a normal download */
+    }
+  }
+  saveBlob(blob, name)
+}
+
+// Can this device send the receipt picture to another app (WhatsApp…)? Phones can; most computers cannot.
+// Where it can't, the WhatsApp button is not shown at all.
+export function canShareReceiptImage() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.canShare || !navigator.share) return false
+    return navigator.canShare({ files: [new File(['x'], 'receipt.png', { type: 'image/png' })] })
+  } catch {
+    return false
+  }
+}
+
+// The same PNG as the download, handed straight to the phone's share sheet: pick WhatsApp, then the person.
+// Nothing is downloaded first. (A web page cannot open one chosen WhatsApp chat with a picture attached, so
+// WhatsApp is chosen in the sheet the phone shows.)
+export async function shareReceiptImage(r) {
+  try {
+    await navigator.share({ files: [makeFile(r).file] }) // the picture only: no text, no link
+    return 'shared'
+  } catch (e) {
+    // Closed without sending, or the list is already open: nothing to do
+    if (e?.name === 'AbortError' || e?.name === 'InvalidStateError') return 'cancelled'
+    throw e
+  }
 }

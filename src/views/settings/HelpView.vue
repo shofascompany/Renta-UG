@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { searcher } from '@/lib/search'
 import { LifeBuoy, Search, Phone, Mail, MessageCircle, ChevronDown, Rocket, Wallet, Building2, Users, CalendarClock, UserCog, Wrench, Crown, Home, ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { useBillingStore } from '@/stores/billing'
@@ -307,10 +308,10 @@ const topics = computed(() => [...(auth.isLandlord ? landlordTopics.value : tena
 // Search across questions and answers
 const query = ref('')
 const shown = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return topics.value
+  if (!query.value.trim()) return topics.value
+  const hit = searcher(query.value)
   return topics.value
-    .map((t) => ({ ...t, items: t.items.filter((i) => [i.q, ...(i.a ?? []), ...(i.steps ?? [])].join(' ').toLowerCase().includes(q)) }))
+    .map((t) => ({ ...t, items: t.items.filter((i) => hit(t.title, i.q, i.a, i.steps)) }))
     .filter((t) => t.items.length)
 })
 </script>

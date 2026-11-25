@@ -62,7 +62,6 @@ const UPDATE = [
   '35_consistency.sql',
   '36_part_payments.sql',
   '37_email_verification.sql',
-  '39_sms_confirmations.sql',
   '40_app_installs.sql',
   '41_manual_mobile_money.sql',
   '42_tenant_own_details.sql',
@@ -78,6 +77,13 @@ const UPDATE = [
   '52_part_payment_days.sql',
   '53_subscription_30_day_months.sql',
   '54_browser_write_limits.sql',
+  '55_edit_payment.sql',
+  '56_phone_any_country.sql',
+  '57_smartphone_after_first_open.sql',
+  '58_visits_downloads_ratings.sql',
+  '59_live_visits_and_app_downloads.sql',
+  '60_signed_in_accounts.sql',
+  '61_exact_time.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

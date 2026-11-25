@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog, MessageSquareQuote, HandCoins, ImageDown, Loader2, Equal } from '@lucide/vue'
+import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog, MessageSquareQuote, HandCoins, ImageDown, Loader2, Equal, MessageCircle } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { formatUGX, formatDate } from '@/utils/format'
@@ -29,7 +29,7 @@ const houseOf = (c) => {
   return (rental.propertyById(t?.propertyId ?? t?.lastPropertyId) ? rental.placeName(t?.propertyId ?? t?.lastPropertyId) : undefined)
 }
 const landlordOf = (c) => rental.landlords.find((l) => l.id === c.landlordId)?.name ?? 'Landlord'
-const owedBy = (c) => rental.duesForTenant(c.tenantId).reduce((s, p) => s + p.balance, 0)
+const owedBy = (c) => (tenantOf(c)?.propertyId ? rental.payStateFor(c.tenantId).owed : rental.duesForTenant(c.tenantId).reduce((s, p) => s + p.balance, 0))
 
 // ── Confirm (amount can be corrected) ──
 const confirming = ref(null)
@@ -51,7 +51,7 @@ const cRent = computed(() => Number(rental.propertyById(cTenant.value?.propertyI
 const differs = computed(() => confirming.value && value.value && value.value !== confirming.value.amount)
 
 // Receipts as images, like the tenant's
-const { saving, saveCash } = useReceiptDownload()
+const { saving, saveCash, shareCash, canShare } = useReceiptDownload()
 
 async function confirm() {
   error.value = ''
@@ -162,6 +162,9 @@ const statusText = (c) =>
               <button v-else-if="c.status === 'confirmed'" type="button" class="rc-btn" :disabled="Boolean(saving)" @click="saveCash(c)">
                 <Loader2 v-if="saving === c.id" class="size-3.5 animate-spin" /><ImageDown v-else class="size-3.5" />
                 {{ saving === c.id ? 'Saving…' : 'Download receipt' }}
+              </button>
+              <button v-if="canShare && !canReview(c) && c.status === 'confirmed'" type="button" class="rc-btn text-[#128c4a]" @click="shareCash(c)">
+                <MessageCircle class="size-3.5" /> WhatsApp
               </button>
             </div>
           </div>

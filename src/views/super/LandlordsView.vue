@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Plus, Search, CheckCircle2, Briefcase, Building2, Users, Wallet, ShieldOff, BadgeCheck } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { useLandlordStats } from '@/composables/useLandlordStats'
 import { formatUGX } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
@@ -10,24 +12,19 @@ import StatTile from '@/components/super/StatTile.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import PhoneInput from '@/components/PhoneInput.vue'
 
 const rental = useRentalStore()
 const route = useRoute()
 const router = useRouter()
 const { rows } = useLandlordStats()
-const query = ref('')
-const show = ref(route.query.show === 'suspended' ? 'suspended' : 'all') // all | active | suspended
+const query = useFilter('q', '')
+const show = useFilter('show', 'all', ['all', 'active', 'suspended'])
 const flash = ref('')
 
 const list = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  // The permanent account stays on the list whatever the filter or search
-  return rows.value.filter(
-    (l) =>
-      l.subscriptionExempt ||
-      ((show.value === 'all' ? true : show.value === 'active' ? l.active : !l.active) &&
-        (!q || `${l.name} ${l.email} ${l.phone ?? ''}`.toLowerCase().includes(q))),
-  )
+  const hit = searcher(query.value)
+  return rows.value.filter((l) => (show.value === 'all' || Boolean(l.active) === (show.value === 'active')) && hit(l.name, l.email, l.phone))
 })
 const totals = computed(() => ({
   active: rows.value.filter((l) => l.active).length,
@@ -140,7 +137,7 @@ async function save() {
           </div>
           <div>
             <label class="label" for="lphone">Phone</label>
-            <input id="lphone" v-model="form.phone" type="tel" class="input" placeholder="0772 123456" />
+            <PhoneInput id="lphone" v-model="form.phone" />
           </div>
         </div>
         <p class="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">They sign in with this email (or phone). The first time, they create their own password.</p>

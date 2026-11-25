@@ -2,7 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppShell from '@/layouts/AppShell.vue'
 import { isInstalledApp } from '@/lib/runtime'
+import { appOnlyDevice, otherAccountAllowed } from '@/lib/installApp'
 import { updateThemeForPath } from '@/lib/theme'
+import { watchBack } from '@/composables/useFilter'
 
 // Settings: same screens for landlords and tenants; each option is its own page.
 const settingsRoutes = (role) => [
@@ -44,6 +46,11 @@ const routes = [
   // Forgot password: enter the email → the app emails a link → choose a new password → back to sign in
   { path: '/forgot-password', name: 'forgot-password', component: () => import('@/views/ForgotPasswordView.vue'), meta: { guest: true } },
   { path: '/reset-password', name: 'reset-password', component: () => import('@/views/ResetPasswordView.vue'), meta: { public: true } },
+
+  // The one-time link a landlord sends on WhatsApp → the landing site. After it, signing in on Android needs the app.
+  { path: '/i/:token', name: 'invite-link', component: () => import('@/views/InviteLinkView.vue'), meta: { public: true } },
+  // Android: install the app, then open it (everyone else goes straight to sign-in)
+  { path: '/join', name: 'join', component: () => import('@/views/JoinView.vue'), meta: { public: true } },
 
   // Landlord's first sign-in: choose their own password (shown only until they do).
   { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue'), meta: { role: 'landlord' } },
@@ -119,6 +126,7 @@ const routes = [
       { path: '/admin2026/archives', name: 'super-archives', component: () => import('@/views/super/ArchivesView.vue') },
       { path: '/admin2026/archives/:id', name: 'super-archive', component: () => import('@/views/super/ArchivesView.vue'), props: true },
       { path: '/admin2026/downloads', name: 'super-downloads', component: () => import('@/views/super/DownloadsView.vue') },
+      { path: '/admin2026/ratings', name: 'super-ratings', component: () => import('@/views/super/RatingsView.vue') },
       { path: '/admin2026/system', name: 'super-system', component: () => import('@/views/super/SystemView.vue') },
       // Cash and requests to leave are handled by landlords; old links go to the activity timeline
       { path: '/admin2026/cash', redirect: '/admin2026/activity' },
@@ -140,6 +148,12 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.init()
   if (to.meta.public) return true
+  // Android, invited by a shared link: a tenant's account is used in the app, so the browser sends them to the
+  // install / open-in-app page. Landlords and the main admin are never blocked.
+  if (appOnlyDevice() && !to.path.startsWith('/admin2026')) {
+    const staff = auth.isAuthenticated && (auth.isLandlord || auth.isSuperadmin)
+    if (!staff && !(to.meta.guest && !auth.isAuthenticated && otherAccountAllowed())) return { name: 'join' }
+  }
   if (to.meta.guest) return auth.isAuthenticated ? auth.home : true
   if (!auth.isAuthenticated) {
     const area = to.matched.find((r) => r.meta.role)?.meta.role
@@ -171,5 +185,7 @@ router.beforeEach(async (to) => {
 // Public pages stay light; dark mode (when the device uses it) applies inside the app
 // (a cancelled or redirected-away navigation keeps the page that is actually on screen)
 router.afterEach((to, from, failure) => updateThemeForPath(failure ? router.currentRoute.value.path : to.path))
+
+watchBack(router) // filters come back as they were when someone goes Back
 
 export default router

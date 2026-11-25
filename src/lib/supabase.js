@@ -24,5 +24,17 @@ export function must({ data, error }) {
   }
   return data
 }
+// Every row of a list, not only the first 1,000 (the most the database sends at a time), so totals are always whole.
+//   await fetchAll(() => supabase.from('payments').select('*').order('created_at').order('id'))
+const PAGE = 1000
+export async function fetchAll(query, most = Infinity) {
+  const rows = new Map() // a row added while reading can't be counted twice
+  for (let from = 0; from < most; from += PAGE) {
+    const page = must(await query().range(from, from + PAGE - 1))
+    for (const r of page) rows.set(r.id ?? rows.size, r)
+    if (page.length < PAGE) break
+  }
+  return [...rows.values()]
+}
 export const PERMISSION_MESSAGE =
   "Your account isn't allowed to make this change right now. Sign out and sign in again, then try once more. If it keeps happening, contact Renta UG."

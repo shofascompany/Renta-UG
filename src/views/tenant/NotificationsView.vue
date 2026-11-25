@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   Bell, BellOff, Copy, Share2, Trash2, X, MessageCircle, MessageSquare, Mail, Check, Clock, ArrowLeft, AlertCircle,
   Wallet, ShieldCheck, Sparkles, Info, Wrench, Megaphone, CalendarClock,
@@ -71,7 +72,20 @@ function open(n) {
 }
 function close() {
   viewing.value = null
+  if (route.query.open) router.replace({ query: {} })
 }
+// Opened from the pop-up at the top of the screen (?open=<id>)
+const route = useRoute()
+const router = useRouter()
+watch(
+  () => [route.query.open, list.value.length],
+  ([id]) => {
+    const n = id && list.value.find((x) => x.id === id)
+    if (n && viewing.value?.id !== n.id) open(n)
+  },
+  { immediate: true },
+)
+const aboutRent = (n) => ['payment', 'status', 'rent_due', 'reminder'].includes(n?.type)
 
 // ── Toast ──
 const toast = ref('')
@@ -161,7 +175,7 @@ function onKey(e) {
 watch(viewing, (v) => {
   document.body.style.overflow = v ? 'hidden' : ''
   window[v ? 'addEventListener' : 'removeEventListener']('keydown', onKey)
-})
+}, { immediate: true })
 onBeforeUnmount(() => {
   document.body.style.overflow = ''
   window.removeEventListener('keydown', onKey)
@@ -261,6 +275,8 @@ onBeforeUnmount(() => {
           <div class="mx-6 mt-5 max-h-[45vh] overflow-y-auto border-t border-slate-100 pt-5 pb-6">
             <p class="text-[15px] leading-relaxed whitespace-pre-line text-slate-700 select-text">{{ viewing.body }}</p>
           </div>
+
+          <div v-if="mode === 'view' && aboutRent(viewing)" class="px-6 pb-4"><RouterLink to="/tenant/payments" class="btn-primary h-11 w-full">See my payments</RouterLink></div>
 
           <!-- Actions -->
           <div class="border-t border-slate-100 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">

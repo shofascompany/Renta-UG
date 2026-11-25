@@ -2,22 +2,23 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   CheckCircle2, Receipt, Wallet, X, Zap, ArrowDownLeft, Clock, AlertCircle, Smartphone, Banknote, Copy, Check, CalendarDays,
-  Download, Loader2, PiggyBank,
+  Download, Loader2, PiggyBank, MessageCircle,
 } from '@lucide/vue'
 import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import { useTenant } from '@/composables/useTenant'
+import { useFilter } from '@/composables/useFilter'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import { useRouter } from 'vue-router'
 import { payRoute } from '@/lib/payRoute'
 
-const { rental, id, tenant, property, payments, dues, balance, firstRent, notStarted } = useTenant()
+const { rental, id, tenant, property, payments, dues, balance, firstRent, firstMonths, firstSince, notStarted } = useTenant()
 const router = useRouter()
 
-// Nothing is charged yet (new tenant / time ended): paying starts a new month at the house's rent
-const thisMonthLabel = `Rent for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
-const payFirst = () => (paying.value = { recharge: { months: 1, total: firstRent.value }, label: thisMonthLabel })
+// Not charged yet: a new tenant's first month, or every month begun since their paid time ended
+const thisMonthLabel = computed(() => (firstMonths.value > 1 ? `${firstMonths.value} months' rent` : `Rent for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`))
+const payFirst = () => (paying.value = { recharge: { total: firstRent.value }, label: thisMonthLabel.value })
 
 // ── Cash paid to the landlord (confirmed by the landlord or Renta UG before it counts) ──
 const todayISO = () => new Date().toLocaleDateString('en-CA')
@@ -61,7 +62,7 @@ watch(paying, (p) => {
   paying.value = null
 })
 const justPaid = ref(false)
-const filter = ref('all') // all | paid | unpaid
+const filter = useFilter('show', 'all', ['all', 'paid', 'unpaid'])
 
 // A month paid in part: "Complete payment" tops it up (the pay page shows what is remaining)
 const partPaid = computed(() => dues.value.find((d) => d.amountPaid > 0 && d.balance > 0) ?? null)
@@ -112,14 +113,15 @@ const methodIcon = (m) => (/cash/i.test(m ?? '') ? Banknote : Smartphone)
 
 // ── Receipts as a landscape image (only for payments the landlord has confirmed) ──
 // A month paid in several turns: the receipt and the details list every instalment.
-const { saving, saveRevenue, saveCash: saveCashReceipt, instalmentsFor } = useReceiptDownload()
+const { saving, saveRevenue, shareRevenue, canShare, saveCash: saveCashReceipt, shareCash, instalmentsFor } = useReceiptDownload()
 const plan = computed(() => (detail.value ? instalmentsFor(detail.value.id) : null))
 // One amount received towards a month (from the month's details)
-const saveReceipt = (r) =>
-  saveRevenue({
-    id: r.id, paymentId: r.paymentId ?? detail.value?.id, tenantId: r.tenantId ?? tenant.value?.id, propertyId: detail.value?.propertyId ?? property.value?.id,
-    period: detail.value?.period, amount: r.amount, method: r.method, reference: r.reference, note: r.note, at: r.at ?? r.receivedAt,
-  })
+const receiptOf = (r) => ({
+  id: r.id, paymentId: r.paymentId ?? detail.value?.id, tenantId: r.tenantId ?? tenant.value?.id, propertyId: detail.value?.propertyId ?? property.value?.id,
+  period: detail.value?.period, amount: r.amount, method: r.method, reference: r.reference, note: r.note, at: r.at ?? r.receivedAt,
+})
+const saveReceipt = (r) => saveRevenue(receiptOf(r))
+const shareReceipt = (r) => shareRevenue(receiptOf(r))
 
 // ── Rotating tips in the banner (change every 4 s) ──
 const tips = computed(() => {
@@ -197,6 +199,9 @@ onBeforeUnmount(() => clearInterval(tipTimer))
                 <Loader2 v-if="saving === c.id" class="size-3.5 animate-spin" /><Download v-else class="size-3.5" />
                 {{ saving === c.id ? 'Saving…' : 'Download receipt' }}
               </span>
+              <span v-if="canShare" role="button" tabindex="0" class="mt-1.5 ml-3 inline-flex items-center gap-1 text-xs font-semibold text-[#128c4a]" @click.stop="shareCash(c)" @keydown.enter.stop.prevent="shareCash(c)">
+                <MessageCircle class="size-3.5" /> WhatsApp
+              </span>
             </template>
             <template #icon>
               <span class="icon-disc" :class="c.method === 'mobile_money' ? 'disc-emerald' : 'disc-amber'">
@@ -258,15 +263,15 @@ onBeforeUnmount(() => clearInterval(tipTimer))
       <button class="rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-100" aria-label="Dismiss" @click="justPaid = false"><X class="size-4" /></button>
     </div>
 
-    <!-- Nothing charged yet: one month's rent is owed -->
-    <section v-if="!dues.length && firstRent" class="rise mt-6" style="--d: 80ms">
-      <h2 class="section-title">To pay</h2>
+    <!-- Not charged yet: the first month, or the months since their paid time ended -->
+    <section v-if="firstRent" class="rise mt-6" style="--d: 80ms">
+      <h2 class="section-title">{{ dues.length ? 'Other unpaid months' : 'To pay' }}</h2>
       <div class="sheet divide-y divide-slate-100">
         <div class="flex items-center gap-3.5 px-4 py-4 sm:px-5">
           <span class="icon-disc rounded-full disc-amber"><Clock class="size-5" /></span>
           <div class="min-w-0 flex-1">
             <p class="truncate font-medium text-slate-900">{{ thisMonthLabel }}</p>
-            <p class="truncate text-xs text-slate-500">Pay all or part: your time starts the day you pay</p>
+            <p class="truncate text-xs text-slate-500">{{ firstSince ? `Unpaid since ${formatDate(firstSince)}` : 'Pay all or part: your time starts the day you pay' }}</p>
           </div>
           <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
             <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(firstRent) }}</p>
@@ -371,7 +376,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
         <div v-else class="flex flex-col items-center px-6 py-12 text-center">
           <span class="flex size-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400"><Receipt class="size-6" /></span>
           <p class="mt-3 font-medium text-slate-900">{{ filter === 'all' ? 'No payments yet' : `No ${filter} months` }}</p>
-          <p class="mt-1 text-sm text-slate-500">Your rent payments will appear here.</p>
+          <p class="mt-1 text-sm text-slate-500">{{ filter === 'all' || !payments.length ? 'Your rent payments will appear here.' : 'Choose All to see every month.' }}</p>
         </div>
       </div>
     </section>
@@ -477,6 +482,15 @@ onBeforeUnmount(() => clearInterval(tipTimer))
                       @click="saveReceipt(r)"
                     >
                       <Loader2 v-if="saving === r.id" class="size-4 animate-spin" /><Download v-else class="size-4" />
+                    </button>
+                    <button
+                      v-if="canShare"
+                      class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#128c4a] shadow-sm transition hover:bg-emerald-50 active:scale-95"
+                      :aria-label="`Share the receipt for ${formatUGX(r.amount)} on WhatsApp`"
+                      title="Share on WhatsApp"
+                      @click="shareReceipt(r)"
+                    >
+                      <MessageCircle class="size-4" />
                     </button>
                   </li>
                 </ul>

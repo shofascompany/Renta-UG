@@ -1,17 +1,19 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Search, ShieldCheck, Building2, Users, Megaphone, Briefcase, ArrowDownLeft, Banknote, DoorOpen, UserPlus, Activity,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { formatUGX } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
 
 // Main admin: one timeline of what happened on the platform — your own changes (activity log),
 // money received, cash reviews, requests to leave and new tenants.
 const rental = useRentalStore()
-const show = ref('all') // all | admin | money | people
-const query = ref('')
+const show = useFilter('show', 'all', ['all', 'admin', 'money', 'people'])
+const query = useFilter('q', '')
 
 const when = (iso) =>
   new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })
@@ -51,13 +53,14 @@ const events = computed(() => {
       title: `${landlordName(t.landlordId)} registered ${t.name}`, sub: rental.placeName(t.propertyId ?? t.lastPropertyId), to: `/admin2026/tenants/${t.id}`,
     })
   }
-  const q = query.value.trim().toLowerCase()
+  const hit = searcher(query.value)
   return out
     .filter((e) => e.at && (show.value === 'all' || e.kind === show.value))
-    .filter((e) => !q || `${e.title} ${e.sub ?? ''}`.toLowerCase().includes(q))
+    .filter((e) => hit(e.title, e.sub))
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
 })
 const shown = ref(50)
+watch([show, query], () => (shown.value = 50))
 
 // Group by day
 const groups = computed(() => {
@@ -105,7 +108,7 @@ const groups = computed(() => {
     </div>
     <div v-else class="sheet flex flex-col items-center px-6 py-14 text-center">
       <span class="icon-tile tile-amber size-12"><Activity class="size-6" /></span>
-      <p class="mt-3 font-semibold text-slate-900">Nothing yet</p>
+      <p class="mt-3 font-semibold text-slate-900">{{ query || show !== 'all' ? 'Nothing matches' : 'Nothing yet' }}</p>
     </div>
   </div>
 </template>

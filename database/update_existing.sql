@@ -4,7 +4,7 @@
 -- Keeps all data. Re-applies the security policies and newer additions.
 -- Paste the whole file into Supabase → SQL Editor → Run. Safe to run more than once.
 --
--- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql, 36_part_payments.sql, 37_email_verification.sql, 39_sms_confirmations.sql, 40_app_installs.sql, 41_manual_mobile_money.sql, 42_tenant_own_details.sql, 43_heard_from.sql, 44_security_hardening.sql, 45_landlord_subscriptions.sql, 46_subscription_tiers.sql, 47_no_free_trial.sql, 48_no_reason_codes.sql, 49_protected_account.sql, 50_permanent_account.sql, 51_capacity_and_cash_subscriptions.sql, 52_part_payment_days.sql, 53_subscription_30_day_months.sql, 54_browser_write_limits.sql
+-- Includes: 07_functions.sql, 11_backfill_profiles.sql, 13_first_login_password.sql, 14_tenant_records.sql, 15_tenant_stays.sql, 08_policies.sql, 09_realtime.sql, 16_reminders_push_momo.sql, 17_cash_receipts_inbox.sql, 18_smart_notifications.sql, 19_login_email_check.sql, 20_login_phone_check.sql, 21_recharge.sql, 22_month_start_notices.sql, 23_notification_delete.sql, 24_cash_confirmation.sql, 25_tenant_phone_first_login.sql, 26_rentals.sql, 27_one_house_per_tenant.sql, 28_cash_any_time.sql, 29_paid_rental_time.sql, 30_move_out_requests.sql, 31_calm_notifications.sql, 32_admin_console.sql, 33_landlord_owns_issues.sql, 34_archive_and_clear.sql, 35_consistency.sql, 36_part_payments.sql, 37_email_verification.sql, 40_app_installs.sql, 41_manual_mobile_money.sql, 42_tenant_own_details.sql, 43_heard_from.sql, 44_security_hardening.sql, 45_landlord_subscriptions.sql, 46_subscription_tiers.sql, 47_no_free_trial.sql, 48_no_reason_codes.sql, 49_protected_account.sql, 50_permanent_account.sql, 51_capacity_and_cash_subscriptions.sql, 52_part_payment_days.sql, 53_subscription_30_day_months.sql, 54_browser_write_limits.sql, 55_edit_payment.sql, 56_phone_any_country.sql, 57_smartphone_after_first_open.sql, 58_visits_downloads_ratings.sql, 59_live_visits_and_app_downloads.sql, 60_signed_in_accounts.sql, 61_exact_time.sql
 -- ============================================================================
 
 -- Safety check: stop right away if this isn't the Renta database
@@ -2901,19 +2901,6 @@ exception when others then
   null; -- cleaning up is optional: the server also removes expired rows itself
 end $$;
 
--- ────────────── 39_sms_confirmations.sql ──────────────
-
--- 39 · text messages (SMS) when a landlord confirms a cash payment
--- The server texts the tenant the same message the app shows (tenants with or without a smartphone). These columns remember which notifications were already texted, so nobody
--- gets the same SMS twice. Run once in Supabase → SQL Editor. Safe to run more than once.
-
-alter table public.notifications add column if not exists sms_sent_at timestamptz;
-alter table public.notifications add column if not exists sms_error text;
-
--- Don't text old payment messages when SMS is first switched on
-update public.notifications set sms_sent_at = coalesce(sms_sent_at, created_at)
-where sms_sent_at is null and type = 'payment';
-
 -- ────────────── 40_app_installs.sql ──────────────
 
 -- 40 · live app install counts (replaces the typed-in downloads of 38)
@@ -5283,3 +5270,1320 @@ begin
     end;
   end loop;
 end $$;
+
+-- ────────────── 55_edit_payment.sql ──────────────
+
+-- 55 · edit a payment of a tenant without a smartphone (safe to run again; no data is deleted)
+--
+--  A landlord who runs a tenant's account (managed_by_landlord) can correct a payment they recorded:
+--  the amount, the date it was received, the method and the note. Everything that follows from it is
+--  recalculated here, in the database, so every page and receipt agrees:
+--   • the rent month's amount_paid / status / paid_at
+--   • the rental time that month gave (part payments give days, a full month gives 30 days: see 52)
+--     → the tenant's lease_end moves by the difference
+--   • if it was the tenant's FIRST payment and the date changes, their rental period moves with it
+--  Browsers still cannot write payments directly (54); only this function can.
+
+create or replace function public.edit_receipt(
+  p_receipt_id uuid,
+  p_amount bigint,
+  p_received_at timestamptz,
+  p_method text,
+  p_note text default null
+) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_landlord uuid := auth.uid();
+  r public.payment_receipts%rowtype;
+  p public.payments%rowtype;
+  t public.tenants%rowtype;
+  v_method text := nullif(trim(p_method), '');
+  v_note text := nullif(trim(p_note), '');
+  v_paid bigint;
+  v_full boolean;
+  v_mc boolean;
+  v_old_days int;
+  v_new_days int;
+  v_old_day date;
+  v_new_day date;
+  v_first boolean;
+begin
+  if not public.is_landlord() then
+    raise exception 'Only landlords can edit payments.';
+  end if;
+
+  select * into r from public.payment_receipts where id = p_receipt_id for update;
+  if not found or r.landlord_id <> v_landlord then
+    raise exception 'Payment not found.';
+  end if;
+  select * into t from public.tenants where id = r.tenant_id for update;
+  if not found or t.managed_by_landlord is not true then
+    raise exception 'Only payments of tenants without a smartphone can be edited.';
+  end if;
+  -- Once the tenant has set up their own account, their payments are no longer the landlord's to rewrite
+  if t.user_id is not null and exists (select 1 from public.profiles where id = t.user_id and not must_change_password) then
+    raise exception 'This tenant uses the app now, so their payments can no longer be edited.';
+  end if;
+  select * into p from public.payments where id = r.payment_id for update;
+  if not found then
+    raise exception 'Rent month not found.';
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Enter an amount greater than zero.';
+  end if;
+  if p_received_at is null or (p_received_at at time zone 'Africa/Kampala')::date > public.kampala_today() then
+    raise exception 'The payment date cannot be in the future.';
+  end if;
+  if v_method is null then v_method := r.method; end if;
+  if char_length(v_method) > 40 then
+    raise exception 'The method is too long.';
+  end if;
+  if v_note is not null and char_length(v_note) > 300 then
+    raise exception 'The note is too long (300 characters at most).';
+  end if;
+
+  -- What the month has been paid after the change must stay within its rent
+  v_paid := p.amount_paid - r.amount + p_amount;
+  if v_paid > p.amount then
+    raise exception 'That is more than the rent for this month. The most you can enter is UGX %.',
+      to_char(p.amount - (p.amount_paid - r.amount), 'FM999,999,999,999');
+  end if;
+
+  -- Rental time this month gave before, and what it should give now
+  v_old_days := case when p.month_credited then 30 else coalesce(p.credited_days, 0) end;
+  v_full := v_paid >= p.amount;
+  if v_full then
+    v_new_days := 30; v_mc := true;
+  elsif p.month_credited and p.amount > 0 and p.amount_paid < p.amount and v_paid * 10 >= p.amount * 6 then
+    -- Counted under the old 60% rule and never paid in full: it keeps its whole month.
+    -- (A month that WAS paid in full follows today's rule when its payment is reduced.)
+    v_new_days := 30; v_mc := true;
+  elsif p.amount > 0 then
+    v_new_days := floor(v_paid::numeric * 30 / p.amount)::int; v_mc := false;
+  else
+    v_new_days := v_old_days; v_mc := p.month_credited;
+  end if;
+
+  v_old_day := (r.received_at at time zone 'Africa/Kampala')::date;
+  v_new_day := (p_received_at at time zone 'Africa/Kampala')::date;
+  v_first := not exists (
+    select 1 from public.payment_receipts
+    where tenant_id = r.tenant_id and id <> r.id and received_at < r.received_at
+  );
+
+  -- A cash payment record that matches this receipt exactly is kept in step (amount and date)
+  if (select count(*) from public.cash_payments
+      where tenant_id = r.tenant_id and status = 'confirmed' and paid_on = v_old_day
+        and coalesce(confirmed_amount, amount) = r.amount) = 1 then
+    update public.cash_payments
+    set amount = p_amount, confirmed_amount = p_amount, paid_on = v_new_day
+    where tenant_id = r.tenant_id and status = 'confirmed' and paid_on = v_old_day
+      and coalesce(confirmed_amount, amount) = r.amount;
+  end if;
+
+  update public.payment_receipts
+  set amount = p_amount, received_at = p_received_at, method = v_method, note = v_note
+  where id = r.id;
+
+  -- Credited days are set in the same update, so the rental-time trigger (52) has nothing left to add
+  update public.payments
+  set amount_paid = v_paid,
+      status = case when v_full then 'paid' else 'pending' end,
+      credited_days = case when v_mc then p.credited_days else v_new_days end,
+      month_credited = v_mc,
+      paid_at = case when v_full then (select max(received_at) from public.payment_receipts where payment_id = p.id) else null end,
+      method = (select method from public.payment_receipts where payment_id = p.id order by received_at desc, created_at desc limit 1)
+  where id = p.id;
+
+  -- Rental time follows: the difference in days, and the start moves with a corrected first payment date
+  if t.property_id is not null and t.lease_end is not null then
+    update public.tenants
+    set lease_end = (lease_end + (v_new_days - v_old_days) + case when v_first and lease_start = v_old_day then v_new_day - v_old_day else 0 end)::date,
+        lease_start = case when v_first and lease_start = v_old_day then v_new_day else lease_start end
+    where id = t.id;
+    -- never end before it started
+    update public.tenants set lease_end = lease_start where id = t.id and lease_start is not null and lease_end < lease_start;
+  end if;
+
+  return json_build_object(
+    'ok', true,
+    'days_before', v_old_days,
+    'days_after', v_new_days,
+    'amount_paid', v_paid,
+    'paid_in_full', v_full
+  );
+end $$;
+
+revoke execute on function public.edit_receipt(uuid, bigint, timestamptz, text, text) from public, anon;
+grant execute on function public.edit_receipt(uuid, bigint, timestamptz, text, text) to authenticated;
+
+-- ────────────── 56_phone_any_country.sql ──────────────
+
+-- 56 · phone numbers from any country (safe to run again; no data is deleted)
+--
+--  Numbers are saved as +<country code><number> (e.g. +254712345678). Older Ugandan numbers saved as
+--  0772 123 456 still work. Two numbers are the same person's when their phone_key is the same, so a Kenyan
+--  +254 712 345 678 and a Ugandan +256 712 345 678 are never mixed up (matching on the last 9 digits would).
+--  phone_key() gives the same answer as phoneKey() in src/lib/phone.js.
+
+create or replace function public.phone_key(p text) returns text
+language sql immutable set search_path = '' as $$
+  with x as (
+    select btrim(coalesce(p, '')) as raw, regexp_replace(coalesce(p, ''), '\D', '', 'g') as d
+  )
+  select case
+    when raw like '+%' then case when length(d) between 9 and 15 then d else '' end
+    when d like '00%' then case when length(substr(d, 3)) between 9 and 15 then substr(d, 3) else '' end
+    when d ~ '^7[0-9]{8}$' then '256' || d
+    when d ~ '^07[0-9]{8}$' then '256' || substr(d, 2)
+    when d ~ '^2567[0-9]{8}$' then d
+    when length(d) >= 9 then d
+    else ''
+  end
+  from x;
+$$;
+
+-- Sign-in page: what kind of account is this phone number?
+create or replace function public.login_phone_status(p_phone text) returns text
+language sql stable security definer set search_path = '' as $$
+  select coalesce(
+    (select case
+       when p.role = 'landlord' and not p.active then 'suspended'
+       when p.role = 'landlord' and p.must_change_password then 'first_login'
+       when p.role = 'landlord' then 'landlord'
+       when p.role = 'tenant' and p.must_change_password then 'tenant_first_login'
+       when p.role = 'tenant' then 'tenant'
+       else 'not_found'
+     end
+     from public.profiles p
+     where public.phone_key(p_phone) <> ''
+       and public.phone_key(p.phone) = public.phone_key(p_phone)
+     order by p.created_at desc nulls last
+     limit 1),
+    'not_found');
+$$;
+
+revoke execute on function public.login_phone_status(text) from public;
+grant execute on function public.login_phone_status(text) to anon, authenticated;
+
+-- Connecting with a code: the code works for the account with the phone number the landlord typed
+-- (any country), or for an account that has no phone number yet
+create or replace function public.redeem_connect_code(p_code text) returns uuid
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  t record;
+  me uuid := auth.uid();
+  v_email text;
+  v_key text;
+  v_phone text;
+  v_name text;
+  t_key text;
+begin
+  if me is null then
+    raise exception 'Please sign in first.';
+  end if;
+  if not exists (select 1 from public.profiles where id = me and role = 'tenant') then
+    raise exception 'Only tenant accounts can use a connection code.';
+  end if;
+  if exists (select 1 from public.tenants where user_id = me and property_id is not null) then
+    raise exception 'Your account is already connected to a rental.';
+  end if;
+
+  select * into t
+  from public.tenants
+  where connect_code = upper(trim(p_code))
+    and connect_code_expires_at > now()
+    and user_id is null
+  for update;
+
+  if t.id is null then
+    raise exception 'This code is invalid or has expired. Ask your landlord for a new one.';
+  end if;
+
+  select lower(coalesce(u.email, '')), nullif(trim(coalesce(p.phone, u.phone, '')), ''), nullif(trim(p.full_name), '')
+    into v_email, v_phone, v_name
+  from auth.users u left join public.profiles p on p.id = u.id
+  where u.id = me;
+  v_key := public.phone_key(v_phone);
+  t_key := public.phone_key(t.phone);
+
+  -- The landlord gave an email or phone: only that person's account may connect
+  if (t.email is not null or t_key <> '') and not (
+    (t.email is not null and lower(t.email) = v_email)
+    or (t_key <> '' and (t_key = v_key or (t.email is null and v_key = '')))
+  ) then
+    raise exception 'This code is for a different account. Sign in with the email or phone number your landlord registered for you, or ask them to check your details.';
+  end if;
+
+  -- Detach any former-tenant record so user_id stays unique
+  update public.tenants set user_id = null where user_id = me;
+
+  -- The tenant's own details replace what the landlord typed
+  update public.tenants
+  set user_id = me,
+      full_name = coalesce(v_name, full_name),
+      email = case when v_email = '' or v_email like '%@phone-signin.example.com' then email else v_email end,
+      phone = coalesce(v_phone, phone),
+      connect_code = null,
+      connect_code_expires_at = null
+  where id = t.id;
+
+  return t.id;
+end $$;
+
+revoke execute on function public.redeem_connect_code(text) from public, anon;
+grant execute on function public.redeem_connect_code(text) to authenticated;
+
+-- ────────────── 57_smartphone_after_first_open.sql ──────────────
+
+-- 57 · a tenant without a smartphone becomes a smartphone tenant when they FIRST OPEN THEIR DASHBOARD
+--      (safe to run again; no data is deleted)
+--
+--  Giving app access only creates their login; they stay "no smartphone" (managed_by_landlord = true) until they
+--  really open their dashboard in the app:
+--   • mark_dashboard_opened()   called by the tenant's dashboard, switches them over once
+--   • change_managed_phone()    until then their landlord can still correct the phone number they sign in with
+--   • one house per tenant (27) now compares the whole phone number, not the last 9 digits (see 56)
+
+create or replace function public.mark_dashboard_opened() returns boolean
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  -- Only once their own account is set up (email + password chosen)
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'tenant' and not must_change_password) then
+    return false;
+  end if;
+  update public.tenants set managed_by_landlord = false
+  where user_id = auth.uid() and property_id is not null and managed_by_landlord;
+  return found;
+end $$;
+revoke execute on function public.mark_dashboard_opened() from public, anon;
+grant execute on function public.mark_dashboard_opened() to authenticated;
+
+create or replace function public.change_managed_phone(p_tenant_id uuid, p_phone text) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  t public.tenants%rowtype;
+  v_phone text := nullif(btrim(p_phone), '');
+begin
+  if not public.is_landlord() then
+    raise exception 'Only landlords can do this.';
+  end if;
+  select * into t from public.tenants where id = p_tenant_id and landlord_id = auth.uid() for update;
+  if not found or t.managed_by_landlord is not true then
+    raise exception 'Only the number of a tenant without a smartphone can be changed here.';
+  end if;
+  if public.phone_key(v_phone) = '' or char_length(v_phone) > 30 then
+    raise exception 'Enter a valid phone number.';
+  end if;
+
+  if t.user_id is not null then
+    -- Their login exists: allowed only while it has never been set up by the tenant
+    if not exists (
+      select 1 from public.profiles p
+      where p.id = t.user_id and p.role = 'tenant' and p.must_change_password and p.email like '%@phone-signin.example.com'
+    ) then
+      raise exception 'This tenant has already set up their account. They change their number in their own settings.';
+    end if;
+    if exists (
+      select 1 from public.profiles p
+      where p.id <> t.user_id and public.phone_key(p.phone) = public.phone_key(v_phone)
+    ) then
+      raise exception 'This phone number is already used by another Renta account.';
+    end if;
+    update public.profiles set phone = v_phone where id = t.user_id;
+  end if;
+  update public.tenants set phone = v_phone where id = t.id;
+end $$;
+revoke execute on function public.change_managed_phone(uuid, text) from public, anon;
+grant execute on function public.change_managed_phone(uuid, text) to authenticated;
+
+create or replace function public.check_one_house_per_tenant() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare
+  v_key text := public.phone_key(new.phone);
+  v_other record;
+begin
+  if new.property_id is null then
+    return new;
+  end if;
+
+  select t.full_name, p.name as house into v_other
+  from public.tenants t
+  left join public.properties p on p.id = t.property_id
+  where t.id <> new.id
+    and t.property_id is not null
+    and (
+      (new.user_id is not null and t.user_id = new.user_id)
+      or (new.email is not null and new.email not like '%@phone-signin.example.com' and lower(t.email) = lower(new.email))
+      or (v_key <> '' and public.phone_key(t.phone) = v_key)
+    )
+  limit 1;
+
+  if found then
+    raise exception '%', format('%s already rents %s. A tenant can only be in one house or room at a time.',
+      v_other.full_name, coalesce(v_other.house, 'another house'));
+  end if;
+  return new;
+end $$;
+
+-- ────────────── 58_visits_downloads_ratings.sql ──────────────
+
+-- 58 · website visits, web app downloads and star ratings (safe to run again; no data is deleted)
+--
+--  All of it is for the main admin only. Browsers never touch the tables: they call the functions below.
+--   • register_web_install()  a device that installed the app from the website, counted once
+--   • record_visit()          a visit to the website: one per person until they have been away for a while
+--   • rating_state() / submit_rating() / rating_later()   stars, asked after 7 days of use, filled in once
+--   • site_stats() / admin_ratings()                      what the main admin sees
+
+-- ── Tables ──
+create table if not exists public.web_installs (
+  device_id text primary key, -- a random code, nothing personal
+  platform text not null check (platform in ('android', 'ios', 'windows', 'mac', 'other')),
+  first_seen timestamptz not null default now(),
+  last_seen timestamptz not null default now()
+);
+create index if not exists web_installs_first_seen_idx on public.web_installs (first_seen);
+
+create table if not exists public.site_visitors (
+  visitor text primary key, -- a random code, nothing personal
+  first_visit timestamptz not null default now(),
+  last_visit timestamptz not null default now(),
+  visits integer not null default 1
+);
+create index if not exists site_visitors_last_visit_idx on public.site_visitors (last_visit);
+
+create table if not exists public.site_visit_days (
+  day date primary key,
+  visits integer not null default 0,
+  visitors integer not null default 0
+);
+
+-- One rating per account. A deleted account's stars stay in the average, without the person.
+create table if not exists public.app_ratings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid unique references auth.users (id) on delete set null,
+  role text not null check (role in ('landlord', 'tenant')),
+  stars smallint not null check (stars between 1 and 5),
+  created_at timestamptz not null default now()
+);
+-- When each account started using the app, and when it may be asked
+create table if not exists public.app_rating_asks (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  first_used timestamptz not null default now(),
+  ask_after timestamptz
+);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['web_installs', 'site_visitors', 'site_visit_days', 'app_ratings', 'app_rating_asks'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from public, anon, authenticated', t);
+    execute format('grant all on public.%I to service_role', t);
+  end loop;
+  -- The main admin may read these (it also makes the numbers update live)
+  foreach t in array array['web_installs', 'site_visit_days', 'app_ratings'] loop
+    execute format('drop policy if exists "main admin reads" on public.%I', t);
+    execute format('create policy "main admin reads" on public.%I for select to authenticated using (public.is_superadmin())', t);
+    execute format('grant select on public.%I to authenticated', t);
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null;
+    end;
+  end loop;
+end $$;
+
+-- ── Web app downloads ──
+create or replace function public.register_web_install(p_device text, p_platform text) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+  if p_device is null or p_device !~ '^[A-Za-z0-9]{16,64}$'
+    or p_platform is null or p_platform not in ('android', 'ios', 'windows', 'mac', 'other') then
+    return;
+  end if;
+  update public.web_installs set last_seen = now() where device_id = p_device;
+  if found then return; end if;
+  -- A limit, so nobody can fill the table with invented devices
+  if (select count(*) from public.web_installs where first_seen > now() - interval '1 day') >= 5000 then return; end if;
+  insert into public.web_installs (device_id, platform) values (p_device, p_platform) on conflict do nothing;
+end $$;
+
+-- ── Website visits ──
+create or replace function public.record_visit(p_visitor text) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_today date := public.kampala_today();
+  v_last timestamptz;
+  v_new_today boolean;
+begin
+  if p_visitor is null or p_visitor !~ '^[A-Za-z0-9]{16,64}$' or public.is_superadmin() then
+    return;
+  end if;
+  select last_visit into v_last from public.site_visitors where visitor = p_visitor for update;
+  if found then
+    if v_last > now() - interval '25 minutes' then return; end if; -- still the same visit
+    update public.site_visitors set last_visit = now(), visits = visits + 1 where visitor = p_visitor;
+    v_new_today := (v_last at time zone 'Africa/Kampala')::date < v_today;
+  else
+    if coalesce((select visitors from public.site_visit_days where day = v_today), 0) >= 50000 then return; end if;
+    insert into public.site_visitors (visitor) values (p_visitor) on conflict do nothing;
+    if not found then return; end if; -- counted by another tab at the same moment
+    v_new_today := true;
+  end if;
+  insert into public.site_visit_days as d (day, visits, visitors) values (v_today, 1, v_new_today::int)
+  on conflict (day) do update set visits = d.visits + 1, visitors = d.visitors + excluded.visitors;
+end $$;
+
+-- ── Star ratings ──
+-- 'ask' = show the stars now · 'wait' = not yet · 'done' = already rated
+create or replace function public.rating_state() returns text
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  v_ask public.app_rating_asks%rowtype;
+begin
+  if me is null or not exists (
+    select 1 from public.profiles
+    where id = me and role in ('landlord', 'tenant') and coalesce(active, true) and not coalesce(must_change_password, false)
+  ) then
+    return 'wait';
+  end if;
+  if exists (select 1 from public.app_ratings where user_id = me) then return 'done'; end if;
+  -- First time seen here: an account already in use counts from its last sign-in
+  insert into public.app_rating_asks (user_id, first_used)
+  values (me, least(now(), coalesce((select u.last_sign_in_at from auth.users u where u.id = me), now())))
+  on conflict do nothing;
+  select * into v_ask from public.app_rating_asks where user_id = me;
+  return case
+    when v_ask.first_used <= now() - interval '7 days' and (v_ask.ask_after is null or v_ask.ask_after <= now()) then 'ask'
+    else 'wait'
+  end;
+end $$;
+
+-- "Not now": asked again a week later
+create or replace function public.rating_later() returns void
+language sql volatile security definer set search_path = '' as $$
+  update public.app_rating_asks set ask_after = now() + interval '7 days' where user_id = auth.uid();
+$$;
+
+-- Once only: a second rating changes nothing
+create or replace function public.submit_rating(p_stars integer) returns boolean
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  v_role text;
+begin
+  select role into v_role from public.profiles
+  where id = me and role in ('landlord', 'tenant') and coalesce(active, true) and not coalesce(must_change_password, false);
+  if v_role is null then raise exception 'Only landlords and tenants can rate Renta UG.'; end if;
+  if p_stars is null or p_stars not between 1 and 5 then raise exception 'Choose 1 to 5 stars.'; end if;
+  if not exists (select 1 from public.app_rating_asks where user_id = me and first_used <= now() - interval '7 days') then
+    raise exception 'You can rate Renta UG after using it for 7 days.';
+  end if;
+  insert into public.app_ratings (user_id, role, stars) values (me, v_role, p_stars) on conflict (user_id) do nothing;
+  return found;
+end $$;
+
+-- ── Main admin ──
+create or replace function public.site_stats() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare v_today date := public.kampala_today();
+begin
+  if not public.is_superadmin() then raise exception 'Only the main admin can see this.'; end if;
+  return jsonb_build_object(
+    'visits', (select coalesce(sum(visits), 0) from public.site_visit_days),
+    'visitors', (select count(*) from public.site_visitors),
+    'today', (select coalesce(sum(visits), 0) from public.site_visit_days where day = v_today),
+    'todayVisitors', (select coalesce(sum(visitors), 0) from public.site_visit_days where day = v_today),
+    'week', (select coalesce(sum(visits), 0) from public.site_visit_days where day > v_today - 7),
+    'weekVisitors', (select count(*) from public.site_visitors where (last_visit at time zone 'Africa/Kampala')::date > v_today - 7),
+    'month', (select coalesce(sum(visits), 0) from public.site_visit_days where day > v_today - 30),
+    'monthVisitors', (select count(*) from public.site_visitors where (last_visit at time zone 'Africa/Kampala')::date > v_today - 30),
+    'day', v_today,
+    'days', coalesce((select jsonb_agg(jsonb_build_object('day', day, 'visits', visits, 'visitors', visitors) order by day)
+                      from public.site_visit_days where day > v_today - 14), '[]'),
+    'web', (select count(*) from public.web_installs),
+    'webActive', (select count(*) from public.web_installs where last_seen > now() - interval '30 days'),
+    'webToday', (select count(*) from public.web_installs where (first_seen at time zone 'Africa/Kampala')::date = v_today),
+    'webPlatforms', coalesce((select jsonb_object_agg(platform, n) from (select platform, count(*) n from public.web_installs group by platform) x), '{}'),
+    'store', (select count(*) from public.app_installs),
+    'ratings', (select count(*) from public.app_ratings),
+    'average', (select round(avg(stars), 1) from public.app_ratings)
+  );
+end $$;
+
+create or replace function public.admin_ratings() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_superadmin() then raise exception 'Only the main admin can see this.'; end if;
+  return jsonb_build_object(
+    'total', (select count(*) from public.app_ratings),
+    'average', (select round(avg(stars), 1) from public.app_ratings),
+    'counts', coalesce((select jsonb_object_agg(stars, n) from (select stars, count(*) n from public.app_ratings group by stars) x), '{}'),
+    'list', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', r.id, 'userId', r.user_id, 'role', r.role, 'stars', r.stars, 'createdAt', r.created_at,
+        'name', p.full_name, 'phone', p.phone,
+        'email', case when p.email like '%@phone-signin.example.com' then null else p.email end,
+        'tenantId', (select t.id from public.tenants t where t.user_id = r.user_id order by t.property_id is null limit 1)
+      ) order by r.created_at desc)
+      from (select * from public.app_ratings order by created_at desc limit 1000) r
+      left join public.profiles p on p.id = r.user_id
+    ), '[]')
+  );
+end $$;
+
+-- ── Who may call what ──
+revoke execute on function public.register_web_install(text, text), public.record_visit(text) from public;
+grant execute on function public.register_web_install(text, text), public.record_visit(text) to anon, authenticated;
+revoke execute on function public.rating_state(), public.rating_later(), public.submit_rating(integer), public.site_stats(), public.admin_ratings() from public, anon;
+grant execute on function public.rating_state(), public.rating_later(), public.submit_rating(integer), public.site_stats(), public.admin_ratings() to authenticated;
+
+-- ────────────── 59_live_visits_and_app_downloads.sql ──────────────
+
+-- 59 · visits and downloads, live and with their details (safe to run again; no data is deleted)
+--
+--  What counts (builds on 58):
+--   • VISIT     someone opens the website, on any system. Signing in on the website is part of that visit: it is
+--               still a visit, never a download. iPhone, Windows and Mac are always visits.
+--   • DOWNLOAD  an account signs in inside the Android app. One phone is one download, however many accounts use it.
+--   • INSTALLED Android says the app was installed, but nobody has signed in there yet.
+--  Each one keeps its proof (when, which device, who), so every number on the main admin's page can be checked.
+
+-- ── Downloads: accounts signed in inside the Android app ──
+create table if not exists public.app_devices (
+  id uuid primary key default gen_random_uuid(),
+  device_id text not null, -- a random code for the phone
+  user_id uuid references auth.users (id) on delete set null,
+  role text not null check (role in ('landlord', 'tenant')),
+  source text not null check (source in ('website', 'play')),
+  device text not null default '', -- e.g. "Samsung SM-A515F (Android) · Chrome"
+  first_at timestamptz not null default now(),
+  last_at timestamptz not null default now(),
+  unique (device_id, user_id)
+);
+create index if not exists app_devices_first_idx on public.app_devices (first_at desc);
+
+-- ── Visits, one row each (kept 90 days; the totals in site_visit_days are kept for good) ──
+create table if not exists public.site_visits (
+  id bigint generated always as identity primary key,
+  visitor text not null,
+  at timestamptz not null default now(),
+  system text not null check (system in ('android', 'ios', 'windows', 'mac', 'other')),
+  device text not null default '',
+  user_id uuid references auth.users (id) on delete set null,
+  role text,
+  signed_in_at timestamptz -- signed in on the website during this visit
+);
+create index if not exists site_visits_at_idx on public.site_visits (at desc);
+create index if not exists site_visits_visitor_idx on public.site_visits (visitor, at desc);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['app_devices', 'site_visits'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from public, anon, authenticated', t);
+    execute format('grant all on public.%I to service_role', t);
+    execute format('drop policy if exists "main admin reads" on public.%I', t);
+    execute format('create policy "main admin reads" on public.%I for select to authenticated using (public.is_superadmin())', t);
+    execute format('grant select on public.%I to authenticated', t);
+    begin
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    exception when duplicate_object then null;
+    end;
+  end loop;
+end $$;
+
+-- ── A visit ──
+-- p_new = the browser says this is a new visit (away for half an hour); otherwise it only signs this visit in
+drop function if exists public.record_visit(text);
+create or replace function public.record_visit(p_visitor text, p_system text, p_device text, p_new boolean) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  v_today date := public.kampala_today();
+  v_device text := left(coalesce(p_device, ''), 80);
+  v_user uuid := auth.uid();
+  v_role text;
+  v_last timestamptz;
+  v_new_today boolean;
+begin
+  if p_visitor is null or p_visitor !~ '^[A-Za-z0-9]{16,64}$'
+    or p_system is null or p_system not in ('android', 'ios', 'windows', 'mac', 'other') then
+    return;
+  end if;
+  if v_user is not null then
+    select role into v_role from public.profiles where id = v_user;
+    if v_role = 'superadmin' then return; end if; -- the main admin's own pages are not visits
+  end if;
+
+  select last_visit into v_last from public.site_visitors where visitor = p_visitor for update;
+  if found then
+    -- Still the same visit: only note who signed in
+    if p_new is not true and v_last > now() - interval '12 hours' or v_last > now() - interval '25 minutes' then
+      if v_user is not null then
+        update public.site_visits set user_id = v_user, role = v_role, signed_in_at = now()
+        where id = (select id from public.site_visits where visitor = p_visitor order by at desc, id desc limit 1)
+          and user_id is distinct from v_user;
+      end if;
+      return;
+    end if;
+    update public.site_visitors set last_visit = now(), visits = visits + 1 where visitor = p_visitor;
+    v_new_today := (v_last at time zone 'Africa/Kampala')::date < v_today;
+  else
+    if coalesce((select visitors from public.site_visit_days where day = v_today), 0) >= 50000 then return; end if;
+    insert into public.site_visitors (visitor) values (p_visitor) on conflict do nothing;
+    if not found then return; end if; -- counted by another tab at the same moment
+    v_new_today := true;
+  end if;
+
+  insert into public.site_visit_days as d (day, visits, visitors) values (v_today, 1, v_new_today::int)
+  on conflict (day) do update set visits = d.visits + 1, visitors = d.visitors + excluded.visitors;
+  insert into public.site_visits (visitor, system, device, user_id, role, signed_in_at)
+  values (p_visitor, p_system, v_device, v_user, v_role, case when v_user is not null then now() end);
+  delete from public.site_visits where at < now() - interval '90 days';
+end $$;
+
+-- ── A download: an account signed in inside the Android app ──
+create or replace function public.register_app_sign_in(p_device text, p_source text, p_name text) returns void
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  v_role text;
+begin
+  if p_device is null or p_device !~ '^[A-Za-z0-9]{16,64}$' or p_source is null or p_source not in ('website', 'play') then
+    return;
+  end if;
+  select role into v_role from public.profiles where id = me and role in ('landlord', 'tenant') and coalesce(active, true);
+  if v_role is null then return; end if; -- signed out, suspended, or the main admin
+  update public.app_devices set last_at = now(), device = left(coalesce(nullif(p_name, ''), device), 80)
+  where device_id = p_device and user_id = me;
+  if found then return; end if;
+  -- A limit, so one account cannot invent downloads
+  if (select count(*) from public.app_devices where user_id = me) >= 20 then return; end if;
+  insert into public.app_devices (device_id, user_id, role, source, device)
+  values (p_device, me, v_role, p_source, left(coalesce(p_name, ''), 80))
+  on conflict do nothing;
+end $$;
+
+-- ── Main admin: the numbers ──
+create or replace function public.site_stats() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_today date := public.kampala_today();
+  v_start timestamptz := (v_today::timestamp at time zone 'Africa/Kampala');
+begin
+  if not public.is_superadmin() then raise exception 'Only the main admin can see this.'; end if;
+  return jsonb_build_object(
+    'visits', (select coalesce(sum(visits), 0) from public.site_visit_days),
+    'visitors', (select count(*) from public.site_visitors),
+    'today', (select coalesce(sum(visits), 0) from public.site_visit_days where day = v_today),
+    'todayVisitors', (select coalesce(sum(visitors), 0) from public.site_visit_days where day = v_today),
+    'week', (select coalesce(sum(visits), 0) from public.site_visit_days where day > v_today - 7),
+    'weekVisitors', (select count(*) from public.site_visitors where (last_visit at time zone 'Africa/Kampala')::date > v_today - 7),
+    'month', (select coalesce(sum(visits), 0) from public.site_visit_days where day > v_today - 30),
+    'monthVisitors', (select count(*) from public.site_visitors where (last_visit at time zone 'Africa/Kampala')::date > v_today - 30),
+    'now', (select count(distinct visitor) from public.site_visits where greatest(at, signed_in_at) > now() - interval '5 minutes'),
+    'day', v_today,
+    'days', coalesce((select jsonb_agg(jsonb_build_object('day', day, 'visits', visits, 'visitors', visitors) order by day)
+                      from public.site_visit_days where day > v_today - 14), '[]'),
+    -- the last 30 days, from the visits themselves
+    'systems', coalesce((select jsonb_object_agg(system, n) from (
+                  select system, count(*) n from public.site_visits where at > now() - interval '30 days' group by system) x), '{}'),
+    'signedIn', (select count(*) from public.site_visits where at > now() - interval '30 days' and signed_in_at is not null),
+    'signedInToday', (select count(*) from public.site_visits where signed_in_at >= v_start),
+    -- downloads = phones where an account signed in inside the Android app
+    'downloads', (select count(distinct device_id) from public.app_devices),
+    'downloadsToday', (select count(*) from (select device_id from public.app_devices group by device_id having min(first_at) >= v_start) x),
+    'downloadsActive', (select count(distinct device_id) from public.app_devices where last_at > now() - interval '30 days'),
+    'downloadsWebsite', (select count(distinct device_id) from public.app_devices where source = 'website'),
+    'downloadsPlay', (select count(distinct device_id) from public.app_devices where source = 'play'),
+    'downloadsLandlords', (select count(distinct device_id) from public.app_devices where role = 'landlord'),
+    'downloadsTenants', (select count(distinct device_id) from public.app_devices where role = 'tenant'),
+    -- Android said "installed", nobody has signed in on that phone yet
+    'installedOnly', (select count(*) from public.web_installs w where w.platform = 'android'
+                      and not exists (select 1 from public.app_devices d where d.device_id = w.device_id)),
+    'ratings', (select count(*) from public.app_ratings),
+    'average', (select round(avg(stars), 1) from public.app_ratings)
+  );
+end $$;
+
+-- ── Main admin: the proof behind the numbers ──
+create or replace function public.site_details() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not public.is_superadmin() then raise exception 'Only the main admin can see this.'; end if;
+  return jsonb_build_object(
+    'downloads', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', d.id, 'userId', d.user_id, 'role', d.role, 'source', d.source, 'device', d.device, 'phoneCode', left(d.device_id, 8),
+        'firstAt', d.first_at, 'lastAt', d.last_at, 'name', p.full_name, 'phone', p.phone,
+        'email', case when p.email like '%@phone-signin.example.com' then null else p.email end,
+        'tenantId', (select t.id from public.tenants t where t.user_id = d.user_id order by t.property_id is null limit 1)
+      ) order by d.first_at desc)
+      from (select * from public.app_devices order by first_at desc limit 200) d
+      left join public.profiles p on p.id = d.user_id
+    ), '[]'),
+    'visits', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', v.id, 'at', v.at, 'signedInAt', v.signed_in_at, 'system', v.system, 'device', v.device,
+        'userId', v.user_id, 'role', v.role, 'name', p.full_name,
+        'tenantId', (select t.id from public.tenants t where t.user_id = v.user_id order by t.property_id is null limit 1)
+      ) order by v.at desc, v.id desc)
+      from (select * from public.site_visits order by at desc, id desc limit 200) v
+      left join public.profiles p on p.id = v.user_id
+    ), '[]'),
+    'installed', coalesce((
+      select jsonb_agg(jsonb_build_object('code', left(w.device_id, 8), 'at', w.first_seen, 'lastAt', w.last_seen) order by w.first_seen desc)
+      from (select * from public.web_installs w where w.platform = 'android'
+            and not exists (select 1 from public.app_devices d where d.device_id = w.device_id)
+            order by first_seen desc limit 100) w
+    ), '[]')
+  );
+end $$;
+
+revoke execute on function public.record_visit(text, text, text, boolean) from public;
+grant execute on function public.record_visit(text, text, text, boolean) to anon, authenticated;
+revoke execute on function public.register_app_sign_in(text, text, text), public.site_stats(), public.site_details() from public, anon;
+grant execute on function public.register_app_sign_in(text, text, text), public.site_stats(), public.site_details() to authenticated;
+
+-- ────────────── 60_signed_in_accounts.sql ──────────────
+
+-- 60 · accounts that are signed in, with their information (safe to run again; no data is changed)
+--
+--  For the main admin's Downloads & visits page. Read from the sign-in system itself (auth.sessions): an account is
+--  signed in when it has a session that was not signed out and has not expired. Never returned: passwords, sign-in
+--  tokens, IP addresses.
+
+create or replace function public.admin_signed_in() returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_sessions jsonb;
+  v_known boolean := true;
+begin
+  if not public.is_superadmin() then raise exception 'Only the main admin can see this.'; end if;
+
+  begin
+    execute $q$
+      select coalesce(jsonb_object_agg(x.user_id, x.list), '{}') from (
+        select s.user_id, jsonb_agg(jsonb_build_object(
+          'signedInAt', s.created_at,
+          'lastActive', greatest(s.created_at, s.updated_at, s.refreshed_at at time zone 'UTC'),
+          'agent', left(s.user_agent, 300)
+        ) order by greatest(s.created_at, s.updated_at, s.refreshed_at at time zone 'UTC') desc) as list
+        from auth.sessions s
+        where s.not_after is null or s.not_after > now()
+        group by s.user_id) x $q$ into v_sessions;
+  exception when others then
+    -- The sessions could not be read here: accounts that have signed in before are listed, and the page says so
+    v_known := false;
+    v_sessions := '{}';
+  end;
+
+  return jsonb_build_object(
+    'known', v_known,
+    'accounts', coalesce((
+      select jsonb_agg(a.info order by a.active_at desc nulls last)
+      from (
+        select z.active_at, jsonb_build_object(
+          'id', p.id, 'name', p.full_name, 'role', p.role, 'phone', p.phone,
+          'email', case when p.email like '%@phone-signin.example.com' then null else p.email end,
+          'enabled', coalesce(p.active, true), 'ready', not coalesce(p.must_change_password, false),
+          'joinedAt', p.created_at, 'lastSignInAt', z.last_sign_in_at, 'lastActive', z.active_at,
+          'sessions', z.sessions,
+          'appDevices', coalesce((select jsonb_agg(jsonb_build_object('device', d.device, 'source', d.source, 'firstAt', d.first_at, 'lastAt', d.last_at) order by d.last_at desc)
+                                  from public.app_devices d where d.user_id = p.id), '[]'),
+          'webVisits', (select count(*) from public.site_visits v where v.user_id = p.id),
+          'lastWebVisit', (select max(v.at) from public.site_visits v where v.user_id = p.id),
+          'stars', (select r.stars from public.app_ratings r where r.user_id = p.id),
+          'landlord', case when p.role = 'landlord' then jsonb_build_object(
+            'plan', p.subscription_plan, 'tier', p.subscription_tier, 'until', p.subscription_until,
+            'exempt', p.subscription_exempt, 'plannedUnits', p.planned_units,
+            'rentals', (select count(*) from public.rentals x where x.landlord_id = p.id),
+            'places', (select count(*) from public.properties x where x.landlord_id = p.id),
+            'tenants', (select count(*) from public.tenants x where x.landlord_id = p.id and x.property_id is not null),
+            'collected', (select coalesce(sum(x.amount), 0) from public.payment_receipts x where x.landlord_id = p.id),
+            'unpaid', (select coalesce(sum(x.amount - x.amount_paid), 0) from public.payments x where x.landlord_id = p.id and x.status <> 'paid')
+          ) end,
+          'tenant', case when p.role = 'tenant' then (
+            select jsonb_build_object(
+              'id', t.id, 'renting', t.property_id is not null,
+              'place', h.name, 'rental', b.name, 'location', h.location, 'rent', h.rent,
+              'leaseStart', t.lease_start, 'leaseEnd', t.lease_end, 'endedAt', t.ended_at,
+              'landlordId', t.landlord_id, 'landlordName', l.full_name, 'landlordPhone', l.phone,
+              'paid', (select coalesce(sum(x.amount), 0) from public.payment_receipts x where x.tenant_id = t.id),
+              'unpaid', (select coalesce(sum(x.amount - x.amount_paid), 0) from public.payments x where x.tenant_id = t.id and x.status <> 'paid')
+            )
+            from public.tenants t
+            left join public.properties h on h.id = coalesce(t.property_id, t.last_property_id)
+            left join public.rentals b on b.id = h.rental_id
+            left join public.profiles l on l.id = t.landlord_id
+            where t.user_id = p.id
+            order by t.property_id is null, t.created_at desc limit 1
+          ) end
+        ) as info
+        from public.profiles p
+        join lateral (
+          select u.last_sign_in_at, coalesce(v_sessions -> p.id::text, '[]') as sessions,
+                 coalesce((v_sessions -> p.id::text -> 0 ->> 'lastActive')::timestamptz, u.last_sign_in_at) as active_at
+          from auth.users u where u.id = p.id
+        ) z on true
+        where case when v_known then v_sessions ? p.id::text else z.last_sign_in_at is not null end
+        order by z.active_at desc nulls last
+        limit 500
+      ) a
+    ), '[]'),
+    'total', case when v_known then (select count(*) from public.profiles p where v_sessions ? p.id::text)
+                  else (select count(*) from public.profiles p join auth.users u on u.id = p.id where u.last_sign_in_at is not null) end
+  );
+end $$;
+
+revoke execute on function public.admin_signed_in() from public, anon;
+grant execute on function public.admin_signed_in() to authenticated;
+
+-- ────────────── 61_exact_time.sql ──────────────
+
+-- 61 · rent and subscriptions are counted to the exact time (safe to run again; no data is deleted)
+--
+--  A day is 24 complete hours from the moment the time started, not a calendar day.
+--    • Subscription: starts the moment Renta UG confirms the payment. 30 days later at that same time it ends.
+--    • Rent: starts the moment the first payment is confirmed (recorded by the landlord with an earlier date: that
+--      date, at the time it was recorded). Months run on from each other, so the time of day never changes.
+--  The dates stay as they are; only the time of day is kept beside them, and it is never shown to anyone:
+--    tenants.rent_clock            lease_end + rent_clock                     = the moment the rent ends
+--    profiles.subscription_clock   subscription_until + 1 day + that clock    = the moment the subscription ends
+--  Only the triggers below write these columns.
+
+create or replace function public.rent_ends_at(p_end date, p_clock time) returns timestamptz
+language sql immutable set search_path = '' as $$
+  select (p_end + coalesce(p_clock, time '24:00')) at time zone 'Africa/Kampala';
+$$;
+create or replace function public.subscription_ends_at(p_until date, p_clock time) returns timestamptz
+language sql immutable set search_path = '' as $$
+  select (p_until + 1 + coalesce(p_clock, time '00:00')) at time zone 'Africa/Kampala';
+$$;
+revoke execute on function public.rent_ends_at(date, time) from public, anon;
+revoke execute on function public.subscription_ends_at(date, time) from public, anon;
+grant execute on function public.rent_ends_at(date, time) to authenticated, service_role;
+grant execute on function public.subscription_ends_at(date, time) to authenticated, service_role;
+
+-- ── The columns. What is already running gets the time its first payment was confirmed, once ──
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'tenants' and column_name = 'rent_clock') then
+    alter table public.tenants add column rent_clock time;
+    update public.tenants t
+    set rent_clock = date_trunc('second', coalesce(
+      (select min(c.reviewed_at) from public.cash_payments c where c.tenant_id = t.id and c.status = 'confirmed'),
+      t.created_at) at time zone 'Africa/Kampala')::time
+    where t.lease_end is not null;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'subscription_clock') then
+    alter table public.profiles add column subscription_clock time;
+    update public.profiles p
+    set subscription_clock = coalesce(
+      -- the payment that started the running subscription (the ones after it were added on top)
+      (select date_trunc('second', s.reviewed_at at time zone 'Africa/Kampala')::time
+       from public.subscription_payments s
+       where s.landlord_id = p.id and s.status = 'confirmed' and s.period_start = (s.reviewed_at at time zone 'Africa/Kampala')::date
+       order by s.reviewed_at desc limit 1),
+      time '00:00')
+    where p.subscription_until is not null;
+  end if;
+end $$;
+
+-- ── Rent: the time of day is set once, when the rental time starts ──
+create or replace function public.keep_rent_clock() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.lease_end is null then
+    new.rent_clock := null;
+  elsif tg_op = 'INSERT' then
+    new.rent_clock := date_trunc('second', now() at time zone 'Africa/Kampala')::time;
+  elsif old.lease_end is null then
+    new.rent_clock := date_trunc('second', now() at time zone 'Africa/Kampala')::time;
+  else
+    new.rent_clock := old.rent_clock;
+  end if;
+  return new;
+end $$;
+drop trigger if exists tenants_rent_clock on public.tenants;
+create trigger tenants_rent_clock before insert or update on public.tenants
+  for each row execute function public.keep_rent_clock();
+
+-- ── Subscription: set when it starts (first payment, or the first after it ended). Renewed in time: it runs on ──
+create or replace function public.keep_subscription_clock() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.subscription_until is null then
+    new.subscription_clock := null;
+  elsif tg_op = 'INSERT' then
+    new.subscription_clock := date_trunc('second', now() at time zone 'Africa/Kampala')::time;
+  elsif new.subscription_until is distinct from old.subscription_until
+    and (old.subscription_until is null or public.subscription_ends_at(old.subscription_until, old.subscription_clock) <= now()) then
+    new.subscription_clock := date_trunc('second', now() at time zone 'Africa/Kampala')::time;
+  else
+    new.subscription_clock := old.subscription_clock;
+  end if;
+  return new;
+end $$;
+drop trigger if exists profiles_zz_subscription_clock on public.profiles;
+create trigger profiles_zz_subscription_clock before insert or update on public.profiles
+  for each row execute function public.keep_subscription_clock();
+
+-- ── Is this landlord's subscription running right now? ──
+create or replace function public.landlord_subscribed(p_user uuid default auth.uid()) returns boolean
+language sql stable security definer set search_path = '' as $$
+  select coalesce(
+    (select p.role <> 'landlord' or p.subscription_exempt
+            or coalesce(public.subscription_ends_at(p.subscription_until, p.subscription_clock) > now(), false)
+     from public.profiles p where p.id = p_user),
+    true);
+$$;
+
+-- ── Confirming a subscription: the same rules, and the date told is the day it really ends ──
+create or replace function public.admin_confirm_subscription_payment(p_id uuid) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  r public.subscription_payments;
+  p record;
+  v_start date;
+  v_end date;
+begin
+  perform public.admin_require();
+  select * into r from public.subscription_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if r.status <> 'pending' then raise exception 'This payment has already been %.', r.status; end if;
+  select * into p from public.profiles where id = r.landlord_id for update;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := v_start + public.subscription_days(r.months) - 1;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = r.plan, subscription_tier = r.tier where id = r.landlord_id;
+  update public.subscription_payments
+  set status = 'confirmed', period_start = v_start, period_end = v_end, reviewed_by = auth.uid(), reviewed_at = now()
+  where id = r.id;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (r.landlord_id, 'subscription', 'Subscription renewed',
+    format('Thank you! Your %s scale %s payment of %s was received. Your Renta UG subscription now runs until %s (%s days).',
+      initcap(r.tier), r.plan, public.ugx(r.amount), to_char(v_end + 1, 'FMDD Mon YYYY'), public.subscription_days(r.months)),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.confirm', 'landlord', r.landlord_id,
+    format('Confirmed %s %s scale %s subscription from %s, now runs to %s', public.ugx(r.amount), r.tier, r.plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end + 1, 'FMDD Mon YYYY')));
+  return json_build_object('until', v_end + 1, 'start', v_start);
+end $$;
+
+create or replace function public.admin_record_subscription_cash(
+  p_landlord uuid, p_tier text, p_plan text, p_paid_on date default null, p_note text default null
+) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  s public.billing_settings;
+  p record;
+  v_paid_on date := coalesce(p_paid_on, public.kampala_today());
+  v_note text := nullif(left(trim(coalesce(p_note, '')), 200), '');
+  v_units int;
+  v_amount bigint;
+  v_months int;
+  v_start date;
+  v_end date;
+  v_id uuid;
+begin
+  perform public.admin_require();
+  select * into p from public.profiles where id = p_landlord and role = 'landlord' for update;
+  if not found then raise exception 'Landlord not found.'; end if;
+  if p.subscription_exempt then raise exception 'This is the permanent free account: there is nothing to pay.'; end if;
+  if p_tier not in ('small', 'big') then raise exception 'Choose Small scale or Big scale.'; end if;
+  if p_plan not in ('monthly', 'yearly') then raise exception 'Choose monthly or yearly.'; end if;
+  if v_paid_on > public.kampala_today() then raise exception 'The payment date cannot be in the future.'; end if;
+  if v_paid_on < public.kampala_today() - 366 then raise exception 'The payment date is more than a year ago.'; end if;
+
+  select * into s from public.billing_settings where id = 1;
+  v_units := public.landlord_unit_count(p_landlord);
+  if p_tier = 'small' and v_units > s.small_max_units then
+    raise exception 'This landlord has % houses and rooms. Small scale covers up to %, so choose Big scale.', v_units, s.small_max_units;
+  end if;
+
+  v_amount := case
+    when p_tier = 'big' and p_plan = 'yearly' then s.big_yearly
+    when p_tier = 'big' then s.big_monthly
+    when p_plan = 'yearly' then s.small_yearly
+    else s.small_monthly end;
+  v_months := case p_plan when 'yearly' then 12 else 1 end;
+
+  v_start := case when p.subscription_until >= public.kampala_today() then p.subscription_until + 1 else public.kampala_today() end;
+  v_end := v_start + public.subscription_days(v_months) - 1;
+
+  insert into public.subscription_payments (
+    landlord_id, tier, plan, months, amount, network, sender_phone, sender_name, reference, paid_on,
+    status, period_start, period_end, reviewed_by, reviewed_at, note
+  ) values (
+    p_landlord, p_tier, p_plan, v_months, v_amount, 'cash', null, 'CASH', null, v_paid_on,
+    'confirmed', v_start, v_end, auth.uid(), now(), v_note
+  ) returning id into v_id;
+
+  update public.profiles set subscription_until = v_end, subscription_plan = p_plan, subscription_tier = p_tier where id = p_landlord;
+
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (p_landlord, 'subscription', 'Subscription paid in cash',
+    format('Thank you! Renta UG received your cash payment of %s for %s scale, %s. Your subscription now runs until %s (%s days).',
+      public.ugx(v_amount), initcap(p_tier), p_plan, to_char(v_end + 1, 'FMDD Mon YYYY'), public.subscription_days(v_months)),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.cash', 'landlord', p_landlord,
+    format('Recorded %s cash for %s scale %s subscription from %s, now runs to %s%s', public.ugx(v_amount), p_tier, p_plan,
+      coalesce(nullif(p.full_name, ''), p.email), to_char(v_end + 1, 'FMDD Mon YYYY'), coalesce(' (' || v_note || ')', '')));
+
+  return json_build_object('id', v_id, 'amount', v_amount, 'start', v_start, 'until', v_end + 1);
+end $$;
+
+create or replace function public.admin_grant_subscription(p_landlord uuid, p_days int, p_note text default null) returns date
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  p record;
+  v_end date;
+begin
+  perform public.admin_require();
+  if p_days is null or p_days < 1 or p_days > 730 then raise exception 'Choose between 1 and 730 days.'; end if;
+  select * into p from public.profiles where id = p_landlord and role = 'landlord' for update;
+  if not found then raise exception 'Landlord not found.'; end if;
+  v_end := greatest(coalesce(p.subscription_until, public.kampala_today() - 1), public.kampala_today() - 1) + p_days;
+  update public.profiles set subscription_until = v_end where id = p_landlord;
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  values (p_landlord, 'subscription', 'Subscription extended',
+    format('Renta UG added %s day%s to your subscription%s. It now runs until %s.',
+      p_days, case when p_days = 1 then '' else 's' end, coalesce(': ' || nullif(trim(p_note), ''), ''), to_char(v_end + 1, 'FMDD Mon YYYY')),
+    '/landlord/subscription');
+  perform public.admin_log('subscription.grant', 'landlord', p_landlord,
+    format('Added %s days to %s''s subscription (now to %s)%s', p_days, coalesce(nullif(p.full_name, ''), p.email),
+      to_char(v_end + 1, 'FMDD Mon YYYY'), coalesce(': ' || nullif(trim(p_note), ''), '')));
+  return v_end + 1;
+end $$;
+
+create or replace function public.send_subscription_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := public.kampala_today();
+  n integer;
+begin
+  insert into public.staff_notifications (user_id, type, title, body, url)
+  select p.id, 'subscription',
+    case when d.ended then 'Subscription ended' else 'Subscription ending soon' end,
+    case
+      when d.ended then format('Your Renta UG subscription ended on %s. Your account is locked until you renew and Renta UG confirms the payment.',
+        to_char(p.subscription_until + 1, 'FMDD Mon YYYY'))
+      when d.left_days = 0 then 'Your Renta UG subscription ends today. Renew now to keep managing your properties without a break.'
+      else format('Your Renta UG subscription ends in %s day%s, on %s. Renew any time: the new period is added on top.',
+        d.left_days, case when d.left_days = 1 then '' else 's' end, to_char(p.subscription_until + 1, 'FMDD Mon YYYY'))
+    end,
+    '/landlord/subscription'
+  from public.profiles p
+  cross join lateral (select p.subscription_until + 1 - today as left_days, public.subscription_ends_at(p.subscription_until, p.subscription_clock) <= now() as ended) d
+  where p.role = 'landlord' and p.active and not p.subscription_exempt and p.subscription_until is not null
+    and (d.left_days in (7, 3, 1, 0) or (d.ended and d.left_days = -1))
+    and not exists (
+      select 1 from public.staff_notifications x
+      where x.user_id = p.id and x.type = 'subscription' and x.title in ('Subscription ending soon', 'Subscription ended')
+        and x.created_at > now() - interval '20 hours'
+    );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke execute on function public.send_subscription_reminders() from public, anon, authenticated;
+
+-- ── Confirming rent ──
+create or replace function public.confirm_cash_payment(p_id uuid, p_amount bigint default null) returns json
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  me uuid := auth.uid();
+  c public.cash_payments;
+  v_reviewer text;
+  v_amount bigint;
+  v_left bigint;
+  v_take bigint;
+  v_completed text[] := '{}';
+  v_ahead int := 0;
+  v_balance_after bigint;
+  v_tenant record;
+  v_rent bigint;
+  v_period text;
+  v_charge uuid;
+  v_label text;
+  v_paid_at timestamptz;
+  v_old_end date;
+  v_new_end date;
+  v_debt int := 0;
+  v_days int;
+  v_day date;
+  v_ends timestamptz;
+  r record;
+begin
+  select * into c from public.cash_payments where id = p_id for update;
+  if not found then raise exception 'Payment not found.'; end if;
+  if c.status <> 'pending' then raise exception 'This payment has already been %.', c.status; end if;
+  v_reviewer := public.can_review_cash(c);
+
+  v_amount := coalesce(p_amount, c.amount);
+  if v_amount <= 0 then raise exception 'Enter an amount greater than zero.'; end if;
+  -- Saved on the receipt and the rent month: "MTN Mobile Money", "Airtel Money" or "Cash"
+  v_label := case when c.method = 'mobile_money'
+    then case c.network when 'mtn' then 'MTN Mobile Money' when 'airtel' then 'Airtel Money' else 'Mobile money' end
+    else 'Cash' end;
+  v_paid_at := c.paid_on::timestamptz + interval '12 hours';
+
+  select * into v_tenant from public.tenants where id = c.tenant_id;
+  select rent into v_rent from public.properties where id = v_tenant.property_id;
+  if v_amount > public.tenant_outstanding(c.tenant_id) then
+    if v_tenant.property_id is null or coalesce(v_rent, 0) <= 0 then
+      raise exception 'That is more than the unpaid rent of %, and there is no monthly rent to pay ahead.', public.ugx(public.tenant_outstanding(c.tenant_id));
+    end if;
+    if v_amount - public.tenant_outstanding(c.tenant_id) > v_rent * 24 then
+      raise exception 'That pays more than 2 years ahead.';
+    end if;
+  end if;
+
+  -- First payment. Sent by the tenant: their time starts the moment it is confirmed. Recorded by the landlord: on
+  -- the day they chose. The time of day is kept by tenants_rent_clock (below).
+  v_old_end := v_tenant.lease_end;
+  v_day := case when v_old_end is null and c.submitted_role = 'tenant' then public.kampala_today() else c.paid_on end;
+  v_ends := public.rent_ends_at(v_tenant.lease_end, v_tenant.rent_clock);
+  if v_old_end is null and v_tenant.property_id is not null then
+    update public.tenants set lease_start = v_day where id = c.tenant_id;
+  end if;
+
+  v_left := v_amount;
+
+  -- 1. Unpaid rent, oldest first
+  for r in
+    select * from public.payments
+    where tenant_id = c.tenant_id and status = 'pending'
+    order by due_date, period
+    for update
+  loop
+    exit when v_left <= 0;
+    v_take := least(v_left, r.amount - r.amount_paid);
+    v_left := v_left - v_take;
+
+    insert into public.payment_receipts (payment_id, tenant_id, landlord_id, amount, method, note, received_at, recorded_by)
+    values (r.id, c.tenant_id, c.landlord_id, v_take, v_label, c.note, v_paid_at, me);
+
+    update public.payments
+    set amount_paid = amount_paid + v_take,
+        status = case when amount_paid + v_take >= amount then 'paid' else 'pending' end,
+        paid_at = case when amount_paid + v_take >= amount then v_paid_at else paid_at end,
+        method = v_label
+    where id = r.id;
+
+    if r.amount_paid + v_take >= r.amount then
+      v_completed := v_completed || to_char(to_date(r.period || '-01', 'YYYY-MM-DD'), 'FMMonth YYYY');
+    end if;
+  end loop;
+
+  -- 2. Whatever is left pays the next months ahead
+  while v_left > 0 loop
+    v_period := public.next_rent_period(c.tenant_id);
+    v_take := least(v_left, v_rent);
+
+    insert into public.payments (landlord_id, tenant_id, property_id, period, amount, amount_paid, due_date, status, paid_at, method)
+    values (
+      c.landlord_id, c.tenant_id, v_tenant.property_id, v_period, v_rent, v_take,
+      to_date(v_period || '-05', 'YYYY-MM-DD'),
+      case when v_take >= v_rent then 'paid' else 'pending' end,
+      case when v_take >= v_rent then v_paid_at end,
+      v_label)
+    returning id into v_charge;
+
+    insert into public.payment_receipts (payment_id, tenant_id, landlord_id, amount, method, note, received_at, recorded_by)
+    values (v_charge, c.tenant_id, c.landlord_id, v_take, v_label, c.note, v_paid_at, me);
+
+    if v_take >= v_rent then
+      v_completed := v_completed || to_char(to_date(v_period || '-01', 'YYYY-MM-DD'), 'FMMonth YYYY');
+    end if;
+    v_left := v_left - v_take;
+  end loop;
+
+  update public.cash_payments
+  set status = 'confirmed', confirmed_amount = v_amount, reviewed_by = me, reviewed_role = v_reviewer, reviewed_at = now()
+  where id = c.id;
+
+  v_balance_after := public.tenant_outstanding(c.tenant_id);
+  select lease_end into v_new_end from public.tenants where id = c.tenant_id;
+  -- Debt days: whole 24 hours since the exact end
+  if v_ends is not null then
+    v_debt := greatest(0, floor(extract(epoch from (
+      case when c.paid_on >= public.kampala_today() then now()
+           else (c.paid_on + coalesce(v_tenant.rent_clock, time '24:00')) at time zone 'Africa/Kampala' end - v_ends)) / 86400)::int);
+  end if;
+  if v_new_end is not null then
+    v_days := v_new_end - greatest(v_day, coalesce(v_old_end, v_day));
+    -- Whole months paid beyond the month running today (from the real rent cycle, not calendar months)
+    if v_new_end is distinct from v_old_end then
+      select (extract(year from a) * 12 + extract(month from a))::int into v_ahead
+      from (select age(v_new_end, public.kampala_today()) as a) x;
+      v_ahead := greatest(0, v_ahead);
+    end if;
+  end if;
+
+  -- Tenant (also sent by SMS when SMS is switched on)
+  insert into public.notifications (landlord_id, tenant_id, type, title, body)
+  values (c.landlord_id, c.tenant_id, 'payment', 'Payment confirmation',
+    format('Your %s payment of %s made on %s has been successfully received and confirmed by %s%s.%s%s%s %s',
+      case when c.method = 'mobile_money' then 'mobile money' else 'cash' end,
+      public.ugx(v_amount),
+      to_char(c.paid_on, 'FMDD Mon YYYY'),
+      case when v_reviewer = 'superadmin' then 'Renta UG' else 'your landlord' end,
+      case when v_amount <> c.amount then format(' (you reported %s)', public.ugx(c.amount)) else '' end,
+      case when v_debt > 0 and v_new_end is distinct from v_old_end then format(' You paid %s day%s late: those debt days were taken from your new month.',
+        v_debt, case when v_debt = 1 then '' else 's' end) else '' end,
+      case when v_new_end is not null and v_new_end is distinct from v_old_end
+        then format(' Your rent now runs to %s.', to_char(v_new_end, 'FMDD Mon YYYY')) else '' end,
+      case when v_ahead > 0 then format(' That includes %s month%s paid ahead.', v_ahead, case when v_ahead = 1 then '' else 's' end) else '' end,
+      case when v_balance_after = 0 then 'You have no outstanding balance. Thank you.'
+           else format('Outstanding balance: %s.', public.ugx(v_balance_after)) end));
+
+  return json_build_object(
+    'applied', v_amount, 'balance_after', v_balance_after, 'completed', array_to_json(v_completed),
+    'months_ahead', v_ahead, 'debt_days', v_debt, 'paid_to', v_new_end, 'days', v_days);
+end $$;
+
+-- ── Overdue reminder: from the first complete debt day ──
+create or replace function public.send_overdue_reminders() returns integer
+language plpgsql volatile security definer set search_path = '' as $$
+declare
+  today date := public.kampala_today();
+  v_hour integer := extract(hour from now() at time zone 'Africa/Kampala');
+  n integer;
+begin
+  if v_hour < 8 or v_hour >= 20 then return 0; end if;
+
+  insert into public.notifications (landlord_id, tenant_id, type, title, body)
+  select t.landlord_id, t.id, 'rent_due', 'Rent reminder',
+    case when o.amount > 0
+      then format('%s for %s has been unpaid since %s. Please pay on the Payments page.',
+             public.ugx(o.amount::bigint), p.name, to_char(o.since, 'FMDD Mon YYYY'))
+      else format('Your rent month for %s ended on %s. You now have %s debt day%s: they will be taken from your next month, which still runs from %s. Please pay soon.',
+             p.name, to_char(t.lease_end, 'FMDD Mon YYYY'), d.debt,
+             case when d.debt = 1 then '' else 's' end, to_char(t.lease_end, 'FMDD Mon')) end
+  from public.tenants t
+  join public.properties p on p.id = t.property_id
+  cross join lateral (
+    select coalesce(sum(amount - amount_paid), 0) as amount, min(due_date) as since
+    from public.payments where tenant_id = t.id and status = 'pending' and due_date < today
+  ) o
+  cross join lateral (
+    select floor(extract(epoch from now() - public.rent_ends_at(t.lease_end, t.rent_clock)) / 86400)::int as debt
+  ) d
+  where t.property_id is not null
+    and t.user_id is not null
+    and (o.amount > 0 or d.debt >= 1)
+    and not exists (
+      select 1 from public.notifications x
+      where x.tenant_id = t.id and x.type = 'rent_due' and x.created_at > now() - interval '71 hours'
+    );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke execute on function public.send_overdue_reminders() from public, anon, authenticated;

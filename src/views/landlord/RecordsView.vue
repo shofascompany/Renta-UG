@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Search, History, Archive, FileText, MoreVertical } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { useLongPress } from '@/composables/useLongPress'
 import { formatDate } from '@/utils/format'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -14,22 +16,20 @@ import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
 // Everyone who has ever moved out, kept permanently. Status shows "active" if they're renting again.
 // Tap a person → their record card (each stay separate). Press and hold / right-click → menu.
 const rental = useRentalStore()
-const query = ref('')
+const query = useFilter('q', '')
 
 const houseName = (id) => (rental.propertyById(id) ? rental.placeName(id) : 'Removed house')
 
-const rows = computed(() =>
-  rental.tenantRecords
+const rows = computed(() => {
+  const hit = searcher(query.value)
+  return rental.tenantRecords
     .map((r) => ({
       ...r,
       where: r.current ? `Now at ${houseName(r.current.propertyId)}` : `Last at ${houseName(r.latestEnded.lastPropertyId)}`,
       left: r.latestEnded?.endedAt,
     }))
-    .filter((r) => {
-      const q = query.value.trim().toLowerCase()
-      return !q || `${r.name} ${r.email ?? ''} ${r.stays.map((s) => houseName(s.propertyId ?? s.lastPropertyId)).join(' ')}`.toLowerCase().includes(q)
-    }),
-)
+    .filter((r) => hit(r.name, r.email, r.phone, r.status, r.stays.map((s) => [s.phone, houseName(s.propertyId ?? s.lastPropertyId)])))
+})
 
 // ── Record card (looked up live so it updates if data reloads) ──
 const cardPerson = ref(null)
@@ -93,7 +93,7 @@ function onSaved(t) {
   <div>
     <div class="relative">
       <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
-      <input v-model="query" class="input h-11 rounded-xl pl-10" placeholder="Search name, email or house" />
+      <input v-model="query" class="input h-11 rounded-xl pl-10" placeholder="Search name, phone, email or house" />
     </div>
     <p class="mt-2 px-1 text-xs text-slate-400">Tap a person to view their records · press and hold for more options</p>
   </div>

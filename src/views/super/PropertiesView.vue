@@ -1,9 +1,10 @@
-﻿<script setup>
+<script setup>
 import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
 import { Search, Building2, House, DoorOpen, Wallet } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { usePlatformStats } from '@/composables/usePlatformStats'
 import { formatUGX } from '@/utils/format'
 import SuperHero from '@/components/super/SuperHero.vue'
@@ -14,20 +15,19 @@ import EmptyState from '@/components/EmptyState.vue'
 
 // Main admin: every house and room on the platform. Tap one to edit its name, location or rent.
 const rental = useRentalStore()
-const route = useRoute()
 const p = usePlatformStats()
-const query = ref('')
-const show = ref(route.query.show === 'vacant' ? 'vacant' : 'all') // all | occupied | vacant
-const landlordFilter = ref('')
+const query = useFilter('q', '')
+const show = useFilter('show', 'all', ['all', 'occupied', 'vacant'])
+const landlordFilter = useFilter('landlord', '')
 const editing = ref(null)
 
 const list = computed(() => {
-  const q = query.value.trim().toLowerCase()
+  const hit = searcher(query.value)
   return rental.properties
     .map((x) => ({ ...x, tenant: rental.tenantForProperty(x.id), place: rental.placeName(x.id), landlord: p.landlordName(x.landlordId) }))
     .filter((x) => (show.value === 'all' ? true : show.value === 'vacant' ? !x.tenant : Boolean(x.tenant)))
     .filter((x) => !landlordFilter.value || x.landlordId === landlordFilter.value)
-    .filter((x) => !q || `${x.place} ${x.location ?? ''} ${x.landlord} ${x.tenant?.name ?? ''}`.toLowerCase().includes(q))
+    .filter((x) => hit(x.place, x.location, x.landlord, x.tenant?.name, x.tenant?.phone))
     .sort((a, b) => a.landlord.localeCompare(b.landlord) || a.place.localeCompare(b.place, undefined, { numeric: true }))
 })
 const rentRoll = computed(() => rental.properties.filter((x) => rental.tenantForProperty(x.id)).reduce((s, x) => s + x.rent, 0))
@@ -54,7 +54,7 @@ const rentRoll = computed(() => rental.properties.filter((x) => rental.tenantFor
       <div class="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 text-sm lg:w-80">
         <button v-for="f in [['all', 'All'], ['occupied', 'Occupied'], ['vacant', 'Vacant']]" :key="f[0]" type="button" class="h-9 rounded-xl font-medium transition" :class="show === f[0] ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'" @click="show = f[0]">{{ f[1] }}</button>
       </div>
-      <BaseSelect v-model="landlordFilter" class="lg:w-56" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name }))]" />
+      <BaseSelect v-model="landlordFilter" class="lg:w-56" :options="[{ value: '', label: 'All landlords' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name || l.email }))]" />
     </div>
 
     <div class="sheet">
@@ -75,7 +75,7 @@ const rentRoll = computed(() => rental.properties.filter((x) => rental.tenantFor
           </template>
         </ListRow>
       </ul>
-      <EmptyState v-else kind="search" title="No properties match" text="Try another name or filter." />
+      <EmptyState v-else :kind="rental.properties.length ? 'search' : 'places'" :title="rental.properties.length ? 'No properties match' : 'No properties yet'" :text="rental.properties.length ? 'Try another name or filter.' : 'They appear here as landlords add them.'" />
     </div>
 
     <PropertyEditModal :property-id="editing" @close="editing = null" />

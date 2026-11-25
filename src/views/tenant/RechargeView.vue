@@ -5,6 +5,7 @@ import { Zap, CalendarCheck2, ChevronLeft, ShieldCheck, Smartphone, Clock, Spark
 import { useTenant } from '@/composables/useTenant'
 import { formatUGX, formatDate } from '@/utils/format'
 import { coverage } from '@/utils/rentCycle'
+import { rentDaysLeft } from '@/lib/now'
 import { payRoute } from '@/lib/payRoute'
 
 // Recharge: pay rent in advance in ONE mobile money payment, sent straight to the landlord.
@@ -12,7 +13,7 @@ import { payRoute } from '@/lib/payRoute'
 // follows the rent-cycle rules: each month runs on from where the last one ended (debt days are
 // taken from it), or from the day of the first payment.
 const router = useRouter()
-const { tenant, property, dues } = useTenant()
+const { tenant, property, dues, balance } = useTenant()
 
 const OPTIONS = [
   { m: 1, tag: '' },
@@ -31,11 +32,7 @@ const owed = computed(() => dues.value.reduce((s, d) => s + d.balance, 0))
 
 // Rental time after paying: runs on from the current end (late days are not given back), or from today
 const startFrom = computed(() => (tenant.value?.leaseEnd ? new Date(`${tenant.value.leaseEnd}T00:00:00`) : new Date()))
-const debtDays = computed(() => {
-  if (!tenant.value?.leaseEnd) return 0
-  const d = Math.round((new Date().setHours(0, 0, 0, 0) - startFrom.value.getTime()) / 86400000)
-  return Math.max(0, d)
-})
+const debtDays = computed(() => Math.max(0, -(rentDaysLeft(tenant.value) ?? 0)))
 // Same rule as the database: unpaid months first (part-paid months only need the rest), then 30-day months ahead
 const paidUntil = computed(() =>
   months.value ? coverage({ tenant: tenant.value, dues: dues.value, rent: rent.value, amount: total.value }).end : null,
@@ -69,7 +66,7 @@ function continueToPay() {
           </div>
           <div class="border-l border-white/15 p-3.5">
             <p class="text-[11px] font-medium tracking-wide text-white/65 uppercase">Unpaid now</p>
-            <p class="mt-1 text-base font-semibold tabular-nums">{{ owed ? formatUGX(owed) : 'Nothing' }}</p>
+            <p class="mt-1 text-base font-semibold tabular-nums">{{ balance ? formatUGX(balance) : 'Nothing' }}</p>
           </div>
         </div>
       </div>

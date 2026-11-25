@@ -51,7 +51,7 @@ watch(
   { immediate: true },
 )
 
-const noPhone = (t) => t.managedByLandlord && !t.userId
+const noPhone = (t) => t.managedByLandlord
 const allTenants = computed(() => [...rental.currentTenants].sort((a, b) => a.name.localeCompare(b.name)))
 const tenants = computed(() => (method.value === 'mobile_money' ? allTenants.value.filter(noPhone) : allTenants.value))
 const preset = computed(() => (props.tenantId ? rental.tenantById(props.tenantId) : null))
@@ -65,7 +65,10 @@ function choose(m) {
 
 const tenant = computed(() => rental.tenantById(tenantId.value) ?? null)
 const dues = computed(() => (tenantId.value ? rental.duesForTenant(tenantId.value) : []))
-const total = computed(() => dues.value.reduce((s, p) => s + p.balance, 0))
+const charged = computed(() => dues.value.reduce((s, p) => s + p.balance, 0))
+// Everything in debt: the months charged and the months begun since their paid time ended
+const pay = computed(() => (tenant.value ? rental.payStateFor(tenant.value.id) : null))
+const total = computed(() => (dues.value.length || pay.value?.ended ? Math.max(charged.value, pay.value?.owed ?? 0) : 0))
 const value = computed(() => Math.round(Number(String(amount.value).replace(/[^\d]/g, '')) || 0))
 const rent = computed(() => (tenant.value ? rental.propertyById(tenant.value.propertyId)?.rent ?? 0 : 0))
 
@@ -78,8 +81,10 @@ const plan = computed(() => {
     return { ...p, take, after: p.balance - take }
   })
 })
-const extra = computed(() => Math.max(0, value.value - total.value))
-const aheadMonths = computed(() => (rent.value ? Math.floor(extra.value / rent.value) : 0))
+const extra = computed(() => Math.max(0, value.value - charged.value))
+const extraMonths = computed(() => (rent.value ? Math.floor(extra.value / rent.value) : 0))
+const debtMonths = computed(() => (total.value > charged.value ? Math.min(extraMonths.value, Math.round((total.value - charged.value) / rent.value)) : 0))
+const aheadMonths = computed(() => extraMonths.value - debtMonths.value)
 const balanceAfter = computed(() => Math.max(0, total.value - value.value))
 const tooMuch = computed(() => rent.value > 0 && extra.value > rent.value * 24)
 const noRent = computed(() => extra.value > 0 && !rent.value)
@@ -196,11 +201,15 @@ async function save() {
         <PaymentCoverage v-if="value && paidOn" :tenant="tenant" :dues="dues" :rent="rent" :amount="value" :pay-day="paidOn" :you="false" />
 
         <!-- Where the money goes -->
-        <div v-if="value && (plan.length || aheadMonths)" class="overflow-hidden rounded-2xl ring-1 ring-slate-200">
+        <div v-if="value && (plan.length || extraMonths)" class="overflow-hidden rounded-2xl ring-1 ring-slate-200">
           <ul class="divide-y divide-slate-100 text-sm">
             <li v-for="p in plan.filter((x) => x.take)" :key="p.id" class="flex items-center justify-between gap-3 px-3 py-2">
               <span class="text-slate-700">{{ formatPeriod(p.period) }}</span>
               <span class="text-xs font-medium" :class="p.after ? 'text-amber-700' : 'text-emerald-700'">+{{ formatUGX(p.take) }} · {{ p.after ? `${formatUGX(p.after)} left` : 'paid' }}</span>
+            </li>
+            <li v-if="debtMonths" class="flex items-center justify-between gap-3 px-3 py-2">
+              <span class="text-slate-700">Unpaid months paid</span>
+              <span class="text-xs font-medium text-emerald-700">{{ debtMonths }} month{{ debtMonths === 1 ? '' : 's' }}</span>
             </li>
             <li v-if="aheadMonths" class="flex items-center justify-between gap-3 bg-sky-50/60 px-3 py-2">
               <span class="text-slate-700">Extra months paid</span>

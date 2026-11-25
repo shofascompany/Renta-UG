@@ -7,7 +7,7 @@ import {
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { useRentAnalytics, compactUGX, longMonth } from '@/composables/useRentAnalytics'
-import { formatUGX, formatDate } from '@/utils/format'
+import { formatUGX, formatDate, millionsUGX } from '@/utils/format'
 import Panel from '@/components/admin/Panel.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import PayStatus from '@/components/PayStatus.vue'
@@ -107,11 +107,12 @@ const paymentsCount = computed(() => mobile.value.count + cash.value.count)
 
 const stays = computed(() => a.tenancies.value.slice(0, 5))
 const recent = computed(() => a.revenue.value.slice(0, 5))
-const debtors = computed(() => a.topDebtors.value.slice(0, 4))
-const managedCount = computed(() => rental.currentTenants.filter((t) => t.managedByLandlord && !t.userId).length)
+const debtors = computed(() => a.topDebtors.value.slice(0, 5))
+const managedCount = computed(() => rental.currentTenants.filter((t) => t.managedByLandlord).length)
 
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Former tenant'
-const tenantLink = (t) => `/landlord/tenants/${t.id}`
+// A tenant without a smartphone has their own account page; everyone else opens the normal tenant page
+const tenantLink = (t) => (t.managedByLandlord ? `/landlord/managed/${t.id}` : `/landlord/tenants/${t.id}`)
 const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 30 ? 'disc-amber' : 'disc-sky')
 </script>
 
@@ -130,9 +131,13 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
       </div>
 
       <div class="mt-4 grid grid-cols-2 gap-2 sm:mt-6 sm:max-w-md sm:gap-3">
-        <RouterLink to="/landlord/payments" class="hero-stat hero-stat-link">
-          <p class="hero-stat-label">Revenue</p>
-          <p class="hero-stat-value flex items-center justify-between gap-1 text-base sm:text-xl">{{ compactUGX(a.thisMonth.value.collected) }} <ChevronRight class="size-4 shrink-0 text-white/60" /></p>
+        <RouterLink to="/landlord/revenue" class="hero-stat hero-stat-link rev-tile" :title="formatUGX(a.totalRevenue.value)" :aria-label="`Total revenue ${formatUGX(a.totalRevenue.value)}`">
+          <p class="hero-stat-label rev-label"><span class="rev-dot" /> Total revenue</p>
+          <p class="hero-stat-value rev-value text-lg sm:text-2xl">
+            <span class="truncate"><span class="rev-cur">UGX</span> {{ millionsUGX(a.totalRevenue.value) }}</span>
+            <ChevronRight class="rev-chev size-4 shrink-0" />
+          </p>
+          <p class="rev-sub text-[10px] font-medium sm:text-xs">All money collected</p>
         </RouterLink>
         <RouterLink :to="{ path: '/landlord/properties', query: { show: 'vacant' } }" class="hero-stat hero-stat-link" data-tour="ll-vacant">
           <p class="hero-stat-label">Unoccupied</p>
@@ -349,11 +354,18 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
 
       <!-- Who owes -->
       <section class="rise lg:col-span-2" style="--d: 260ms">
-        <h2 class="section-title">Unpaid rent</h2>
+        <div class="flex items-center justify-between">
+          <h2 class="section-title">Unpaid rent</h2>
+          <RouterLink v-if="a.topDebtors.value.length > debtors.length" to="/landlord/tenants" class="mb-2.5 text-xs font-semibold text-brand-700">See all {{ a.topDebtors.value.length }}</RouterLink>
+        </div>
         <div class="sheet">
+          <p v-if="debtors.length" class="flex items-baseline justify-between border-b border-slate-100 px-5 py-3 text-sm">
+            <span class="text-slate-500">{{ a.topDebtors.value.length }} tenant{{ a.topDebtors.value.length === 1 ? '' : 's' }} owe</span>
+            <span class="font-bold text-red-600 tabular-nums">{{ formatUGX(a.totalOwed.value) }}</span>
+          </p>
           <ul v-if="debtors.length" class="divide-y divide-slate-100">
-            <ListRow v-for="t in debtors" :key="t.id" :to="tenantLink(t)" :title="t.name" :subtitle="rental.placeName(t.propertyId)" :value="formatUGX(t.owed)" value-class="text-red-600">
-              <template #icon><span class="icon-disc disc-red rounded-full"><AlertCircle class="size-5" /></span></template>
+            <ListRow v-for="t in debtors" :key="t.id" :to="tenantLink(t)" :title="t.name" :subtitle="`${rental.placeName(t.propertyId)} · ${t.pay.detail}`" :value="formatUGX(t.owed)" :value-sub="t.pay.how" value-class="text-red-600">
+              <template #icon><span class="icon-disc rounded-full" :class="t.pay.key === 'part' ? 'disc-amber' : 'disc-red'"><AlertCircle class="size-5" /></span></template>
             </ListRow>
           </ul>
           <EmptyState v-else compact kind="done" title="Nobody owes rent" text="Every tenant is up to date." />
@@ -424,4 +436,26 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
 .line-enter-active, .line-leave-active { transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
 .line-enter-from { opacity: 0; transform: translateY(100%); }
 .line-leave-to { opacity: 0; transform: translateY(-100%); }
-</style>
+
+/* Total revenue tile: its own solid colours (green card, amber label, mint figures) in light AND dark mode,
+   so it never turns plain white or black like the other tiles */
+.rev-tile.hero-stat {
+  background: linear-gradient(135deg, #10b981 0%, #0d9488 55%, #0f766e 100%);
+  box-shadow: inset 0 0 0 1px rgb(167 243 208 / 0.55), 0 12px 26px -14px rgb(16 185 129 / 0.9);
+}
+.rev-tile.hero-stat:hover { background: linear-gradient(135deg, #34d399 0%, #14b8a6 55%, #0f766e 100%); }
+.rev-tile .rev-label { display: flex; align-items: center; gap: 0.4rem; color: #fef3c7; }
+.rev-tile .rev-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: #fde68a; box-shadow: 0 0 0 3px rgb(253 230 138 / 0.3); }
+.rev-tile .rev-value { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; font-weight: 800; color: #ffffff; }
+.rev-tile .rev-cur { margin-right: 0.15rem; font-size: 0.65em; font-weight: 700; letter-spacing: 0.04em; color: #fde68a; }
+.rev-tile .rev-chev { color: #d1fae5; }
+.rev-tile .rev-sub { margin-top: 0.125rem; color: #d1fae5; }
+html.dark .rev-tile.hero-stat {
+  background: linear-gradient(135deg, #065f46 0%, #064e3b 55%, #022c22 100%);
+  box-shadow: inset 0 0 0 1px rgb(52 211 153 / 0.55), 0 12px 26px -14px rgb(16 185 129 / 0.6);
+}
+html.dark .rev-tile.hero-stat:hover { background: linear-gradient(135deg, #047857 0%, #065f46 55%, #022c22 100%); }
+html.dark .rev-tile .rev-label { color: #fcd34d; }
+html.dark .rev-tile .rev-value { color: #6ee7b7; }
+html.dark .rev-tile .rev-cur { color: #fcd34d; }
+html.dark .rev-tile .rev-sub, html.dark .rev-tile .rev-chev { color: #a7f3d0; }</style>

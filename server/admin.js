@@ -2,19 +2,7 @@
 // Netlify Function (netlify/functions/admin.mjs), so it works locally AND on the live site.
 // `db` is a Supabase client created with the SERVICE ROLE key: never use this in the browser.
 import { randomBytes } from 'node:crypto'
-import { sendSms, smsEnabled } from './sms.js'
-
-// Best effort (when SMS is on): tell the tenant their account is ready. No code is needed.
-async function smsAppAccess(phone) {
-  if (!smsEnabled() || !phone) return false
-  try {
-    await sendSms(phone, 'Renta UG: your landlord has set up your account. Open the Renta UG app, sign in with this phone number and create your password.')
-    return true
-  } catch (e) {
-    console.error('[setup-code] SMS failed:', e.message)
-    return false
-  }
-}
+import { phoneKey } from '../src/lib/phone.js'
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -130,7 +118,6 @@ export async function updateLandlord(db, id, body) {
 // Stand-in email until the tenant adds their own (never shown, never emailed).
 export const PHONE_ONLY_EMAIL_DOMAIN = 'phone-signin.example.com'
 export const isPlaceholderEmail = (email) => String(email ?? '').endsWith(`@${PHONE_ONLY_EMAIL_DOMAIN}`)
-const last9 = (v) => String(v ?? '').replace(/\D/g, '').slice(-9)
 
 // The signed-in user behind a "Bearer <token>" header + their profile.
 export async function requireUserProfile(db, authorization) {
@@ -150,10 +137,11 @@ export async function requireUserProfile(db, authorization) {
 // Landlord gives one of their tenants app access (sign-in with their phone number).
 export async function giveTenantAppAccess(db, landlordId, tenantId) {
   // The server writes with full rights, so it checks the landlord's subscription itself
-  const { data: me, error: sErr } = await db.from('profiles').select('subscription_until, subscription_exempt').eq('id', landlordId).maybeSingle()
+  const { data: me, error: sErr } = await db.from('profiles').select('*').eq('id', landlordId).maybeSingle()
   if (sErr && !/subscription_(until|exempt)/.test(sErr.message)) check(sErr) // column missing = database update not run yet
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Kampala' })
-  if (!sErr && me && !me.subscription_exempt && (!me.subscription_until || me.subscription_until < today)) {
+  // To the exact moment, like the database (database/61): the day after the last whole day, at its time of day
+  const ends = me?.subscription_until ? new Date(`${me.subscription_until}T${(me.subscription_clock ?? '00:00:00').slice(0, 8)}+03:00`).getTime() + 86_400_000 : 0
+  if (!sErr && me && 'subscription_until' in me && !me.subscription_exempt && ends <= Date.now()) {
     throw new HttpError(402, 'Your Renta UG subscription has ended. Renew it on the Subscription page to keep managing your properties.')
   }
   const { data: t, error } = await db
@@ -165,12 +153,12 @@ export async function giveTenantAppAccess(db, landlordId, tenantId) {
   if (!t || t.landlord_id !== landlordId) throw new HttpError(404, 'Tenant not found.')
   if (!t.property_id) throw new HttpError(400, 'This tenant is not renting a house right now.')
   if (t.user_id) throw new HttpError(400, 'This tenant already has app access.')
-  if (last9(t.phone).length < 9) throw new HttpError(400, "Add the tenant's phone number first. They sign in with it.")
+  if (!phoneKey(t.phone)) throw new HttpError(400, "Add the tenant's phone number first. They sign in with it.")
 
   // The phone number must not already belong to another account
   const { data: others, error: oErr } = await db.from('profiles').select('id, phone').not('phone', 'is', null)
   check(oErr)
-  if ((others ?? []).some((p) => last9(p.phone) === last9(t.phone))) {
+  if ((others ?? []).some((p) => phoneKey(p.phone) === phoneKey(t.phone))) {
     throw new HttpError(400, 'This phone number is already used by another Renta account.')
   }
 
@@ -197,20 +185,19 @@ export async function giveTenantAppAccess(db, landlordId, tenantId) {
     check(pErr)
   }
 
-  // Link the login to the tenant record: no connection code needed
+  // Link the login to the tenant record: no connection code needed. They stay "no smartphone" until they have
+  // registered (completeTenantAccount switches them over).
   const { error: lErr } = await db
     .from('tenants')
-    .update({ user_id: userId, managed_by_landlord: false, connect_code: null, connect_code_expires_at: null })
+    .update({ user_id: userId, connect_code: null, connect_code_expires_at: null })
     .eq('id', t.id)
   if (lErr) {
     await db.auth.admin.deleteUser(userId)
     check(lErr)
   }
-  // First sign-in needs this code: shown once to the landlord to hand over, and texted when SMS is on
   // No setup code: their first sign-in with this phone number goes straight to creating a password
   await db.from('setup_codes').delete().eq('user_id', userId)
-  const texted = await smsAppAccess(t.phone)
-  return { ok: true, phone: t.phone, texted }
+  return { ok: true, phone: t.phone }
 }
 
 // Tenant's first sign-in (after app access was given): add their email and choose a password.
@@ -230,14 +217,18 @@ export async function completeTenantAccount(db, user, profile, body) {
   check(tErr)
   if (taken?.length) throw new HttpError(400, 'This email is already used by another account.')
 
-  const { error } = await db.auth.admin.updateUserById(user.id, { email, email_confirm: true, password })
+  const { error } = await db.auth.admin.updateUserById(user.id, { email, email_confirm: true, password, app_metadata: { links: null } })
   if (error) {
     const dup = /already|registered|exists/i.test(error.message)
     throw new HttpError(400, dup ? 'This email is already used by another account.' : error.message)
   }
   const { error: pErr } = await db.from('profiles').update({ email, must_change_password: false }).eq('id', user.id)
   check(pErr)
-  await db.from('tenants').update({ email }).eq('user_id', user.id)
+  // Two updates, so a problem with one never stops the other. Their landlord sees them as "uses the app" at once.
+  for (const change of [{ email }, { managed_by_landlord: false }]) {
+    const { error: tenantErr } = await db.from('tenants').update(change).eq('user_id', user.id)
+    if (tenantErr) console.error('[tenant account]', Object.keys(change)[0], tenantErr.message) // retried: see invite.js and database/57
+  }
   return { ok: true, email }
 }
 

@@ -1,16 +1,20 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Briefcase, Building2, Users, Wallet, TriangleAlert, Banknote, Inbox, Megaphone, UserPlus, ArrowDownLeft,
-  ShieldCheck, Activity, ChevronRight, CircleCheck, BarChart3,
+  ShieldCheck, Activity, ChevronRight, CircleCheck, BarChart3, Globe, Download, LogIn, Star,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { usePlatformStats } from '@/composables/usePlatformStats'
 import { compactUGX } from '@/composables/useRentAnalytics'
-import { formatUGX, formatDate } from '@/utils/format'
+import { formatUGX, formatDate, timeAgo } from '@/utils/format'
 import { supabase } from '@/lib/supabase'
+import { useSiteStats } from '@/composables/useSiteStats'
 import SuperHero from '@/components/super/SuperHero.vue'
 import StatTile from '@/components/super/StatTile.vue'
+import LiveBar from '@/components/super/LiveBar.vue'
+import RatingSummary from '@/components/super/RatingSummary.vue'
+import RatingRow from '@/components/super/RatingRow.vue'
 import Panel from '@/components/admin/Panel.vue'
 import ListRow from '@/components/admin/ListRow.vue'
 import ColumnChart from '@/components/charts/ColumnChart.vue'
@@ -23,7 +27,7 @@ const p = usePlatformStats()
 
 const activeLandlords = computed(() => rental.landlords.filter((l) => l.active).length)
 const currentTenants = computed(() => rental.tenants.filter((t) => t.propertyId))
-const connected = computed(() => currentTenants.value.filter((t) => t.userId).length)
+const connected = computed(() => currentTenants.value.filter((t) => t.usesApp).length)
 const unread = computed(() => rental.staff_notifications.filter((n) => !n.read).length)
 
 const attention = computed(() =>
@@ -53,14 +57,17 @@ const quick = [
 const methodLabel = (m) => (/cash/i.test(m ?? '') ? 'Cash' : m || 'Mobile money')
 const tenantName = (id) => rental.tenantById(id)?.name ?? 'Tenant'
 
-// System health: the latest automatic check (every 20 minutes) + open error reports
+// System health: the latest automatic check (every 20 minutes) + open error reports. Read with everything else.
 const health = ref(null)
-onMounted(async () => {
+const healthError = ref(false)
+async function loadHealth() {
   try {
-    const [{ data: last }, { count }] = await Promise.all([
+    const [{ data: last, error: e1 }, { count, error: e2 }] = await Promise.all([
       supabase.from('health_checks').select('ok, results, run_at').order('run_at', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('error_reports').select('id', { head: true, count: 'exact' }).eq('status', 'open'),
     ])
+    if (e1 || e2) throw e1 ?? e2
+    healthError.value = false
     health.value = {
       problems: (last?.results ?? []).filter((r) => r.status === 'fail').length,
       warnings: (last?.results ?? []).filter((r) => r.status === 'warn').length,
@@ -69,14 +76,22 @@ onMounted(async () => {
     }
   } catch {
     health.value = null
+    healthError.value = true
   }
-})
+}
+watch(() => rental.updatedAt, loadHealth, { immediate: true })
 const payText = computed(() => {
-  if (!health.value) return 'Checking…'
+  if (!health.value) return healthError.value ? '—' : 'Checking…'
   if (!health.value.runAt) return 'No check yet'
   if (health.value.problems) return `${health.value.problems} problem${health.value.problems === 1 ? '' : 's'}`
   return health.value.warnings ? `${health.value.warnings} warning${health.value.warnings === 1 ? '' : 's'}` : 'All working'
 })
+
+// Website visits, downloads and stars
+const { data: site, missing: siteMissing, error: siteError } = useSiteStats('site_stats', ['site_visit_days', 'site_visits', 'app_devices', 'app_ratings'])
+const { data: ratings, missing: ratingsMissing, error: ratingsError } = useSiteStats('admin_ratings', ['app_ratings'])
+const siteNum = (n) => (site.value ? Number(n || 0).toLocaleString() : siteMissing.value || siteError.value ? '—' : '…')
+const siteHint = (text) => (site.value ? text() : siteMissing.value ? 'Update the database first' : '')
 
 const greeting = (() => {
   const h = new Date().getHours()
@@ -92,19 +107,29 @@ const greeting = (() => {
       <template #stats>
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile glass label="Collected (all time)" :value="formatUGX(p.totalCollected.value)" hint="Rent paid by tenants" :icon="Wallet" to="/admin2026/transactions" />
-          <StatTile glass label="This month" :value="formatUGX(p.monthCollected.value)" :hint="p.monthBilled.value ? `of ${formatUGX(p.monthBilled.value)} billed` : 'No rent billed yet'" :icon="ArrowDownLeft" tile="tile-sky" to="/admin2026/transactions" />
-          <StatTile glass label="Unpaid rent" :value="formatUGX(p.outstanding.value)" :hint="`${p.overdueTenants.value} tenant${p.overdueTenants.value === 1 ? '' : 's'} overdue`" :icon="TriangleAlert" tile="tile-amber" :alert="p.overdueTenants.value > 0" to="/admin2026/tenants?show=overdue" />
+          <StatTile glass label="Received this month" :value="formatUGX(p.monthCollected.value)" :hint="`${p.monthReceipts.value.length} payment${p.monthReceipts.value.length === 1 ? '' : 's'}`" :icon="ArrowDownLeft" tile="tile-sky" to="/admin2026/transactions" />
+          <StatTile glass label="Unpaid rent" :value="formatUGX(p.outstanding.value)" :hint="`${p.unpaidCount.value} month${p.unpaidCount.value === 1 ? '' : 's'} · ${p.overdueTenants.value} overdue`" :icon="TriangleAlert" tile="tile-amber" :alert="p.overdueTenants.value > 0" to="/admin2026/tenants?show=overdue" />
           <StatTile glass label="Occupancy" :value="`${p.occupancy.value.rate}%`" :hint="`${p.occupancy.value.vacant} vacant of ${p.occupancy.value.total}`" :icon="Building2" tile="tile-violet" to="/admin2026/properties" />
         </div>
       </template>
     </SuperHero>
+
+    <LiveBar />
 
     <!-- People -->
     <div class="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatTile label="Landlords" :value="rental.landlords.length" :hint="`${activeLandlords} active`" :icon="Briefcase" to="/admin2026/landlords" />
       <StatTile label="Properties" :value="rental.properties.length" :hint="`${rental.rentals.length} rental business${rental.rentals.length === 1 ? '' : 'es'}`" :icon="Building2" tile="tile-sky" to="/admin2026/properties" />
       <StatTile label="Tenants" :value="currentTenants.length" :hint="`${connected} use the app`" :icon="Users" tile="tile-violet" to="/admin2026/tenants" />
-      <StatTile label="System health" :value="payText" hint="Checked every 20 minutes" :icon="ShieldCheck" tile="tile-amber" to="/admin2026/system" />
+      <StatTile label="System health" :value="payText" :hint="health?.runAt ? `Checked ${timeAgo(health.runAt)}` : healthError ? 'Could not be read' : ''" :icon="ShieldCheck" tile="tile-amber" to="/admin2026/system" />
+    </div>
+
+    <!-- Growth -->
+    <div class="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <StatTile label="Website visits" :value="siteNum(site?.visits)" :hint="siteHint(() => `${siteNum(site.today)} today`)" :icon="Globe" tile="tile-violet" to="/admin2026/downloads" />
+      <StatTile label="App downloads" :value="siteNum(site?.downloads)" :hint="siteHint(() => `${siteNum(site.downloadsToday)} today`)" :icon="Download" tile="tile-amber" to="/admin2026/downloads" />
+      <StatTile label="Signed in on web" :value="siteNum(site?.signedIn)" :hint="siteHint(() => 'Visits, last 30 days')" :icon="LogIn" tile="tile-sky" to="/admin2026/downloads?tab=visits" />
+      <StatTile label="App rating" :value="site?.ratings ? `${Number(site.average).toFixed(1)} / 5` : site ? '—' : siteNum()" :hint="siteHint(() => (site.ratings ? `${siteNum(site.ratings)} rating${site.ratings === 1 ? '' : 's'}` : 'No ratings yet'))" :icon="Star" to="/admin2026/ratings" />
     </div>
 
     <div class="grid gap-6 lg:grid-cols-5">
@@ -113,7 +138,7 @@ const greeting = (() => {
         <h2 class="section-title">Needs your attention</h2>
         <div class="sheet">
           <ul v-if="attention.length" class="divide-y divide-slate-100">
-            <ListRow v-for="a in attention" :key="a.to" :to="a.to" :title="a.title" :subtitle="a.sub">
+            <ListRow v-for="a in attention" :key="a.title" :to="a.to" :title="a.title" :subtitle="a.sub">
               <template #icon><span class="icon-disc" :class="a.tone"><component :is="a.icon" class="size-5" /></span></template>
               <template #value><span class="flex size-8 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">{{ a.n }}</span></template>
             </ListRow>
@@ -161,6 +186,29 @@ const greeting = (() => {
         </div>
       </div>
     </div>
+
+    <!-- Ratings: stars from landlords and tenants (only the main admin sees them) -->
+    <section class="mt-6">
+      <div class="flex items-center justify-between">
+        <h2 class="section-title">Ratings</h2>
+        <RouterLink to="/admin2026/ratings" class="mb-2.5 text-xs font-semibold text-brand-700">All ratings</RouterLink>
+      </div>
+      <div class="grid gap-6 lg:grid-cols-2">
+        <div class="sheet p-5 sm:p-7"><RatingSummary :data="ratings" /></div>
+        <div class="sheet">
+          <ul v-if="ratings?.list?.length" class="divide-y divide-slate-100">
+            <RatingRow v-for="r in ratings.list.slice(0, 4)" :key="r.id" :rating="r" />
+          </ul>
+          <EmptyState
+            v-else
+            compact
+            kind="activity"
+            :title="ratings ? 'No ratings yet' : ratingsMissing ? 'Not set up yet' : ratingsError ? 'Could not load the ratings' : 'Loading…'"
+            :text="ratingsMissing ? 'Run database/update_existing.sql in Supabase → SQL Editor, then refresh.' : ratingsError || 'Landlords and tenants are asked after 7 days of use.'"
+          />
+        </div>
+      </div>
+    </section>
 
     <!-- Latest money + latest admin actions -->
     <div class="mt-6 grid gap-6 lg:grid-cols-2">

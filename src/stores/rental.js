@@ -1,10 +1,12 @@
 import { defineStore } from 'pinia'
-import { supabase, must } from '@/lib/supabase'
+import { supabase, must, fetchAll } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { useAuthStore } from './auth'
 import { useBillingStore } from './billing'
 import { rentCycle, isoDay } from '@/utils/rentCycle'
 import { payState } from '@/utils/payState'
+import { timeNow } from '@/lib/now'
+import { SITE } from '@/lib/site'
 
 // Sender line for a landlord's message, shown under the "Renta UG" title
 export function landlordSenderLine() {
@@ -54,12 +56,15 @@ const map = {
     phone: r.phone,
     leaseStart: r.lease_start,
     leaseEnd: r.lease_end,
+    leaseClock: r.rent_clock ?? null, // the time of day it ends: for counting only, never shown
     connectCode: r.connect_code ?? null,
     connectCodeExpiresAt: r.connect_code_expires_at ?? null,
     lastPropertyId: r.last_property_id ?? null,
     endedAt: r.ended_at ?? null,
     personId: r.person_id ?? r.id, // same person across stays
     managedByLandlord: r.managed_by_landlord === true, // no smartphone: the landlord manages them
+    // A smartphone tenant: has a login AND has opened their dashboard (until then: still "no smartphone")
+    usesApp: Boolean(r.user_id) && r.managed_by_landlord !== true,
     createdAt: r.created_at,
   }),
   // Numbers a landlord receives mobile money on (one per network)
@@ -164,6 +169,8 @@ const map = {
 }
 
 const TABLES = Object.keys(map)
+const NEWEST = { notifications: 5000, staff_notifications: 2000 } // messages: the newest are enough. Everything else: every row
+const TABLE_NAMES = { payment_receipts: 'payments received', staff_notifications: 'the inbox', cash_payments: 'payments to confirm', rentals: 'rental businesses', move_out_requests: 'requests to leave', landlord_pay_accounts: 'mobile money numbers' }
 const byNewest = (field) => (a, b) => new Date(b[field]) - new Date(a[field])
 let channel = null
 
@@ -172,7 +179,7 @@ let channel = null
 //    refreshes in the background. Removed on sign-out.
 // 2. Live updates are batched: confirming one payment changes ~10 rows, which used to reload whole
 //    tables 20+ times. Now each changed table reloads once, 350 ms after the changes stop.
-const CACHE_VERSION = 1
+const CACHE_VERSION = 2
 const CACHED = [...TABLES, 'landlords', 'owner']
 const cacheKey = (userId) => `renta:data:v${CACHE_VERSION}:${userId}`
 let cachedFor = null
@@ -197,6 +204,10 @@ export const useRentalStore = defineStore('rental', {
     owner: null, // tenant: their landlord's contact details
     loaded: false,
     error: '',
+    updatedAt: null, // when everything was last read from the database
+    refreshError: '', // the last refresh failed (what is on screen is from updatedAt)
+    unavailable: [], // optional tables that could not be read
+    live: false, // the database is telling us about changes
   }),
 
   getters: {
@@ -260,7 +271,17 @@ export const useRentalStore = defineStore('rental', {
       const t = s.tenants.find((x) => x.id === tenantId)
       if (!t) return null
       const rent = Number(s.properties.find((p) => p.id === t.propertyId)?.rent ?? 0)
-      return payState(t, s.payments.filter((p) => p.tenantId === tenantId), rent)
+      return payState(t, s.payments.filter((p) => p.tenantId === tenantId), rent, timeNow())
+    },
+    // Every unpaid month of every tenant: { tenantId, landlordId, propertyId, amount, from }. Adding the amounts up
+    // gives the unpaid rent shown everywhere. Someone who moved out: the months charged to them and never paid.
+    unpaidMonths(s) {
+      return s.tenants.flatMap((t) => {
+        const months = t.propertyId
+          ? this.payStateFor(t.id).months
+          : s.payments.filter((p) => p.tenantId === t.id && p.status !== 'paid' && p.balance > 0).map((p) => ({ amount: p.balance, from: p.dueDate, propertyId: p.propertyId }))
+        return months.map((m) => ({ tenantId: t.id, landlordId: t.landlordId, propertyId: m.propertyId ?? t.propertyId, amount: m.amount, from: m.from }))
+      })
     },
     cashForTenant: (s) => (tenantId) => s.cash_payments.filter((c) => c.tenantId === tenantId).sort(byNewest('createdAt')),
     pendingMoveOuts: (s) => s.move_out_requests.filter((r) => r.status === 'pending').sort(byNewest('createdAt')),
@@ -274,7 +295,7 @@ export const useRentalStore = defineStore('rental', {
     },
     // Their current rent month: end, days left, debt days, days paid for (see utils/rentCycle.js)
     cycleFor() {
-      return (tenantId) => rentCycle(this.tenantById(tenantId), this.lastPaidOn(tenantId))
+      return (tenantId) => rentCycle(this.tenantById(tenantId), this.lastPaidOn(tenantId), timeNow())
     },
     // Mobile money numbers of a landlord (tenant: their landlord's), MTN first, then Airtel
     payAccountsOf: (s) => (landlordId) =>
@@ -294,7 +315,7 @@ export const useRentalStore = defineStore('rental', {
         vacant: s.properties.filter((p) => !occupied.has(p.id)).length,
         collected: thisMonth.reduce((sum, p) => sum + p.amountPaid, 0),
         expected: thisMonth.reduce((sum, p) => sum + p.amount, 0),
-        outstanding: s.payments.reduce((sum, p) => sum + p.balance, 0),
+        outstanding: this.unpaidMonths.reduce((sum, m) => sum + m.amount, 0),
         overdue: s.payments.filter((p) => p.status === 'overdue').length,
       }
     },
@@ -305,20 +326,39 @@ export const useRentalStore = defineStore('rental', {
     async load() {
       this.error = ''
       const auth = useAuthStore()
-      // Show this device's last copy straight away (if any), then refresh it below
-      if (!this.loaded && this.hydrate(auth.user?.id)) this.loaded = true
+      if (auth.isSuperadmin) {
+        try {
+          localStorage.removeItem(cacheKey(auth.user?.id)) // a copy an earlier version saved here
+        } catch {
+          /* storage blocked */
+        }
+      }
+      // Show this device's last copy straight away (if any), then refresh it below. Never for the main admin:
+      // every number on their pages comes from the database.
+      if (!this.loaded && !auth.isSuperadmin && this.hydrate(auth.user?.id)) this.loaded = true
       try {
         // Newer, optional tables (receipts, inbox) must never stop the app from loading
         const OPTIONAL = new Set(['payment_receipts', 'staff_notifications', 'cash_payments', 'rentals', 'move_out_requests', 'landlord_pay_accounts'])
+        const missing = []
         const loadTable = (t) =>
           OPTIONAL.has(t)
-            ? this.reload(t).catch((e) => console.warn(`[renta] ${t} unavailable (database update not run yet?): ${e.message}`))
+            ? this.reload(t).catch((e) => {
+                console.warn(`[renta] ${t} unavailable (database update not run yet?): ${e.message}`)
+                missing.push(TABLE_NAMES[t] ?? t)
+              })
             : this.reload(t)
         await Promise.all([
           ...TABLES.map(loadTable),
           auth.isSuperadmin && this.loadLandlords(),
-          auth.isSuperadmin && this.loadAudit().catch((e) => console.warn(`[renta] activity log unavailable: ${e.message}`)),
+          auth.isSuperadmin &&
+            this.loadAudit().catch((e) => {
+              console.warn(`[renta] activity log unavailable: ${e.message}`)
+              missing.push('the activity log')
+            }),
         ])
+        this.unavailable = missing
+        this.updatedAt = Date.now()
+        this.refreshError = ''
         if (auth.isTenant) await this.loadOwner()
         this.loaded = true
         this.saveCache()
@@ -329,8 +369,18 @@ export const useRentalStore = defineStore('rental', {
       }
     },
 
+    // Main admin: read everything again. If that fails, what is on screen stays, and says how old it is.
+    async refresh() {
+      if (!this.loaded) return this.load()
+      await this.load()
+      if (this.error) {
+        this.refreshError = this.error
+        this.error = ''
+      }
+    },
+
     async reload(table) {
-      const rows = must(await supabase.from(table).select('*').order('created_at', { ascending: false }))
+      const rows = await fetchAll(() => supabase.from(table).select('*').order('created_at', { ascending: false }).order('id'), NEWEST[table])
       this[table] = rows.map(map[table])
       this.saveCache()
     },
@@ -362,7 +412,7 @@ export const useRentalStore = defineStore('rental', {
     saveCache() {
       const auth = useAuthStore()
       const userId = auth.user?.id
-      if (!userId || !this.loaded) return
+      if (!userId || !this.loaded || auth.isSuperadmin) return
       clearTimeout(saveTimer)
       saveTimer = setTimeout(() => {
         try {
@@ -396,9 +446,7 @@ export const useRentalStore = defineStore('rental', {
 
     // ── Main admin ───────────────────────────────────────────
     async loadLandlords() {
-      const rows = must(
-        await supabase.from('profiles').select('*').eq('role', 'landlord').order('created_at', { ascending: false }),
-      )
+      const rows = await fetchAll(() => supabase.from('profiles').select('*').eq('role', 'landlord').order('created_at', { ascending: false }).order('id'))
       // The permanent free account (ngumisiriza@gmail.com) is always listed first
       const permanent = (r) => r.subscription_exempt === true || String(r.email ?? '').toLowerCase() === 'ngumisiriza@gmail.com'
       this.landlords = rows
@@ -410,6 +458,7 @@ export const useRentalStore = defineStore('rental', {
           active: r.active,
           createdAt: r.created_at,
           subscriptionUntil: r.subscription_until ?? null,
+          subscriptionClock: r.subscription_clock ?? null, // for counting only, never shown
           subscriptionPlan: r.subscription_plan ?? null,
           subscriptionTier: r.subscription_tier ?? null,
           subscriptionExempt: permanent(r),
@@ -428,9 +477,7 @@ export const useRentalStore = defineStore('rental', {
 
     // Tenant accounts that aren't renting anything right now (deletable by the main admin)
     async loadInactiveTenantAccounts() {
-      const rows = must(
-        await supabase.from('profiles').select('id, email, full_name, created_at').eq('role', 'tenant').order('created_at', { ascending: false }),
-      )
+      const rows = await fetchAll(() => supabase.from('profiles').select('id, email, full_name, phone, created_at').eq('role', 'tenant').order('created_at', { ascending: false }).order('id'))
       const renting = new Set(this.tenants.filter((t) => t.userId && t.propertyId).map((t) => t.userId))
       return rows
         .filter((r) => !renting.has(r.id))
@@ -438,6 +485,7 @@ export const useRentalStore = defineStore('rental', {
           id: r.id,
           email: r.email,
           name: r.full_name,
+          phone: r.phone,
           createdAt: r.created_at,
           formerTenant: this.tenants.some((t) => t.userId === r.id),
         }))
@@ -527,7 +575,11 @@ export const useRentalStore = defineStore('rental', {
       if (useAuthStore().isSuperadmin) {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: 'admin_audit' }, () => this.queueReload('admin_audit'))
       }
-      channel.subscribe()
+      channel.subscribe((status) => {
+        const was = this.live
+        this.live = status === 'SUBSCRIBED'
+        if (this.live && !was && this.loaded && useAuthStore().isSuperadmin) this.refresh() // what changed while not connected
+      })
     },
 
     clear() {
@@ -796,12 +848,73 @@ export const useRentalStore = defineStore('rental', {
       return result
     },
 
+    // Landlord: correct a payment of a tenant without a smartphone (amount, date, method, note).
+    // The database recalculates the rent month and the rental time (database/55).
+    async editReceipt({ id, amount, receivedAt, method, note }) {
+      const { data, error } = await supabase.rpc('edit_receipt', {
+        p_receipt_id: id,
+        p_amount: Math.round(Number(amount)),
+        p_received_at: new Date(`${receivedAt}T12:00:00`).toISOString(),
+        p_method: method,
+        p_note: note || null,
+      })
+      if (error) throw new Error(/edit_receipt|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await Promise.all(['payments', 'payment_receipts', 'cash_payments', 'tenants'].map((t) => this.reload(t).catch(() => {})))
+      return data
+    },
+
+    // Landlord: change a tenant's own details (name, email, phone)
+    async updateTenantDetails(id, { name, email, phone }) {
+      const row = must(
+        await supabase
+          .from('tenants')
+          .update({ full_name: titleCase(name), email: email?.trim().toLowerCase() || null, phone: phone || null })
+          .eq('id', id)
+          .select()
+          .single(),
+      )
+      const t = this.tenants.find((x) => x.id === id)
+      if (t) Object.assign(t, map.tenants(row))
+      this.saveCache()
+      return t
+    },
+
+    // Landlord: a one-time link for a tenant they gave app access. → { url, expiresAt }
+    async createInvite(tenantId) {
+      let res
+      try {
+        res = await api(`/api/landlord/tenants/${tenantId}/invite-link`, {})
+      } catch (e) {
+        // The page is newer than the server it is talking to
+        throw new Error(e.message === 'Not found' ? 'The Renta server is running an older version. Restart it, or deploy the latest version.' : e.message)
+      }
+      const base = import.meta.env.DEV ? window.location.origin : SITE.url
+      return { expiresAt: res.expiresAt, url: `${base}/i/${res.token}` }
+    },
+
+    // Landlord: the number a tenant without a smartphone signs in with, when their login exists but was never used
+    async changeManagedPhone(id, phone) {
+      const { error } = await supabase.rpc('change_managed_phone', { p_tenant_id: id, p_phone: phone })
+      if (error) throw new Error(/change_managed_phone|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await this.reload('tenants')
+    },
+
+    // Tenant: their dashboard is open for the first time → from now on they count as a smartphone tenant
+    async markDashboardOpened() {
+      try {
+        const { data, error } = await supabase.rpc('mark_dashboard_opened')
+        if (!error && data) await this.reload('tenants')
+      } catch {
+        /* offline: the next visit does it */
+      }
+    },
+
     // Landlord: tenant without a smartphone, managed by the landlord (or back to using the app)
     async setManagedByLandlord(tenantId, managed) {
       const { error } = await supabase.from('tenants').update({ managed_by_landlord: managed }).eq('id', tenantId)
       if (error) throw new Error(/managed_by_landlord/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
       const t = this.tenants.find((x) => x.id === tenantId)
-      if (t) t.managedByLandlord = managed
+      if (t) Object.assign(t, { managedByLandlord: managed, usesApp: Boolean(t.userId) && !managed })
     },
 
     // Landlord: tenant got a smartphone → create their login. They sign in with their phone number
@@ -889,6 +1002,22 @@ export const useRentalStore = defineStore('rental', {
       must(await supabase.from('staff_notifications').update({ read: true }).eq('id', id))
       const n = this.staff_notifications.find((x) => x.id === id)
       if (n) n.read = true
+    },
+
+    // Delete one message from their own inbox (the server checks it is theirs)
+    async deleteStaff(id) {
+      await api('/api/inbox/delete', { id })
+      this.staff_notifications = this.staff_notifications.filter((x) => x.id !== id)
+      this.saveCache()
+    },
+
+    // Delete notices the landlord wrote: for everyone they were sent to
+    async deleteNotices(ids) {
+      const rows = must(await supabase.from('notifications').delete().in('id', ids).in('type', ['general', 'maintenance']).select('id'))
+      if (!rows?.length) throw new Error('This notice could not be deleted. Refresh the page and try again.')
+      const gone = new Set(rows.map((r) => r.id))
+      this.notifications = this.notifications.filter((x) => !gone.has(x.id))
+      this.saveCache()
     },
 
     async markAllStaffRead() {

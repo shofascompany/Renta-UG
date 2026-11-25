@@ -5,9 +5,10 @@ import {
   Trash2, ChevronRight, Archive as ArchiveIcon, Activity, Bug, Search, UserX, Wand2,
 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { searcher } from '@/lib/search'
 import { useAuthStore } from '@/stores/auth'
 import { useSignOut } from '@/composables/useSignOut'
-import { supabase } from '@/lib/supabase'
+import { fetchAll, supabase } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import SuperHero from '@/components/super/SuperHero.vue'
 import BaseModal from '@/components/BaseModal.vue'
@@ -35,6 +36,8 @@ async function check() {
     ['landlord_pay_accounts', 'Mobile money numbers'],
     ['error_reports', 'Error reports'],
     ['health_checks', 'Health checks'],
+    ['app_ratings', 'Ratings'],
+    ['app_devices', 'App downloads and visits'],
   ]
   const missing = []
   for (const [table, label] of parts) {
@@ -87,8 +90,9 @@ const openError = ref(null)
 async function loadErrors() {
   let q = supabase.from('error_reports').select('*').order('last_seen', { ascending: false }).limit(100)
   if (errorFilter.value === 'open') q = q.eq('status', 'open')
+  const asked = errorFilter.value
   const { data } = await q
-  errors.value = data ?? []
+  if (asked === errorFilter.value) errors.value = data ?? [] // a slow answer never replaces a newer choice
 }
 async function setErrorStatus(e, status) {
   const { error } = await supabase.from('error_reports').update({ status }).eq('id', e.id)
@@ -128,17 +132,16 @@ async function openDelete() {
   delError.value = ''
   delDone.value = ''
   delOpen.value = true
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .in('role', ['landlord', 'tenant'])
-    .order('created_at', { ascending: false })
-  accounts.value = data ?? []
+  try {
+    accounts.value = await fetchAll(() => supabase.from('profiles').select('*').in('role', ['landlord', 'tenant']).order('created_at', { ascending: false }).order('id'))
+  } catch (e) {
+    delError.value = e.message
+  }
 }
 const shownAccounts = computed(() => {
-  const q = delQuery.value.trim().toLowerCase()
+  const hit = searcher(delQuery.value)
   return accounts.value
-    .filter((a) => !q || `${a.full_name ?? ''} ${a.email ?? ''} ${a.phone ?? ''}`.toLowerCase().includes(q))
+    .filter((a) => hit(a.full_name, a.email, a.phone, a.role))
     .slice(0, 50)
 })
 // The permanent landlord account (and nothing else) can never be deleted

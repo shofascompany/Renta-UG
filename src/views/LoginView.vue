@@ -25,8 +25,11 @@ const status = ref('idle') // idle | checking | first_login | landlord | tenant 
 let timer = null
 let seq = 0
 const complete = (v) => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v)
-// Ugandan style numbers: 0772123456, 772123456, +256772123456, 256 772 123 456
-const completePhone = (v) => /^(?:\+?256|0)?[1-9]\d{8}$/.test(v.replace(/[\s\-().]/g, ''))
+// Ugandan style numbers (0772123456, 772123456, 256 772 123 456) or any country with its code (+254 712 345678)
+const completePhone = (v) => {
+  const d = v.replace(/[\s\-().]/g, '')
+  return d.startsWith('+') ? /^\+[1-9]\d{8,14}$/.test(d) : /^(?:256|0)?[1-9]\d{8}$/.test(d)
+}
 const isPhone = computed(() => !email.value.includes('@') && /^[+\d\s\-().]+$/.test(email.value.trim()))
 const identifier = () => (isPhone.value ? email.value.replace(/[\s\-().]/g, '') : email.value.trim().toLowerCase())
 

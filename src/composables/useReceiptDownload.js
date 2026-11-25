@@ -1,14 +1,18 @@
 import { ref } from 'vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
-import { downloadReceipt } from '@/lib/receiptImage'
-import { isoDay, daysFor, RENT_MONTH_DAYS } from '@/utils/rentCycle'
+import { downloadReceipt, shareReceiptImage, canShareReceiptImage } from '@/lib/receiptImage'
+import { isoDay, addDays, daysFor, RENT_MONTH_DAYS } from '@/utils/rentCycle'
 import { formatPeriod } from '@/utils/format'
 
 // Save a payment receipt as a landscape image (PNG), for landlords and tenants alike.
 //   saveRevenue(r)  one amount received ({ id, paymentId, tenantId, propertyId, period, amount, method, reference, note, at })
 //   saveCash(c)     a confirmed cash / mobile money payment (may cover several months)
 //   instalmentsFor(paymentId)  every payment made towards one rent month, in order, with the days each bought
+//   windowsFor(tenantId)       for each payment of a tenant: the rental time it bought (from, to, days), worked back
+//                              from the day their rent ends now
+//   shareRevenue(r) / shareCash(c)  the same PNG receipts, saved and then sent as an image (WhatsApp) through the share sheet
+//   canShare                   true on devices that can send the picture; the WhatsApp buttons only show then
 // When a month was paid in several turns, the receipt lists every instalment, the total, the balance and
 // the days covered.
 export function useReceiptDownload() {
@@ -61,6 +65,44 @@ export function useReceiptDownload() {
     }
   }
 
+  // Rental time each payment of a tenant bought. Rent months run on from each other, so working back from the
+  // day the rent ends now, every payment's time sits right after the one before it.
+  function windowsFor(tenantId) {
+    const out = new Map()
+    const tenant = rental.tenantById(tenantId)
+    if (!tenant?.leaseEnd) return out
+    const plans = new Map()
+    const periodOf = (r) => rental.payments.find((p) => p.id === r.paymentId)?.period ?? ''
+    const daysOf = (r) => {
+      if (!plans.has(r.paymentId)) plans.set(r.paymentId, instalmentsFor(r.paymentId))
+      return plans.get(r.paymentId)?.rows.find((x) => x.id === r.id)?.days ?? 0
+    }
+    const list = rental.payment_receipts
+      .filter((r) => r.tenantId === tenantId)
+      // One payment covering several months has the same time on each: the earlier rent month comes first
+      .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)) || periodOf(a).localeCompare(periodOf(b)) || String(a.id).localeCompare(String(b.id)))
+    let end = String(tenant.leaseEnd).slice(0, 10)
+    for (let i = list.length - 1; i >= 0; i--) {
+      const days = daysOf(list[i])
+      const from = isoDay(addDays(new Date(`${end}T12:00:00`), -days))
+      out.set(list[i].id, { from, to: end, days })
+      end = from
+    }
+    return out
+  }
+
+  // Window for one receipt, or the combined window of several (a payment spread over months)
+  const windowOf = (tenantId, receiptIds) => {
+    const map = windowsFor(tenantId)
+    const parts = receiptIds.map((id) => map.get(id)).filter(Boolean)
+    if (!parts.length) return null
+    return {
+      from: parts.map((p) => p.from).sort()[0],
+      to: parts.map((p) => p.to).sort().at(-1),
+      days: parts.reduce((s, p) => s + p.days, 0),
+    }
+  }
+
   async function save(id, data) {
     if (saving.value) return
     saving.value = id
@@ -71,9 +113,21 @@ export function useReceiptDownload() {
     }
   }
 
-  function saveRevenue(r) {
+  // WhatsApp: only opens the share list with the picture. Nothing is downloaded, and nothing on the page says so.
+  let sharing = false
+  async function share(id, data) {
+    if (sharing) return
+    sharing = true
+    try {
+      await shareReceiptImage({ id, ...data })
+    } finally {
+      sharing = false
+    }
+  }
+
+  function revenueReceipt(r) {
     const plan = r.paymentId ? instalmentsFor(r.paymentId) : null
-    return save(r.id, {
+    return {
       ...base(r.tenantId, r.propertyId),
       amount: r.amount,
       method: /cash/i.test(r.method ?? '') ? 'Cash' : r.method || 'Mobile money',
@@ -83,18 +137,21 @@ export function useReceiptDownload() {
       months: r.period ? [formatPeriod(r.period)] : [],
       details: r.reference || r.note,
       // Paid in turns (or not finished yet): list every instalment on the receipt
+      window: windowOf(r.tenantId, [r.id]),
       instalments: plan && (plan.rows.length > 1 || plan.balance > 0) ? { ...plan, period: formatPeriod(plan.period), current: r.id } : null,
-    })
+    }
   }
+  const saveRevenue = (r) => save(r.id, revenueReceipt(r))
+  const shareRevenue = (r) => share(r.id, revenueReceipt(r))
 
-  function saveCash(c) {
+  function cashReceipt(c) {
     const parts = rental.payment_receipts.filter(
       (r) => r.tenantId === c.tenantId && (r.note ?? null) === (c.note ?? null) && isoDay(r.receivedAt) === c.paidOn,
     )
     const paymentIds = [...new Set(parts.map((r) => r.paymentId))]
     const periods = paymentIds.map((id) => rental.payments.find((p) => p.id === id)?.period).filter(Boolean)
     const plan = paymentIds.length === 1 ? instalmentsFor(paymentIds[0]) : null
-    return save(c.id, {
+    return {
       ...base(c.tenantId),
       amount: c.confirmedAmount ?? c.amount,
       method: c.method === 'mobile_money' ? ({ mtn: 'MTN Mobile Money', airtel: 'Airtel Money' }[c.network] ?? 'Mobile money') : 'Cash',
@@ -103,9 +160,13 @@ export function useReceiptDownload() {
       confirmedBy: c.reviewedRole === 'superadmin' ? 'Renta UG' : 'Landlord',
       months: [...new Set(periods)].sort().map(formatPeriod),
       details: c.note,
+      window: windowOf(c.tenantId, parts.map((x) => x.id)),
       instalments: plan && (plan.rows.length > 1 || plan.balance > 0) ? { ...plan, period: formatPeriod(plan.period), current: parts[0]?.id } : null,
-    })
+    }
   }
+  const saveCash = (c) => save(c.id, cashReceipt(c))
+  const shareCash = (c) => share(c.id, cashReceipt(c))
 
-  return { saving, saveRevenue, saveCash, instalmentsFor }
+  const canShare = canShareReceiptImage()
+  return { saving, saveRevenue, saveCash, shareRevenue, shareCash, canShare, instalmentsFor, windowsFor }
 }

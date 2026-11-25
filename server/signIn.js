@@ -7,6 +7,7 @@
 //   sign-in for 15 minutes, so passwords can't be guessed endlessly through this route.
 import { createHash, randomInt } from 'node:crypto'
 import { HttpError } from './admin.js'
+import { phoneKey } from '../src/lib/phone.js'
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I
 const CODE_LENGTH = 6
@@ -88,9 +89,9 @@ const clearFailures = (db, key) => db.from('login_failures').delete().eq('key', 
 const digits = (v) => String(v ?? '').replace(/\D/g, '')
 
 export async function profileByPhone(db, phone) {
-  const want = digits(phone).slice(-9)
-  if (want.length < 9) return null
-  // Numbers are stored in many formats (0772 123 456, +256…), so compare digits here
+  const want = phoneKey(phone)
+  if (!want) return null
+  // Numbers are stored in many formats (0772 123 456, +256…, +254… from any country): compare the full number
   const { data, error } = await db
     .from('profiles')
     .select('id, email, phone, role, active, must_change_password, created_at')
@@ -98,7 +99,7 @@ export async function profileByPhone(db, phone) {
   if (error) throw new HttpError(500, error.message)
   return (
     (data ?? [])
-      .filter((p) => digits(p.phone).slice(-9) === want)
+      .filter((p) => phoneKey(p.phone) === want)
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null
   )
 }
@@ -143,7 +144,7 @@ export async function phoneSignIn(db, signInClient, body) {
 
   const password = String(body?.password ?? '')
   if (!password) throw new HttpError(400, 'Please enter your password.')
-  const key = `phone:${digits(profile.phone).slice(-9)}`
+  const key = `phone:${phoneKey(profile.phone)}`
   await assertNotLocked(db, key)
   const { data, error } = await signInClient.auth.signInWithPassword({ email: profile.email, password })
   if (error) {

@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 import { saveVerification } from '@/lib/verification'
 import Logo from '@/components/Logo.vue'
 import AuthBackground from '@/components/AuthBackground.vue'
+import PhoneInput from '@/components/PhoneInput.vue'
+import { isValidPhone } from '@/lib/phone'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -25,7 +27,7 @@ async function submit() {
     const email = form.email.trim().toLowerCase()
     const phone = form.phone.trim()
     if (!email || !phone) throw new Error('Enter both your email and your phone number.')
-    if (phone.replace(/\D/g, '').length < 9) throw new Error('Enter a valid phone number.')
+    if (!isValidPhone(phone)) throw new Error('Enter a valid phone number: pick your country, then type the number.')
     const taken = await auth.phoneStatus(phone)
     if (taken !== 'not_found' && taken !== 'unknown') {
       throw new Error('This phone number is already used by another Renta account.')
@@ -64,7 +66,7 @@ async function submit() {
           </div>
           <div>
             <label class="label" for="phone">Phone number</label>
-            <input id="phone" v-model="form.phone" type="tel" inputmode="tel" class="input" placeholder="0772 123456" required autocomplete="tel" />
+            <PhoneInput id="phone" v-model="form.phone" required />
             <p class="mt-1 text-xs text-slate-500">You can sign in with your email or this number.</p>
           </div>
           <div>

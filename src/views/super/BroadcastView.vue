@@ -1,6 +1,6 @@
-﻿<script setup>
+<script setup>
 import BaseSelect from '@/components/BaseSelect.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Megaphone, Users, Briefcase, Globe, Send, CheckCircle2 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
@@ -14,7 +14,9 @@ import EmptyState from '@/components/EmptyState.vue'
 const rental = useRentalStore()
 const route = useRoute()
 const audience = ref('tenants')
-const landlordId = ref(typeof route.query.landlord === 'string' ? route.query.landlord : '')
+const linked = () => (typeof route.query.landlord === 'string' ? route.query.landlord : '')
+const landlordId = ref(linked())
+watch(() => route.query.landlord, () => route.name === 'super-broadcast' && (landlordId.value = linked()))
 const message = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -70,7 +72,7 @@ async function send() {
       </div>
       <div class="mt-4">
         <label class="label" for="bc-landlord">Only for one landlord <span class="font-normal text-slate-400">(optional)</span></label>
-        <BaseSelect id="bc-landlord" v-model="landlordId" :options="[{ value: '', label: 'All landlords on Renta UG' }, ...rental.landlords.map((l) => ({ value: l.id, label: l.name + (audience !== 'landlords' ? ' (and their tenants)' : '') }))]" />
+        <BaseSelect id="bc-landlord" v-model="landlordId" :options="[{ value: '', label: 'All landlords on Renta UG' }, ...rental.landlords.map((l) => ({ value: l.id, label: (l.name || l.email) + (audience !== 'landlords' ? ' (and their tenants)' : '') }))]" />
       </div>
 
       <h2 class="section-title mt-6">2 · Message</h2>

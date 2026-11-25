@@ -1,11 +1,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { UserPlus, DoorOpen, AtSign, User, Phone, Info, Contact, CalendarDays, Wallet } from '@lucide/vue'
+import { UserPlus, DoorOpen, AtSign, User, Info, Contact, CalendarDays, Wallet } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { formatUGX, formatDate } from '@/utils/format'
 import { isoDay } from '@/utils/rentCycle'
 import BaseModal from './BaseModal.vue'
 import BaseSelect from './BaseSelect.vue'
+import PhoneInput from './PhoneInput.vue'
+import { isValidPhone, toE164, samePhone } from '@/lib/phone'
 
 // Landlord adds a tenant with just TWO things: their EMAIL or PHONE NUMBER (one box) and the house / room.
 // Everything else (their own name and details) comes from the tenant when they connect with the code.
@@ -20,8 +22,9 @@ const open = defineModel({ type: Boolean, default: false })
 const emit = defineEmits(['saved'])
 
 const rental = useRentalStore()
-const who = ref('') // email or phone number (managed: their name)
-const phone = ref('')
+const who = ref('') // email (managed: their name)
+const phone = ref('') // international number, from any country
+const kind = ref('email') // how a tenant with a smartphone is reached: email | phone
 const propertyId = ref('')
 const saving = ref(false)
 const error = ref('')
@@ -60,42 +63,44 @@ watch(
     if (!v) return
     error.value = ''
     phone.value = ''
+    kind.value = 'email'
     payStatus.value = 'unpaid'
     payAmount.value = ''
     paidOn.value = today()
     created.value = null
     const pre = props.prefillId && rental.tenantById(props.prefillId)
-    who.value = !pre ? '' : props.managed ? pre.name ?? '' : pre.email && !pre.email.endsWith('@phone-signin.example.com') ? pre.email : pre.phone ?? ''
-    if (pre && props.managed) phone.value = pre.phone ?? ''
+    const realEmail = pre?.email && !pre.email.endsWith('@phone-signin.example.com') ? pre.email : ''
+    who.value = !pre ? '' : props.managed ? pre.name ?? '' : realEmail
+    if (pre && (props.managed || !realEmail)) phone.value = toE164(pre.phone) || ''
+    if (pre && !props.managed && !realEmail && pre.phone) kind.value = 'phone'
     propertyId.value = props.propertyId && vacant.value.some((p) => p.id === props.propertyId) ? props.propertyId : ''
   },
   { immediate: true },
 )
 
 const isEmail = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(who.value.trim()))
-const isPhone = (v) => /^(?:\+?256|0)?7\d{8}$/.test(String(v).replace(/[\s\-().]/g, ''))
 const looksLikeEmail = computed(() => who.value.includes('@'))
 // "john.mukasa@gmail.com" → "John Mukasa" until the tenant connects and their own name replaces it
 const nameFromEmail = (e) => e.split('@')[0].replace(/[._\-+\d]+/g, ' ').trim() || 'New tenant'
 
-// A person can only live in ONE place at a time (same email, or same phone for managed tenants)
-const last9 = (v) => (v ?? '').replace(/\D/g, '').slice(-9)
-const alreadyRenting = computed(() => {
-  const email = isEmail.value ? who.value.trim().toLowerCase() : ''
-  const p = last9(props.managed ? phone.value : isPhone(who.value) ? who.value : '')
-  return rental.currentTenants.find((t) => (email && t.email?.toLowerCase() === email) || (p.length === 9 && last9(t.phone) === p))
-})
+// The number that will be used: always for a tenant without a smartphone, or when "Phone" is chosen
+const usesPhone = computed(() => props.managed || kind.value === 'phone')
 
+// A person can only live in ONE place at a time (same email, or same phone number)
+const alreadyRenting = computed(() => {
+  const email = !props.managed && kind.value === 'email' && isEmail.value ? who.value.trim().toLowerCase() : ''
+  return rental.currentTenants.find((t) => (email && t.email?.toLowerCase() === email) || (usesPhone.value && samePhone(t.phone, phone.value)))
+})
 async function save() {
   error.value = ''
   if (created.value) return finish(created.value) // tenant added already: only the payment is left
   const value = who.value.trim()
   if (props.managed && value.length < 2) return (error.value = "Enter the tenant's name.")
-  if (!props.managed && !isEmail.value && !isPhone(value)) {
-    return (error.value = looksLikeEmail.value ? 'That email address does not look right.' : 'Enter their email or phone number, e.g. 0772 123456.')
+  if (!props.managed && kind.value === 'email' && !isEmail.value) {
+    return (error.value = looksLikeEmail.value ? 'That email address does not look right.' : 'Enter their email address, e.g. john@gmail.com.')
   }
-  if (props.managed && !/^(?:\+?256|0)?7\d{8}$/.test(phone.value.replace(/[\s\-().]/g, ''))) {
-    return (error.value = 'Enter their phone number, e.g. 0772 123456. Their notifications go to it.')
+  if (usesPhone.value && !isValidPhone(phone.value)) {
+    return (error.value = 'Enter their phone number: pick the country, then type the number (at least 9 digits with the country code).')
   }
   if (!propertyId.value) return (error.value = 'Choose the house or room.')
   if (alreadyRenting.value) return (error.value = `${alreadyRenting.value.name} already rents ${rental.placeName(alreadyRenting.value.propertyId)}. End that tenancy first.`)
@@ -104,9 +109,9 @@ async function save() {
   try {
     created.value = await rental.addTenant({
       // Until they connect: a stand-in name (their own name replaces it)
-      name: props.managed ? value : isEmail.value ? nameFromEmail(value) : 'New tenant',
-      email: !props.managed && isEmail.value ? value.toLowerCase() : null,
-      phone: props.managed ? phone.value.trim() : isEmail.value ? null : value,
+      name: props.managed ? value : kind.value === 'email' ? nameFromEmail(value) : 'New tenant',
+      email: !props.managed && kind.value === 'email' ? value.toLowerCase() : null,
+      phone: usesPhone.value ? toE164(phone.value) : null,
       propertyId: propertyId.value,
       managedByLandlord: props.managed,
     })
@@ -150,15 +155,31 @@ async function finish(tenant) {
 <template>
   <BaseModal v-model="open" center width="max-w-md" :title="managed ? 'Add tenant without a smartphone' : 'Add tenant'">
     <form class="space-y-4" @submit.prevent="save">
-      <div>
-        <label class="label" for="tf-who">{{ managed ? 'Full name' : 'Email or phone number' }}</label>
+      <!-- Tenant with a smartphone: reached by email OR phone number -->
+      <div v-if="!managed" class="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 text-sm font-medium" role="tablist" aria-label="How to reach the tenant">
+        <button
+          v-for="k in [{ id: 'email', label: 'Email' }, { id: 'phone', label: 'Phone number' }]"
+          :key="k.id"
+          type="button"
+          role="tab"
+          :aria-selected="kind === k.id"
+          class="h-9 rounded-lg transition"
+          :class="kind === k.id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'"
+          :disabled="Boolean(created)"
+          @click="kind = k.id"
+        >{{ k.label }}</button>
+      </div>
+
+      <div v-if="managed || kind === 'email'">
+        <label class="label" for="tf-who">{{ managed ? 'Full name' : 'Email' }}</label>
         <div class="relative">
-          <component :is="managed ? User : looksLikeEmail ? AtSign : /^[\d+\s]/.test(who) ? Phone : Contact" class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
+          <component :is="managed ? User : looksLikeEmail ? AtSign : Contact" class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
           <input
             id="tf-who"
             v-model="who"
+            :type="managed ? 'text' : 'email'"
             class="input h-12 pl-10 text-base"
-            :placeholder="managed ? 'e.g. Sarah Nakato' : 'e.g. john@gmail.com or 0772 123456'"
+            :placeholder="managed ? 'e.g. Sarah Nakato' : 'e.g. john@gmail.com'"
             :data-cap="managed ? 'words' : 'off'"
             autocomplete="off"
             autofocus
@@ -167,14 +188,11 @@ async function finish(tenant) {
         </div>
       </div>
 
-      <div v-if="managed">
+      <div v-if="usesPhone">
         <label class="label" for="tf-phone">Phone number</label>
-        <div class="relative">
-          <Phone class="pointer-events-none absolute top-1/2 left-3.5 size-4.5 -translate-y-1/2 text-slate-400" />
-          <input id="tf-phone" v-model="phone" type="tel" class="input h-12 pl-10 text-base" placeholder="0772 123456" data-cap="off" required />
-        </div>
+        <PhoneInput id="tf-phone" v-model="phone" required />
+        <p class="mt-1 text-xs text-slate-500">Any country: pick it, then type the number.</p>
       </div>
-
       <div>
         <label class="label" for="tf-prop">House or room</label>
         <BaseSelect id="tf-prop" v-model="propertyId" :options="placeOptions" :icon="DoorOpen" placeholder="Choose a vacant house or room" empty-text="No vacant houses or rooms" :disabled="Boolean(created)" required />

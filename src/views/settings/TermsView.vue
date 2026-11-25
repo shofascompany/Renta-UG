@@ -1,11 +1,15 @@
 <script setup>
+import { computed } from 'vue'
 import { FileText } from '@lucide/vue'
+import { useAuthStore } from '@/stores/auth'
 import SettingsSubpage from '@/components/SettingsSubpage.vue'
-import { LEGAL } from '@/lib/legal'
+import { legalFor } from '@/lib/legal'
 import { SITE } from '@/lib/site'
 
-// Terms & conditions shown in Settings: the same text as the public /terms page (src/lib/legal.js).
-const terms = LEGAL.terms
+// Terms & conditions shown in Settings: the same text as the public /terms page (src/lib/legal.js), only the one for
+// this kind of account.
+const auth = useAuthStore()
+const terms = computed(() => legalFor('terms', auth.isLandlord ? 'landlord' : 'tenant'))
 </script>
 
 <template>

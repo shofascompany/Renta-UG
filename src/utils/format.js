@@ -2,8 +2,23 @@ const ugx = new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX',
 
 export const formatUGX = (n) => ugx.format(n ?? 0)
 
+// Big amounts in millions, exact to the thousand and never rounded up: 1.2M, 12.34M, 21.897M.
+// The hundreds are left out (21,897,650 → 21.897M). Below a million the full number is shown: 850,000.
+export function millionsUGX(n) {
+  const v = Math.floor(Number(n) || 0)
+  if (v < 1_000_000) return v.toLocaleString('en-UG')
+  const thousands = Math.floor(v / 1000)
+  const decimals = String(thousands % 1000).padStart(3, '0').replace(/0+$/, '')
+  return `${Math.floor(thousands / 1000).toLocaleString('en-UG')}${decimals ? `.${decimals}` : ''}M`
+}
+
 export const formatDate = (d) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+
+// The local day (2026-11-25) and month (2026-11) of a moment. Never cut the saved text: it is in UTC, so a payment
+// made just after midnight would land on the day (or month) before.
+export const dayOf = (d) => (d ? new Date(d).toLocaleDateString('en-CA') : '')
+export const monthOf = (d) => dayOf(d).slice(0, 7)
 
 export const formatPeriod = (p) => {
   if (!p) return '—'
@@ -20,13 +35,11 @@ export const timeAgo = (d) => {
   return formatDate(d)
 }
 
-export const daysUntil = (d) => Math.ceil((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000)
-
 // "2 months, 5 days left" style wording for a number of days
 export function timeLeft(days) {
   if (days === null || days === undefined) return 'Starts when they pay'
   if (days < 0) return `${Math.abs(days)} debt day${days === -1 ? '' : 's'}` // month ended, not paid yet
-  if (days === 0) return 'Ends today'
+  if (days === 0) return 'Just ended' // not one complete day since the end
   // A rent month is 30 days
   if (days < 30) return `${days} day${days === 1 ? '' : 's'} left`
   const months = Math.floor(days / 30)

@@ -1,33 +1,39 @@
 <script setup>
-import { computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { Inbox, Wallet, Banknote, Bug, Crown, DoorOpen, ShieldCheck, UserPlus, Megaphone, ChevronRight } from '@lucide/vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Inbox, Wallet, Banknote, Bug, Crown, DoorOpen, ShieldCheck, UserPlus, Megaphone, ChevronRight, Eye, Trash2 } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { timeAgo } from '@/utils/format'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import NotificationCard from '@/components/NotificationCard.vue'
+import PressMenu from '@/components/PressMenu.vue'
+import { usePressMenu } from '@/composables/usePressMenu'
+import { askConfirm } from '@/composables/useConfirm'
 
 // Inbox for landlords and the main admin: payments received, cash to confirm, tenants connecting,
-// sign-in alerts, grouped by day. Tap → marked read (and opens its page).
+// sign-in alerts, grouped by day. Tap → its details card (and marked read).
 const rental = useRentalStore()
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const items = computed(() => [...rental.staff_notifications].sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
 const unread = computed(() => items.value.filter((n) => !n.read).length)
 
+// go = the text of the button that opens the page it is about
 const kinds = {
-  payment: { icon: Wallet, cls: 'disc-emerald' },
-  cash: { icon: Banknote, cls: 'disc-amber' },
-  security: { icon: ShieldCheck, cls: 'disc-slate' },
-  tenant: { icon: UserPlus, cls: 'disc-brand' },
-  move_out: { icon: DoorOpen, cls: 'disc-amber' },
-  subscription: { icon: Crown, cls: 'disc-amber' },
-  error: { icon: Bug, cls: 'disc-red' },
+  payment: { label: 'Payment', icon: Wallet, cls: 'disc-emerald', tone: 'emerald', go: 'See the payment' },
+  cash: { label: 'Payment to confirm', icon: Banknote, cls: 'disc-amber', tone: 'amber', go: 'Check the payment' },
+  security: { label: 'Security', icon: ShieldCheck, cls: 'disc-slate', tone: 'slate', go: 'Open' },
+  tenant: { label: 'Tenant', icon: UserPlus, cls: 'disc-brand', tone: 'brand', go: 'See the tenant' },
+  move_out: { label: 'Request to leave', icon: DoorOpen, cls: 'disc-amber', tone: 'amber', go: 'See the request' },
+  subscription: { label: 'Subscription', icon: Crown, cls: 'disc-amber', tone: 'amber', go: 'Open subscription' },
+  error: { label: 'App error', icon: Bug, cls: 'disc-red', tone: 'red', go: 'Open' },
 }
-const kind = (n) => kinds[n.type] ?? { icon: Megaphone, cls: 'disc-sky' }
-const sender = (n) => (n.title ?? '').replace(/^[\p{Extended_Pictographic}️\s]+/u, '') || 'Renta UG'
+const kind = (n) => kinds[n?.type] ?? { label: 'Message', icon: Megaphone, cls: 'disc-sky', tone: 'sky', go: 'Open' }
+const sender = (n) => (n?.title ?? '').replace(/^[\p{Extended_Pictographic}️\s]+/u, '') || 'Renta UG'
 const shortTime = (iso) => {
   const d = new Date(iso)
   return new Date().toDateString() === d.toDateString()
@@ -55,9 +61,42 @@ const groups = computed(() => {
   return out
 })
 
-function open(n) {
+// Its page, unless that is this inbox
+const goesTo = (n) => (n?.url && n.url.split('?')[0] !== route.path ? n.url : '')
+function go(n) {
+  const to = goesTo(n)
+  if (to) router.push(to)
+}
+
+// Right click, or press and hold → View / Delete
+const menu = usePressMenu()
+const viewing = ref(null)
+function view(n) {
+  viewing.value = n
   if (!n.read) rental.markStaffRead(n.id).catch(() => {})
-  if (n.url && n.url !== router.currentRoute.value.path) router.push(n.url)
+}
+function closeCard() {
+  viewing.value = null
+  if (route.query.open) router.replace({ query: {} })
+}
+// Opened from the pop-up at the top of the screen (?open=<id>)
+watch(
+  () => [route.query.open, items.value.length],
+  ([id]) => {
+    const n = id && items.value.find((x) => x.id === id)
+    if (n && viewing.value?.id !== n.id) view(n)
+  },
+  { immediate: true },
+)
+async function remove(n) {
+  const yes = await askConfirm({
+    title: 'Delete this notification?',
+    text: 'It is removed from your inbox for good. Payments and tenants are not affected.',
+    note: n.body.length > 140 ? `${n.body.slice(0, 140)}…` : n.body,
+    confirm: 'Delete', working: 'Deleting…', icon: Trash2,
+    action: () => rental.deleteStaff(n.id),
+  })
+  if (yes && viewing.value?.id === n.id) closeCard()
 }
 </script>
 
@@ -78,7 +117,8 @@ function open(n) {
               type="button"
               class="nt-row w-full text-left"
               :class="!n.read && 'nt-unread'"
-              @click="open(n)"
+              v-bind="menu.row(n)"
+              @click="menu.consumed() || view(n)"
             >
               <span class="icon-disc rounded-full" :class="kind(n).cls"><component :is="kind(n).icon" class="size-[1.15rem]" /></span>
               <span class="min-w-0 flex-1">
@@ -89,7 +129,7 @@ function open(n) {
                 <span class="mt-0.5 flex items-start gap-3">
                   <span class="line-clamp-3 flex-1 text-sm leading-relaxed" :class="n.read ? 'text-slate-500' : 'text-slate-700'">{{ n.body }}</span>
                   <span v-if="!n.read" class="nt-dot mt-1.5" aria-label="Unread" />
-                  <ChevronRight v-else-if="n.url" class="mt-0.5 size-4 shrink-0 text-slate-300" />
+                  <ChevronRight v-else class="mt-0.5 size-4 shrink-0 text-slate-300" />
                 </span>
               </span>
             </button>
@@ -98,6 +138,26 @@ function open(n) {
       </section>
     </div>
 
-    <div v-else class="sheet"><EmptyState :icon="Inbox" title="No messages yet" text="Payments received, cash to confirm, tenant connections and security alerts appear here." /></div>
+    <p v-if="items.length" class="mt-4 text-center text-xs text-slate-400">Press and hold a message (or right-click it) for options</p>
+
+    <PressMenu :menu="menu" label="Notification options">
+      <template #default="{ item, close }">
+        <button type="button" class="menu-item" role="menuitem" @click="close(); view(item)"><Eye class="size-4 text-slate-500" /> View</button>
+        <button type="button" class="menu-item text-red-600!" role="menuitem" @click="close(); remove(item)"><Trash2 class="size-4" /> Delete</button>
+      </template>
+    </PressMenu>
+
+    <NotificationCard
+      :item="viewing"
+      :look="kind(viewing)"
+      :from="sender(viewing)"
+      :open-label="goesTo(viewing) ? kind(viewing).go : ''"
+      can-delete
+      @close="closeCard"
+      @open="go(viewing)"
+      @delete="remove(viewing)"
+    />
+
+    <div v-if="!items.length" class="sheet"><EmptyState :icon="Inbox" title="No messages yet" text="Payments received, cash to confirm, tenant connections and security alerts appear here." /></div>
   </div>
 </template>

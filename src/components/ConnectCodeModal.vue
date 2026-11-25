@@ -1,7 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { Copy, Check, RefreshCw, CircleCheckBig } from '@lucide/vue'
+import { Copy, Check, RefreshCw, CircleCheckBig, MessageCircle } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useAuthStore } from '@/stores/auth'
+import { copyText } from '@/lib/clipboard'
+import AppLink from './AppLink.vue'
 import BaseModal from './BaseModal.vue'
 
 // Owner: shows a tenant's 20-minute connection code, generating one if needed.
@@ -38,18 +41,23 @@ async function generate() {
   }
 }
 
+// The whole message: who registered them, where, the key, and the two warnings. No link. Sent on WhatsApp (the
+// landlord picks who to send it to) and copied by "Copy message".
+const auth = useAuthStore()
+const message = computed(() => {
+  const home = tenant.value?.propertyId ? rental.placeName(tenant.value.propertyId) : ''
+  return [
+    `${auth.user?.name?.trim() || 'Your landlord'} has registered you${home && home !== '—' ? ` in ${home}` : ''}`,
+    '',
+    `Your one time connection key: ${code.value ?? ''}`,
+    '',
+    'Do not share with anyone',
+    '',
+    'This code lasts 20 minutes',
+  ].join('\n')
+})
 async function copy() {
-  const text = `Your Renta UG connection code is ${code.value}. Sign up at ${window.location.origin}/signup and enter it within ${Math.ceil(secondsLeft.value / 60)} minutes.`
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch {
-    // Clipboard API is blocked on non-HTTPS pages (e.g. opened via a LAN IP) → older fallback
-    const ta = Object.assign(document.createElement('textarea'), { value: text })
-    document.body.appendChild(ta)
-    ta.select()
-    document.execCommand('copy')
-    ta.remove()
-  }
+  if (!code.value || !(await copyText(message.value))) return
   copied.value = true
   setTimeout(() => (copied.value = false), 2000)
 }
@@ -99,6 +107,10 @@ onBeforeUnmount(() => clearInterval(timer))
       </div>
 
       <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
+
+      <template v-if="code">
+        <AppLink :text="message" class="btn mt-5 h-12 w-full bg-[#25D366] text-white hover:bg-[#1fb957]"><MessageCircle class="size-5" /> Share code on WhatsApp</AppLink>
+      </template>
 
       <div class="mt-5 flex gap-2">
         <button class="btn-secondary flex-1" :disabled="busy" @click="generate">

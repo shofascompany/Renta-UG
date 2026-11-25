@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard, Home, CreditCard, Bell, Building2, Users, Wallet, Send, LogOut, X,Briefcase, Archive, Inbox,
-  Settings, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server, Download, Crown, ArrowRight, Lock, LifeBuoy,
+  Settings, BarChart3, History, UserCog, DoorOpen, Activity, Megaphone, Server, Download, Crown, ArrowRight, Lock, LifeBuoy, Star,
 } from '@lucide/vue'
 import PageSkeleton from '@/components/PageSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -16,6 +16,7 @@ import ConnectLandlord from '@/components/ConnectLandlord.vue'
 import MoveOutScreen from '@/components/MoveOutScreen.vue'
 import NotificationToast from '@/components/NotificationToast.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import RatePrompt from '@/components/RatePrompt.vue'
 
 const auth = useAuthStore()
 const rental = useRentalStore()
@@ -47,7 +48,7 @@ const subBanner = computed(() => {
   if (!s || route.path.startsWith('/landlord/subscription')) return null
   if (s.state === 'none') return { tone: 'bad', text: 'Pay your subscription to start using Renta UG. Your account opens as soon as Renta UG confirms the payment.', cta: 'Pay now' }
   if (s.state === 'expired') return { tone: 'bad', text: 'Your subscription has ended. Renew it to open your account again.', cta: 'Renew now' }
-  if (s.state === 'ending') return { tone: 'warn', text: `Your subscription ends ${s.daysLeft === 0 ? 'today' : s.daysLeft === 1 ? 'tomorrow' : `in ${s.daysLeft} days`} (${formatDate(s.until)}).`, cta: 'Renew' }
+  if (s.state === 'ending') return { tone: 'warn', text: `Your subscription ends ${s.endsIn <= 0 ? 'today' : s.endsIn === 1 ? 'tomorrow' : `in ${s.endsIn} days`} (${formatDate(s.until)}).`, cta: 'Renew' }
   return null
 })
 
@@ -94,6 +95,25 @@ const stopHooks = [
 ]
 onBeforeUnmount(() => stopHooks.forEach((stop) => stop()))
 
+let refreshTimer = null
+const refreshAll = () => {
+  if (document.visibilityState !== 'visible') return
+  rental.refresh()
+  billing.load().catch(() => {})
+}
+if (auth.isSuperadmin) {
+  onMounted(() => {
+    refreshTimer = setInterval(refreshAll, 60_000)
+    document.addEventListener('visibilitychange', refreshAll)
+    window.addEventListener('online', refreshAll)
+  })
+  onBeforeUnmount(() => {
+    clearInterval(refreshTimer)
+    document.removeEventListener('visibilitychange', refreshAll)
+    window.removeEventListener('online', refreshAll)
+  })
+}
+
 onMounted(async () => {
   rental.subscribe()
   setTimeout(prefetchPages, 1500)
@@ -135,6 +155,11 @@ function moveOutDone() {
   seenAck.value++
 }
 
+// "Rate Renta UG" may pop up: a normal page is on screen (not paying, setting up, connecting or leaving)
+const canRate = computed(
+  () => rental.loaded && !rental.error && !waitingForBilling.value && !locked.value && !setupMode.value && !unlinked.value && !moveOutMode.value && !route.meta.focus,
+)
+
 // Stable names for menu items (nav-overview, nav-properties, nav-settings…), handy for tests
 const navTag = (to) =>
   to === auth.home ? 'nav-overview' : to === settingsPath.value ? 'nav-settings' : `nav-${to.split('/').pop()}`
@@ -154,7 +179,8 @@ const nav = computed(() => {
       { group: 'Money', to: '/admin2026/reports', label: 'Statistics', icon: BarChart3 },
       { group: 'Communicate', to: '/admin2026/broadcast', label: 'Announcements', icon: Megaphone },
       { group: 'Communicate', to: '/admin2026/inbox', label: 'Inbox', icon: Inbox, badge: staffUnread.value },
-      { group: 'System', to: '/admin2026/downloads', label: 'Downloads', icon: Download },
+      { group: 'Growth', to: '/admin2026/downloads', label: 'Downloads & visits', icon: Download },
+      { group: 'Growth', to: '/admin2026/ratings', label: 'Ratings', icon: Star },
       { group: 'System', to: '/admin2026/system', label: 'Health & settings', short: 'System', icon: Server, also: ['/admin2026/archives'] },
     ]
   if (auth.isLandlord && locked.value)
@@ -266,10 +292,10 @@ const logout = useSignOut()
           :aria-expanded="mobileOpen"
           @click="mobileOpen = true"
         >
-          <Logo />
+          <Logo :link="false" />
         </button>
         <RouterLink v-else :to="auth.home" aria-label="Home" class="flex items-center gap-2.5">
-          <Logo />
+          <Logo :link="false" />
         </RouterLink>
 
         <nav v-if="topLinks.length" class="hidden items-center gap-0.5 lg:flex" aria-label="Main">
@@ -323,18 +349,23 @@ const logout = useSignOut()
 
     <!-- Mobile overlay -->
     <Transition name="fade">
-      <div v-if="mobileOpen && !auth.isTenant && !setupMode" class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px] lg:hidden" @click="mobileOpen = false" />
+      <div v-if="mobileOpen && !auth.isTenant" class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]" :class="!setupMode && 'lg:hidden'" @click="mobileOpen = false" />
     </Transition>
 
     <!-- Sidebar: always on computers; on phones it slides in when the logo is tapped -->
     <aside
-      v-if="!auth.isTenant && !setupMode"
-      class="side fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[85vw] flex-col border-r lg:w-64 lg:translate-x-0"
-      :class="[mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full', auth.isSuperadmin ? 'side-admin border-transparent' : 'border-slate-200 bg-white']"
+      v-if="!auth.isTenant"
+      class="side fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[85vw] flex-col border-r lg:w-64"
+      :class="[
+        mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
+        setupMode ? 'side-slide' : 'lg:translate-x-0',
+        auth.isSuperadmin ? 'side-admin border-transparent' : 'border-slate-200 bg-white',
+      ]"
+      :inert="setupMode && !mobileOpen"
     >
       <div class="side-head flex h-16 shrink-0 items-center justify-between px-5">
-        <RouterLink :to="auth.home" aria-label="Overview" class="rounded-lg"><Logo /></RouterLink>
-        <button class="btn-ghost -mr-2 px-2 lg:hidden" aria-label="Close menu" @click="mobileOpen = false">
+        <RouterLink :to="auth.home" aria-label="Overview" class="rounded-lg"><Logo :link="false" /></RouterLink>
+        <button class="btn-ghost -mr-2 px-2" :class="!setupMode && 'lg:hidden'" aria-label="Close menu" @click="mobileOpen = false">
           <X class="size-5" />
         </button>
       </div>
@@ -402,7 +433,10 @@ const logout = useSignOut()
     <!-- Setting up: a slim bar instead of the menus (help and sign out stay within reach) -->
     <header v-if="setupMode" class="setup-bar sticky top-0 z-30">
       <div class="mx-auto flex h-16 max-w-3xl items-center justify-between gap-3 px-4 sm:px-6">
-        <Logo />
+        <!-- The logo opens the side menu here too -->
+        <button type="button" class="flex items-center rounded-xl" aria-label="Open menu" data-tour="menu" :aria-expanded="mobileOpen" @click="mobileOpen = true">
+          <Logo :link="false" />
+        </button>
         <div class="flex items-center gap-1">
           <RouterLink to="/landlord/settings/help" class="setup-link"><LifeBuoy class="size-4" /> Help</RouterLink>
           <RouterLink to="/landlord/inbox" class="setup-link relative" aria-label="Inbox">
@@ -482,6 +516,7 @@ const logout = useSignOut()
       <div v-if="navigating" class="nav-progress" role="progressbar" aria-label="Opening page" />
     </Transition>
     <NotificationToast />
+    <RatePrompt v-if="!auth.isSuperadmin" :allowed="canRate" />
   </div>
 </template>
 
@@ -491,7 +526,7 @@ const logout = useSignOut()
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease;
 }
 @media (min-width: 1024px) {
-  .side { transform: none; box-shadow: none; }
+  .side:not(.side-slide) { transform: none; box-shadow: none; }
 }
 /* Main admin: deep gradient sidebar */
 .side-admin {

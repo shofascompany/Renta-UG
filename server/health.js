@@ -3,7 +3,6 @@
 // whenever the main admin taps "Run checks now". Problems are also reported as errors, so the main
 // admin gets a notification. Shared by the Express server and the Netlify Functions.
 import { mailEnabled } from './mailer.js'
-import { smsEnabled } from './sms.js'
 
 const EVERY_MS = 20 * 60 * 1000
 const ago = (ms) => new Date(Date.now() - ms).toISOString()
@@ -62,18 +61,7 @@ export async function runHealthCheck(db, env = process.env, trigger = 'schedule'
     detail: mailEnabled(env) ? 'Sign-up codes can be emailed.' : 'SMTP_USER / SMTP_PASS are missing: nobody can sign up.',
   })
 
-  // 4. SMS (payment confirmations)
-  add('sms', 'SMS', await timed(async () => {
-    if (!smsEnabled(env)) return { status: 'warn', detail: 'Not switched on (AT_USERNAME / AT_API_KEY). Tenants only get in-app notifications.' }
-    const { count } = await db
-      .from('notifications')
-      .select('id', { head: true, count: 'exact' })
-      .not('sms_error', 'is', null)
-      .gte('created_at', ago(EVERY_MS * 3))
-    return count ? { status: 'warn', detail: `${count} text message(s) failed in the last hour.` } : { status: 'ok', detail: 'Texts are being sent.' }
-  }))
-
-  // 5. Phone notifications: nothing stuck
+  // 4. Phone notifications: nothing stuck
   add('push', 'Phone notifications', await timed(async () => {
     if (!env.VITE_VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return { status: 'warn', detail: 'VAPID keys missing: no pop-ups on phones.' }
     const { count } = await db

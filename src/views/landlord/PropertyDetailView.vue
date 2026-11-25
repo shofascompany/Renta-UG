@@ -9,12 +9,14 @@ import {
   LogOut, Trash2, UserCog, ArrowDownLeft, Clock, AlertCircle, Pencil, ChevronRight, UserRoundPlus,
 } from '@lucide/vue'
 import BaseModal from '@/components/BaseModal.vue'
+import AppInvite from '@/components/AppInvite.vue'
 import EndTenancyModal from '@/components/EndTenancyModal.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import HeaderAction from '@/components/admin/HeaderAction.vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate, formatPeriod, daysUntil, timeLeft } from '@/utils/format'
+import { formatUGX, formatDate, formatPeriod, timeLeft } from '@/utils/format'
+import { rentDaysLeft } from '@/lib/now'
 import EmptyState from '@/components/EmptyState.vue'
 import { askConfirm } from '@/composables/useConfirm'
 
@@ -176,8 +178,8 @@ function onTenantSaved(t) {
               <span class="icon-disc disc-solid size-12 rounded-2xl text-sm font-bold">{{ initials(tenant.name) }}</span>
               <div class="min-w-0 flex-1">
                 <p class="truncate text-lg font-semibold text-slate-900">{{ tenant.name }}</p>
-                <p v-if="tenant.userId" class="text-xs font-medium text-emerald-700">Uses the app</p>
-                <p v-else-if="tenant.managedByLandlord" class="flex items-center gap-1 text-xs font-medium text-slate-600"><UserCog class="size-3.5" /> Managed by you · no smartphone</p>
+                <p v-if="tenant.usesApp" class="flex items-center gap-1 text-xs font-medium text-emerald-700"><Smartphone class="size-3.5" /> Uses the app</p>
+                <p v-else-if="tenant.managedByLandlord" class="flex items-center gap-1 text-xs font-medium text-slate-600"><UserCog class="size-3.5" /> Managed by you · {{ tenant.userId ? 'invited, not registered yet' : 'no smartphone' }}</p>
                 <p v-else class="text-xs text-slate-500">Not connected yet</p>
               </div>
             </div>
@@ -191,7 +193,7 @@ function onTenantSaved(t) {
                 <dt class="text-slate-500">Email</dt>
                 <dd class="min-w-0"><a :href="`mailto:${tenant.email}`" class="flex items-center gap-1.5 truncate font-medium text-slate-900 hover:text-brand-700"><Mail class="size-3.5 shrink-0" /> <span class="truncate">{{ tenant.email }}</span></a></dd>
               </div>
-              <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Rental time</dt><dd class="text-right"><p class="font-medium text-slate-900">{{ timeLeft(tenant.leaseEnd ? daysUntil(tenant.leaseEnd) : null) }}</p><p v-if="tenant.leaseEnd" class="text-xs text-slate-500">{{ formatDate(tenant.leaseStart) }} – {{ formatDate(tenant.leaseEnd) }}</p></dd></div>
+              <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Rental time</dt><dd class="text-right"><p class="font-medium text-slate-900">{{ timeLeft(rentDaysLeft(tenant)) }}</p><p v-if="tenant.leaseEnd" class="text-xs text-slate-500">{{ formatDate(tenant.leaseStart) }} – {{ formatDate(tenant.leaseEnd) }}</p></dd></div>
               <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">Rent</dt><dd class="text-right"><PayStatus :tenant-id="tenant.id" /><p class="mt-0.5 text-xs text-slate-500">{{ rental.payStateFor(tenant.id)?.detail }}</p></dd></div>
               <div class="flex justify-between gap-3 px-5 py-3"><dt class="text-slate-500">To pay</dt><dd class="font-semibold" :class="rental.payStateFor(tenant.id)?.owed ? 'text-red-600' : 'text-emerald-700'">{{ formatUGX(rental.payStateFor(tenant.id)?.owed ?? balance) }}</dd></div>
             </dl>
@@ -209,10 +211,11 @@ function onTenantSaved(t) {
                 </template>
                 <p v-if="switchError" class="field-error">{{ switchError }}</p>
               </template>
-              <RouterLink v-if="tenant.managedByLandlord && !tenant.userId" :to="`/landlord/managed/${tenant.id}`" class="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">
+              <RouterLink v-if="tenant.managedByLandlord" :to="`/landlord/managed/${tenant.id}`" class="flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">
                 <UserCog class="size-4 text-slate-500" /> <span class="flex-1">Open their account page</span> <ChevronRight class="size-4 text-slate-400" />
               </RouterLink>
-              <p v-if="accessGiven" class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+              <AppInvite v-if="tenant.userId" :tenant-id="tenant.id" />
+              <p v-if="accessGiven && !tenant.usesApp" class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
                 <CheckCircle2 class="mt-0.5 size-4 shrink-0" />
                 <span>App access given. {{ tenant.name.split(' ')[0] }} can now sign in with <strong>{{ accessGiven }}</strong>. No code needed.</span>
               </p>

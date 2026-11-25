@@ -1,6 +1,8 @@
 // Rent cycles: one month at a time. The first month starts on the day of the first payment (chosen by
 // the landlord). Each next month runs on from the day the last one ended. Days after the end that are
 // not paid for yet are DEBT DAYS: when the tenant pays, they are taken from that next month.
+import { DAY_MS, daysLeftAt, rentEnds, ugandaDay } from './exactTime.js'
+
 const DAY = 86_400_000
 
 export const isoDay = (d) => {
@@ -19,13 +21,12 @@ export function addMonths(d, n) {
 }
 
 // tenant: { leaseStart, leaseEnd }; lastPaidOn: day of their latest payment ('YYYY-MM-DD'), if any
-export function rentCycle(tenant, lastPaidOn = null) {
+export function rentCycle(tenant, lastPaidOn = null, now = Date.now()) {
   if (!tenant?.leaseEnd) return { started: false, debtDays: 0, daysLeft: null }
-  const today = isoDay(new Date())
   const end = String(tenant.leaseEnd).slice(0, 10)
   const start = isoDay(addMonths(at(end), -1)) // the day the current month began
-  const daysLeft = daysBetween(today, end)
-  const debtDays = daysLeft < 0 ? -daysLeft : 0 // unpaid days since the month ended
+  const daysLeft = daysLeftAt(rentEnds(tenant), now) // 0 or less = ended
+  const debtDays = daysLeft < 0 ? -daysLeft : 0 // complete unpaid days since the month ended
   // Paid late for this month? Those days were taken from it.
   const paidOn = lastPaidOn && lastPaidOn > start && lastPaidOn <= end ? lastPaidOn : null
   const lateDays = paidOn ? daysBetween(start, paidOn) : 0
@@ -35,6 +36,7 @@ export function rentCycle(tenant, lastPaidOn = null) {
     end,
     paidOn: paidOn ?? start,
     daysLeft,
+    ended: daysLeft <= 0,
     debtDays,
     lateDays,
     fullDays: daysBetween(start, end), // a whole rent month: 30 days
@@ -53,6 +55,13 @@ export function addDays(d, n) {
 // days it already gave). Money is used on unpaid months first (oldest first), then months ahead.
 export const DAYS_PER_MONTH = RENT_MONTH_DAYS
 export const daysFor = (paid, rent) => (rent > 0 ? Math.floor((Math.max(0, paid) * DAYS_PER_MONTH) / rent) : 0)
+
+// Debt days on a day: today they are complete 24 hours since the exact end, another day is counted by its date
+const debtOn = (tenant, payDay) => {
+  if (!tenant?.leaseEnd) return 0
+  const now = Date.now()
+  return payDay === ugandaDay(now) ? Math.max(0, Math.floor((now - rentEnds(tenant)) / DAY_MS)) : Math.max(0, daysBetween(tenant.leaseEnd, payDay))
+}
 
 // What a payment would do to the tenant's rental time.
 //   tenant   { leaseEnd }
@@ -94,7 +103,7 @@ export function coverage({ tenant, dues = [], rent = 0, amount = 0, before = 0, 
   const from = endOf(run(before)) // after anything already waiting
   const after = run(before + amount)
   const end = endOf(after)
-  const debtDays = tenant?.leaseEnd && start < payDay ? daysBetween(start, payDay) : 0
+  const debtDays = debtOn(tenant, payDay)
   return {
     from,
     end,
@@ -114,6 +123,6 @@ export function nextCycle(tenant, payDay = isoDay(new Date())) {
   }
   const oldEnd = String(tenant.leaseEnd).slice(0, 10)
   const end = isoDay(addMonths(at(oldEnd), 1))
-  const debtDays = Math.max(0, daysBetween(oldEnd, payDay))
-  return { from: oldEnd, end, debtDays, days: daysBetween(debtDays ? payDay : oldEnd, end) }
+  const debtDays = debtOn(tenant, payDay)
+  return { from: oldEnd, end, debtDays, days: daysBetween(oldEnd < payDay ? payDay : oldEnd, end) }
 }

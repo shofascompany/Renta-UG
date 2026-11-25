@@ -6,8 +6,11 @@ import {
 } from '@lucide/vue'
 import DropMenu from '@/components/admin/DropMenu.vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { compare, searcher } from '@/lib/search'
 import { downloadCSV, timeLeft } from '@/composables/useRentAnalytics'
-import { formatUGX, formatDate, daysUntil } from '@/utils/format'
+import { formatUGX, formatDate } from '@/utils/format'
+import { rentDaysLeft } from '@/lib/now'
 import AdminHeader from '@/components/admin/AdminHeader.vue'
 import TenantFormModal from '@/components/TenantFormModal.vue'
 import ConnectCodeModal from '@/components/ConnectCodeModal.vue'
@@ -15,9 +18,9 @@ import EmptyState from '@/components/EmptyState.vue'
 
 // Current tenants as a sortable table. Former tenants live on the Records page.
 const rental = useRentalStore()
-const query = ref('')
-const filter = ref('all') // all | owing | overdue | app | managed | ending
-const sort = ref({ key: 'balance', dir: -1 })
+const query = useFilter('q', '')
+const filter = useFilter('show', 'all', ['all', 'paid', 'owing', 'overdue', 'ending', 'app', 'managed'])
+const sort = useFilter('sort', { key: 'balance', dir: -1 })
 
 const all = computed(() =>
   rental.currentTenants.map((t) => {
@@ -27,49 +30,43 @@ const all = computed(() =>
       ...t,
       house: rental.placeName(t.propertyId),
       rent: rental.propertyById(t.propertyId)?.rent ?? 0,
-      // What they need to pay now (a tenant who never paid, or whose time ended, owes a month's rent)
+      // What they need to pay now (every month in debt × the rent; a tenant who never paid owes the first month)
       balance: pay?.owed ?? dues.reduce((s, p) => s + p.balance, 0),
       pay,
       status: pay?.key ?? 'unpaid',
-      overdue: dues.some((p) => p.status === 'overdue'),
-      leaseDays: t.leaseEnd ? daysUntil(t.leaseEnd) : null,
-      account: t.userId ? 'app' : t.managedByLandlord ? 'managed' : 'none',
+      overdue: Boolean(pay?.late),
+      leaseDays: rentDaysLeft(t),
+      account: t.usesApp ? 'app' : t.managedByLandlord ? 'managed' : 'none',
     }
   }),
 )
 
+const TESTS = {
+  all: () => true,
+  paid: (t) => t.status === 'paid',
+  owing: (t) => t.status !== 'paid',
+  overdue: (t) => t.overdue,
+  app: (t) => t.account === 'app',
+  managed: (t) => t.account === 'managed',
+  ending: (t) => t.leaseDays !== null && t.leaseDays > 0 && t.leaseDays <= 30,
+}
+const found = computed(() => {
+  const hit = searcher(query.value)
+  return all.value.filter((t) => hit(t.name, t.email, t.phone, t.house))
+})
+// Sorted by what the column means: not paid → part paid → paid, not connected → managed → app
+const RANK = { status: { unpaid: 0, part: 1, paid: 2 }, account: { none: 0, managed: 1, app: 2 } }
 const rows = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  const f = filter.value
-  const list = all.value.filter((t) => {
-    if (f === 'paid' && t.status !== 'paid') return false
-    if (f === 'owing' && t.status === 'paid') return false
-    if (f === 'overdue' && !t.overdue) return false
-    if (f === 'app' && t.account !== 'app') return false
-    if (f === 'managed' && t.account !== 'managed') return false
-    if (f === 'ending' && !(t.leaseDays !== null && t.leaseDays >= 0 && t.leaseDays <= 30)) return false
-    return !q || `${t.name} ${t.email ?? ''} ${t.phone ?? ''} ${t.house}`.toLowerCase().includes(q)
-  })
   const { key, dir } = sort.value
-  return list.sort((a, b) => {
-    const va = a[key] ?? ''
-    const vb = b[key] ?? ''
-    return (typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb))) * dir
-  })
+  const of = (t) => RANK[key]?.[t[key]] ?? t[key]
+  return found.value.filter(TESTS[filter.value]).sort((a, b) => compare(of(a), of(b), dir) || compare(a.name, b.name))
 })
 function sortBy(key) {
-  sort.value = sort.value.key === key ? { key, dir: -sort.value.dir } : { key, dir: key === 'name' || key === 'house' ? 1 : -1 }
+  sort.value = sort.value.key === key ? { key, dir: -sort.value.dir } : { key, dir: key === 'balance' ? -1 : 1 }
 }
 
-const counts = computed(() => ({
-  all: all.value.length,
-  paid: all.value.filter((t) => t.status === 'paid').length,
-  owing: all.value.filter((t) => t.status !== 'paid').length,
-  overdue: all.value.filter((t) => t.overdue).length,
-  app: all.value.filter((t) => t.account === 'app').length,
-  managed: all.value.filter((t) => t.account === 'managed').length,
-  ending: all.value.filter((t) => t.leaseDays !== null && t.leaseDays >= 0 && t.leaseDays <= 30).length,
-}))
+// Beside each filter: how many it will show with the search as it is
+const counts = computed(() => Object.fromEntries(Object.entries(TESTS).map(([k, test]) => [k, found.value.filter(test).length])))
 // "Add tenant" words show for 5 s when the page opens, then fold into the icon
 const showAddLabel = ref(true)
 const addTimer = setTimeout(() => (showAddLabel.value = false), 5000)
@@ -78,7 +75,7 @@ onBeforeUnmount(() => clearTimeout(addTimer))
 const FILTERS = [
   ['all', 'All tenants', Users],
   ['paid', 'Paid', Check],
-  ['owing', 'Not paid', Wallet],
+  ['owing', 'Owing rent', Wallet],
   ['overdue', 'Overdue', AlertCircle],
   ['ending', 'Ending soon', CalendarClock],
   ['app', 'On the app', Smartphone],
@@ -120,7 +117,7 @@ function onSaved(t) {
     <AdminHeader
       eyebrow="People"
       title="Tenants"
-      :subtitle="`${counts.all} current tenants${owedTotal ? ` · ${formatUGX(owedTotal)} owed` : ''}`"
+      :subtitle="`${all.length} current tenant${all.length === 1 ? '' : 's'}${owedTotal ? ` · ${formatUGX(owedTotal)} owed` : ''}`"
     >
       <template #corner>
         <button type="button" class="add-btn" :class="showAddLabel && 'add-open'" aria-label="Add tenant" data-tour="add-tenant" @click="adding = true">
@@ -240,7 +237,7 @@ function onSaved(t) {
           </tr>
         </tbody>
       </table>
-      <EmptyState v-else :kind="counts.all ? 'search' : 'people'" :title="counts.all ? 'No tenants match' : 'No tenants yet'" :text="counts.all ? 'Try another name or filter.' : 'Use Add tenant to put someone in a house or room.'" />
+      <EmptyState v-else :kind="all.length ? 'search' : 'people'" :title="all.length ? 'No tenants match' : 'No tenants yet'" :text="all.length ? 'Try another name or filter.' : 'Use Add tenant to put someone in a house or room.'" />
     </div>
 
     <!-- List (phones) -->
@@ -264,7 +261,7 @@ function onSaved(t) {
           </button>
         </li>
       </ul>
-      <EmptyState v-else :kind="counts.all ? 'search' : 'people'" :title="counts.all ? 'No tenants match' : 'No tenants yet'" :text="counts.all ? 'Try another name or filter.' : 'Add a tenant to put someone in a house or room.'" />
+      <EmptyState v-else :kind="all.length ? 'search' : 'people'" :title="all.length ? 'No tenants match' : 'No tenants yet'" :text="all.length ? 'Try another name or filter.' : 'Add a tenant to put someone in a house or room.'" />
     </div>
 
     <TenantFormModal v-model="adding" @saved="onSaved" />

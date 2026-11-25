@@ -1,9 +1,11 @@
-﻿<script setup>
+<script setup>
 import BaseSelect from '@/components/BaseSelect.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { Plus, Search, Building2, House, DoorOpen, HousePlus, Minus, ArrowLeft } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { useFilter } from '@/composables/useFilter'
+import { searcher } from '@/lib/search'
 import { useRentAnalytics } from '@/composables/useRentAnalytics'
 import { formatUGX } from '@/utils/format'
 import BaseModal from '@/components/BaseModal.vue'
@@ -17,9 +19,8 @@ const router = useRouter()
 const a = useRentAnalytics()
 const collectedAt = (id) => a.byHouse.value.find((h) => h.id === id)?.value ?? 0
 
-const query = ref('')
-const route = useRoute()
-const show = ref(['rentals', 'houses', 'vacant'].includes(route.query.show) ? route.query.show : 'all') // all | rentals | houses | vacant
+const query = useFilter('q', '')
+const show = useFilter('show', 'all', ['all', 'rentals', 'houses', 'vacant'])
 
 const rentals = computed(() =>
   rental.rentals.map((r) => {
@@ -48,13 +49,12 @@ const vacantUnits = computed(() =>
     .sort((x, y) => rental.placeName(x.id).localeCompare(rental.placeName(y.id), undefined, { numeric: true })),
 )
 
-const match = (text) => {
-  const q = query.value.trim().toLowerCase()
-  return !q || text.toLowerCase().includes(q)
-}
-const shownRentals = computed(() => (['all', 'rentals'].includes(show.value) ? rentals.value.filter((r) => match(`${r.name} ${r.location}`)) : []))
-const shownHouses = computed(() => (['all', 'houses'].includes(show.value) ? houses.value.filter((p) => match(`${p.name} ${p.location}`)) : []))
-const shownVacant = computed(() => (show.value === 'vacant' ? vacantUnits.value.filter((p) => match(`${rental.placeName(p.id)} ${p.location}`)) : []))
+// A rental is also found by its rooms and the people in them
+const match = computed(() => searcher(query.value))
+const people = (p) => [p.name, rental.tenantForProperty(p.id)?.name, rental.tenantForProperty(p.id)?.phone]
+const shownRentals = computed(() => (['all', 'rentals'].includes(show.value) ? rentals.value.filter((r) => match.value(r.name, r.location, r.type) || r.rooms.some((p) => match.value(r.name, r.location, people(p)))) : []))
+const shownHouses = computed(() => (['all', 'houses'].includes(show.value) ? houses.value.filter((p) => match.value(p.location, p.type, people(p))) : []))
+const shownVacant = computed(() => (show.value === 'vacant' ? vacantUnits.value.filter((p) => match.value(rental.placeName(p.id), p.location, p.type)) : []))
 const nothing = computed(() => !shownRentals.value.length && !shownHouses.value.length && !shownVacant.value.length)
 
 const units = computed(() => rental.properties.length)
@@ -144,7 +144,7 @@ const title = computed(() => ({ choose: 'Add property', house: 'Add a house', re
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
       <div class="relative flex-1">
         <Search class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-400" />
-        <input v-model="query" class="input h-11 rounded-xl bg-white pl-10" placeholder="Search by name or location" />
+        <input v-model="query" class="input h-11 rounded-xl bg-white pl-10" placeholder="Search name, location, room or tenant" />
       </div>
       <div class="grid grid-cols-4 rounded-xl bg-slate-100 p-1 text-sm" role="tablist" data-tour="property-filter">
         <button

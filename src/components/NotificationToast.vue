@@ -70,8 +70,7 @@ function open() {
   const n = current.value
   hide()
   if (!n) return
-  if (auth.isTenant) router.push(n.type === 'payment' || n.type === 'status' ? '/tenant/payments' : '/tenant/notifications')
-  else router.push(n.url || (auth.isSuperadmin ? '/admin2026/inbox' : '/landlord/inbox'))
+  router.push({ path: auth.isTenant ? '/tenant/notifications' : auth.isSuperadmin ? '/admin2026/inbox' : '/landlord/inbox', query: { open: n.id } })
 }
 
 // Swipe up to dismiss
