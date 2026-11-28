@@ -84,6 +84,9 @@ const UPDATE = [
   '59_live_visits_and_app_downloads.sql',
   '60_signed_in_accounts.sql',
   '61_exact_time.sql',
+  '62_tenant_payment_details.sql',
+  '63_reverse_payment.sql',
+  '64_remove_app_access.sql',
 ]
 const updateHeader = `-- ============================================================================
 -- Renta UG · update an EXISTING database (GENERATED, do not edit, run \`npm run db:bundle\`)

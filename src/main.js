@@ -10,13 +10,14 @@ import { installNoZoom } from './lib/noZoom'
 import { startCounting } from './lib/installs'
 import { useAuthStore } from './stores/auth'
 import { installErrorReporting } from './lib/errorReporter'
-import { watchInstall } from './lib/installApp'
+import { clearAppOnly, watchInstall } from './lib/installApp'
 
 initTheme() // light / dark mode follows the device automatically
 installNoZoom() // pages stay at the phone's size: scroll up/down only, no zooming
 installAutoCapitalize() // capital first letters; names get a capital on every word
 registerServiceWorker() // enables phone notifications + "install app"
-watchInstall() // catches "the app can be installed" / "the app was installed" for the invite link page
+watchInstall() // catches "the app can be installed" / "the app was installed"
+clearAppOnly() // no phone has to use the app instead of the website any more
 
 const app = createApp(App)
 app.use(createPinia())

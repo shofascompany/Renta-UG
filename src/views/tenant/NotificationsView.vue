@@ -184,9 +184,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-2xl">
+  <!-- Computers: the header stays on the left while the list scrolls on the right (phones: one column) -->
+  <div class="mx-auto max-w-2xl lg:grid lg:max-w-6xl lg:grid-cols-3 lg:items-start lg:gap-6">
     <!-- Header -->
-    <header class="hero relative overflow-hidden rounded-3xl px-6 py-7 text-white sm:px-8">
+    <header class="hero relative overflow-hidden rounded-3xl px-6 py-7 text-white sm:px-8 lg:sticky lg:top-24">
       <div class="glow" aria-hidden="true" />
       <div class="relative flex items-center gap-4">
         <span class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25">
@@ -202,7 +203,7 @@ onBeforeUnmount(() => {
     </header>
 
     <!-- List -->
-    <div v-if="list.length" class="mt-2">
+    <div v-if="list.length" class="mt-2 lg:col-span-2 lg:mt-0 lg:[&>section:first-child>h2]:mt-0">
       <section v-for="g in groups" :key="g.label">
         <h2 class="section-title mt-6">{{ g.label }}</h2>
         <ul class="sheet nt-list">
@@ -233,7 +234,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Empty -->
-    <div v-else class="sheet mt-6">
+    <div v-else class="sheet mt-6 lg:col-span-2 lg:mt-0">
       <EmptyState :icon="BellOff" title="No notifications yet" text="Rent reminders, receipts and messages from your landlord will appear here." />
     </div>
   </div>

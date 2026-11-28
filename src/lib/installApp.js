@@ -116,28 +116,8 @@ export function openInAppUrl(path = '/') {
   return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=${u.protocol.replace(':', '')};action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=${encodeURIComponent(u.href)};end`
 }
 
-// ── Invite link (Android): the account is used in the app, not in the browser ──
-export const setAppOnly = () => write(ONLY, '1')
+// Earlier versions could make an Android phone use only the app. Nobody has to install it now: that is cleared.
 export const clearAppOnly = () => write(ONLY, null)
-export const appOnlyDevice = () => isAndroid() && read(ONLY) === '1' && !insideApp()
-
-// "Sign in to a different account" on the install page: this tab may open the sign-in page, so a landlord who
-// opens an invite link on their own phone is never locked out. (Tenants are still sent to the app: see the router.)
-const OTHER = 'renta.otherAccount'
-export const allowOtherAccount = () => {
-  try {
-    sessionStorage.setItem(OTHER, '1')
-  } catch {
-    /* storage blocked */
-  }
-}
-export const otherAccountAllowed = () => {
-  try {
-    return sessionStorage.getItem(OTHER) === '1'
-  } catch {
-    return false
-  }
-}
 
 // A random number for this browser, so a one-time link still works if the same phone opens it again
 export function deviceId() {

@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AppShell from '@/layouts/AppShell.vue'
 import { isInstalledApp } from '@/lib/runtime'
-import { appOnlyDevice, otherAccountAllowed } from '@/lib/installApp'
 import { updateThemeForPath } from '@/lib/theme'
 import { watchBack } from '@/composables/useFilter'
 
@@ -50,7 +49,7 @@ const routes = [
   // The one-time link a landlord sends on WhatsApp → the landing site. After it, signing in on Android needs the app.
   { path: '/i/:token', name: 'invite-link', component: () => import('@/views/InviteLinkView.vue'), meta: { public: true } },
   // Android: install the app, then open it (everyone else goes straight to sign-in)
-  { path: '/join', name: 'join', component: () => import('@/views/JoinView.vue'), meta: { public: true } },
+  { path: '/join', redirect: '/' }, // old links: no phone has to install the app any more
 
   // Landlord's first sign-in: choose their own password (shown only until they do).
   { path: '/set-password', name: 'set-password', component: () => import('@/views/SetPasswordView.vue'), meta: { role: 'landlord' } },
@@ -69,7 +68,7 @@ const routes = [
       { path: '', name: 'tenant-dashboard', component: () => import('@/views/tenant/DashboardView.vue') },
       { path: 'home', name: 'tenant-home', component: () => import('@/views/tenant/MyHomeView.vue') },
       { path: 'payments', name: 'tenant-payments', component: () => import('@/views/tenant/PaymentsView.vue') },
-      { path: 'recharge', name: 'tenant-recharge', component: () => import('@/views/tenant/RechargeView.vue') },
+      { path: 'recharge', redirect: { name: 'tenant-pay' } }, // Recharge goes straight to paying (old links too)
       // Mobile money straight to the landlord: choose the SIM, then the steps (?sim=mtn)
       { path: 'pay', name: 'tenant-pay', component: () => import('@/views/tenant/PayView.vue'), meta: { focus: true } },
       { path: 'leave', name: 'tenant-leave', component: () => import('@/views/tenant/LeaveView.vue'), meta: { focus: true } },
@@ -96,6 +95,8 @@ const routes = [
       { path: 'tenants/:id', name: 'landlord-tenant', component: () => import('@/views/landlord/TenantView.vue'), props: true, meta: { focus: true } },
       { path: 'records', name: 'landlord-records', component: () => import('@/views/landlord/RecordsView.vue') },
       { path: 'payments', name: 'landlord-payments', component: () => import('@/views/landlord/PaymentsView.vue') },
+      // One rent month and the payments towards it, as a full page (receipt, WhatsApp, Reverse payment)
+      { path: 'payments/:id', name: 'landlord-payment', component: () => import('@/views/landlord/PaymentDetailView.vue'), props: true, meta: { focus: true } },
       { path: 'notifications', name: 'landlord-notifications', component: () => import('@/views/landlord/NotificationsView.vue') },
       { path: 'inbox', name: 'landlord-inbox', component: () => import('@/views/InboxView.vue') },
       { path: 'move-outs', name: 'landlord-move-outs', component: () => import('@/views/MoveOutsView.vue') },
@@ -148,12 +149,6 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.init()
   if (to.meta.public) return true
-  // Android, invited by a shared link: a tenant's account is used in the app, so the browser sends them to the
-  // install / open-in-app page. Landlords and the main admin are never blocked.
-  if (appOnlyDevice() && !to.path.startsWith('/admin2026')) {
-    const staff = auth.isAuthenticated && (auth.isLandlord || auth.isSuperadmin)
-    if (!staff && !(to.meta.guest && !auth.isAuthenticated && otherAccountAllowed())) return { name: 'join' }
-  }
   if (to.meta.guest) return auth.isAuthenticated ? auth.home : true
   if (!auth.isAuthenticated) {
     const area = to.matched.find((r) => r.meta.role)?.meta.role

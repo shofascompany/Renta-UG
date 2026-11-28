@@ -26,7 +26,7 @@ const whatsapp = computed(() => {
 </script>
 
 <template>
-  <div v-if="property" class="mx-auto max-w-3xl">
+  <div v-if="property" class="mx-auto max-w-3xl lg:max-w-6xl">
     <!-- Banner -->
     <header class="rise banner relative overflow-hidden rounded-3xl px-6 py-8 text-white sm:px-8 sm:py-10" style="--d: 0ms">
       <div class="grid-pattern" aria-hidden="true" />
@@ -45,8 +45,10 @@ const whatsapp = computed(() => {
       </div>
     </header>
 
+    <!-- Computers: the house (and moving out) on the left, the landlord on the right (phones: one column, same order) -->
+    <div class="lg:mt-6 lg:grid lg:grid-cols-2 lg:grid-rows-[auto_1fr] lg:items-start lg:gap-6">
     <!-- House information -->
-    <section class="rise mt-6" style="--d: 80ms">
+    <section class="rise mt-6 lg:col-start-1 lg:row-start-1 lg:mt-0" style="--d: 80ms">
       <h2 class="section-title">Property information</h2>
       <div class="sheet p-3 sm:p-4">
         <!-- Rent: the headline figure -->
@@ -71,7 +73,7 @@ const whatsapp = computed(() => {
     </section>
 
     <!-- Landlord information -->
-    <section v-if="owner" class="rise mt-6" style="--d: 160ms">
+    <section v-if="owner" class="rise mt-6 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0" style="--d: 160ms">
       <h2 class="section-title">Landlord information</h2>
       <div class="sheet">
         <div class="landlord-head flex items-center gap-4 px-5 py-5 sm:px-6">
@@ -114,7 +116,7 @@ const whatsapp = computed(() => {
     </section>
 
     <!-- Moving out -->
-    <RouterLink to="/tenant/leave" class="leave-row rise mt-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 transition hover:border-red-200 hover:bg-red-50/40" style="--d: 200ms">
+    <RouterLink to="/tenant/leave" class="leave-row rise mt-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 transition hover:border-red-200 hover:bg-red-50/40 lg:col-start-1 lg:row-start-2 lg:mt-0" style="--d: 200ms">
       <span class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600"><DoorOpen class="size-5" /></span>
       <span class="min-w-0 flex-1">
         <span class="block font-semibold text-slate-900">Request to leave this room</span>
@@ -122,6 +124,7 @@ const whatsapp = computed(() => {
       </span>
       <ChevronRight class="size-5 shrink-0 text-slate-300" />
     </RouterLink>
+    </div>
   </div>
 </template>
 

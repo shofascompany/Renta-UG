@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useAnchoredMenu } from '@/composables/useAnchoredMenu'
 
 // A button that opens a small menu next to it. Closes on outside tap, Escape, or when an item calls close().
@@ -14,10 +14,12 @@ const props = defineProps({
   title: { type: String, default: '' }, // small heading inside the menu
   triggerClass: { type: String, default: '' },
 })
+const emit = defineEmits(['open']) // each time it opens (a menu with pages starts on its first one)
 const open = ref(false)
 const root = ref(null)
 const panel = ref(null)
 const { style, upwards, close } = useAnchoredMenu(open, root, panel, { align: props.align })
+watch(open, (v) => v && emit('open'))
 </script>
 
 <template>

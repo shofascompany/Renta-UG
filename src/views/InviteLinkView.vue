@@ -4,12 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { CircleAlert, Eye, Loader2 } from '@lucide/vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
-import { deviceId, insideApp, isAndroid, setAppOnly } from '@/lib/installApp'
+import { deviceId, insideApp } from '@/lib/installApp'
 import Logo from '@/components/Logo.vue'
 import AuthBackground from '@/components/AuthBackground.vue'
 
 // The one-time link from a landlord's WhatsApp message: /i/<random>. It carries nothing about the tenant. When it
-// works it goes on to the landing site; from there, signing in on Android needs the app (see the router).
+// works it goes on to the landing site, where they sign in on any phone. (Links sent now are the plain site address.)
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -32,7 +32,6 @@ async function open() {
   } catch {
     return (state.value = 'error')
   }
-  if (isAndroid() && !insideApp()) setAppOnly()
   router.replace(insideApp() ? { name: 'login' } : { name: 'landing' })
 }
 onMounted(open)

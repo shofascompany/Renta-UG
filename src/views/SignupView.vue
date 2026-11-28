@@ -1,11 +1,12 @@
 <script setup>
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Eye, EyeOff, ShieldCheck, Mail } from '@lucide/vue'
+import { Eye, EyeOff, ShieldCheck, Mail, ArrowLeft } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { saveVerification } from '@/lib/verification'
 import Logo from '@/components/Logo.vue'
 import AuthBackground from '@/components/AuthBackground.vue'
+import AuthCornerLink from '@/components/AuthCornerLink.vue'
 import PhoneInput from '@/components/PhoneInput.vue'
 import { isValidPhone } from '@/lib/phone'
 
@@ -46,6 +47,7 @@ async function submit() {
 <template>
   <div class="relative flex min-h-screen items-center justify-center px-4 py-12">
     <AuthBackground />
+    <AuthCornerLink to="/login"><ArrowLeft class="size-4" aria-hidden="true" /> Sign in</AuthCornerLink>
     <div class="relative z-10 w-full max-w-sm">
       <div class="mb-10 flex justify-center"><Logo /></div>
 

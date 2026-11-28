@@ -1,15 +1,16 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Check, Copy, LockKeyhole, MessageCircle, Smartphone } from '@lucide/vue'
+import { Check, Copy, LockKeyhole, MessageCircle, Smartphone, UserX } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { askConfirm } from '@/composables/useConfirm'
 import { copyText } from '@/lib/clipboard'
 import { prettyPhone } from '@/lib/phone'
+import { SITE } from '@/lib/site'
 import AppLink from './AppLink.vue'
 
-// Landlord: "Send on WhatsApp" + "Copy the link" for a tenant who has been given app access. Both buttons are
-// always there. Each link is one-time and carries nothing about the tenant: their number is written in the message.
-// A link is made ahead, so one tap opens WhatsApp, where the landlord picks who to send it to; the next send then
-// gets a fresh one.
+// Landlord: "Send on WhatsApp" + "Copy the link" for a tenant who has been given app access. The link is Renta UG's own
+// address (rentaug.netlify.app): it opens on any phone, in the browser, with nothing to install. Their number is in
+// the message. The server is still asked first, because it knows whether the tenant has registered already.
 // Once the tenant has registered (recorded in the database) both buttons go, and the app icon takes their place.
 const props = defineProps({ tenantId: { type: String, required: true } })
 const rental = useRentalStore()
@@ -65,9 +66,10 @@ async function send() {
   await nextTick()
   waLink.value?.$el?.click()
 }
+const LINK = SITE.url
 async function copy() {
   if (!fresh()) await make()
-  if (!invite.value || !(await copyText(invite.value.url))) return
+  if (!invite.value || !(await copyText(LINK))) return
   copied.value = true
   setTimeout(() => (copied.value = false), 2000)
   next()
@@ -79,9 +81,21 @@ function next() {
 }
 onBeforeUnmount(() => clearTimeout(nextTimer))
 
-const until = computed(() =>
-  invite.value ? new Date(invite.value.expiresAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '',
-)
+// Take the app back: they become a tenant without a smartphone again, managed by the landlord (database/64)
+function removeAccess() {
+  const name = t.value?.name?.split(' ')[0] ?? 'They'
+  askConfirm({
+    title: 'Remove app access?',
+    text: `${name} will no longer be able to use the Renta app for this rental. They become a tenant without a smartphone, managed by you.`,
+    note: 'Their rent, payments and notices stay. You can give them app access again any time.',
+    confirm: 'Yes, remove access',
+    cancel: 'Keep access',
+    working: 'Removing…',
+    tone: 'danger',
+    action: () => rental.removeAppAccess(props.tenantId),
+  })
+}
+
 // The whole message: a welcome, what Renta UG is for, the link, and the number to log in with
 const text = computed(() =>
   [
@@ -90,7 +104,7 @@ const text = computed(() =>
     'Get started with Renta UG to ease your rental experience.',
     '',
     'Click on the link and explore Renta UG:',
-    invite.value?.url ?? '',
+    LINK,
     '',
     `Phone number to log in with: ${prettyPhone(t.value?.phone)}`,
   ].join('\n'),
@@ -107,11 +121,18 @@ const text = computed(() =>
     <p v-if="error" class="form-error mt-3" role="alert">{{ error }}</p>
     <p v-else-if="invite" class="mt-2.5 flex items-start gap-1.5 text-xs leading-relaxed text-slate-500">
       <LockKeyhole class="mt-0.5 size-3.5 shrink-0" />
-      <span>One-time link: it works on the first phone that opens it, until {{ until }}. Every send gets a fresh one. Their number is in the message, not in the link.</span>
+      <span>The link is {{ LINK.replace('https://', '') }}. It opens on any phone, with nothing to install. Their number is in the message.</span>
     </p>
   </div>
-  <p v-else-if="t?.userId" class="flex items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+  <div v-else-if="t?.userId" class="flex items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800" data-app-card>
     <span class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600"><Smartphone class="size-5 text-[#fff]" /></span>
-    Uses the Renta app
-  </p>
+    <span class="flex-1">Uses the Renta app</span>
+    <button type="button" class="rm-access" data-remove-access @click="removeAccess"><UserX class="size-4" /> Remove access</button>
+  </div>
 </template>
+
+<style scoped>
+.rm-access { display: inline-flex; flex-shrink: 0; height: 2.25rem; align-items: center; gap: 0.35rem; border-radius: 0.8rem; padding: 0 0.75rem; font-size: 0.75rem; font-weight: 700; color: #b91c1c; background: #fff; box-shadow: inset 0 0 0 1px #fecaca; }
+.rm-access:active { transform: scale(0.97); }
+html.dark .rm-access { color: #fca5a5; background: #000; box-shadow: inset 0 0 0 1px rgb(248 113 113 / 0.35); }
+</style>

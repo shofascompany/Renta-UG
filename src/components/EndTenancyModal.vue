@@ -112,7 +112,7 @@ function records() {
   padding: 0.9rem 1.25rem max(1.25rem, env(safe-area-inset-bottom));
   background: var(--color-white);
 }
-html.dark .end-foot { background: #0a0a0a; }
+html.dark .end-foot { background: #000000; }
 .done-ring { animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .done-ring { animation: none; } }

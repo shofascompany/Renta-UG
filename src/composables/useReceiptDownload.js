@@ -3,11 +3,13 @@ import { useRentalStore } from '@/stores/rental'
 import { useAuthStore } from '@/stores/auth'
 import { downloadReceipt, shareReceiptImage, canShareReceiptImage } from '@/lib/receiptImage'
 import { isoDay, addDays, daysFor, RENT_MONTH_DAYS } from '@/utils/rentCycle'
+import { cashRecordOf } from '@/utils/paymentGroups'
 import { formatPeriod } from '@/utils/format'
 
 // Save a payment receipt as a landscape image (PNG), for landlords and tenants alike.
 //   saveRevenue(r)  one amount received ({ id, paymentId, tenantId, propertyId, period, amount, method, reference, note, at })
 //   saveCash(c)     a confirmed cash / mobile money payment (may cover several months)
+//   savePayment(p)  a whole payment (utils/paymentGroups.js paymentOf): its total and every month it paid
 //   instalmentsFor(paymentId)  every payment made towards one rent month, in order, with the days each bought
 //   windowsFor(tenantId)       for each payment of a tenant: the rental time it bought (from, to, days), worked back
 //                              from the day their rent ends now
@@ -167,6 +169,29 @@ export function useReceiptDownload() {
   const saveCash = (c) => save(c.id, cashReceipt(c))
   const shareCash = (c) => share(c.id, cashReceipt(c))
 
+  // A whole payment (utils/paymentGroups.js): its total, every month it paid and the rental time it bought
+  function paymentReceipt(p) {
+    const cash = cashRecordOf(p, rental.cash_payments)
+    const first = p.receipts[0]
+    const charge = rental.payments.find((x) => x.id === first?.paymentId)
+    const periods = p.receipts.map((r) => rental.payments.find((x) => x.id === r.paymentId)?.period).filter(Boolean)
+    const plan = p.receipts.length === 1 && first?.paymentId ? instalmentsFor(first.paymentId) : null
+    return {
+      ...base(p.tenantId, charge?.propertyId),
+      amount: p.total,
+      method: /cash/i.test(p.method ?? '') ? 'Cash' : p.method || 'Mobile money',
+      paidOn: p.at,
+      confirmedOn: cash?.reviewedAt ?? p.at,
+      confirmedBy: cash?.reviewedRole === 'superadmin' ? 'Renta UG' : 'Landlord',
+      months: [...new Set(periods)].sort().map(formatPeriod),
+      details: p.reference || p.note,
+      window: windowOf(p.tenantId, p.receipts.map((r) => r.id)),
+      instalments: plan && (plan.rows.length > 1 || plan.balance > 0) ? { ...plan, period: formatPeriod(plan.period), current: first.id } : null,
+    }
+  }
+  const savePayment = (p) => save(p.id, paymentReceipt(p))
+  const sharePayment = (p) => share(p.id, paymentReceipt(p))
+
   const canShare = canShareReceiptImage()
-  return { saving, saveRevenue, saveCash, shareRevenue, shareCash, canShare, instalmentsFor, windowsFor }
+  return { saving, saveRevenue, saveCash, savePayment, shareRevenue, shareCash, sharePayment, canShare, instalmentsFor, windowsFor }
 }

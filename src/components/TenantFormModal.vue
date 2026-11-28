@@ -2,9 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import { UserPlus, DoorOpen, AtSign, User, Info, Contact, CalendarDays, Wallet } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
-import { formatUGX, formatDate } from '@/utils/format'
+import { formatUGX } from '@/utils/format'
 import { isoDay } from '@/utils/rentCycle'
 import BaseModal from './BaseModal.vue'
+import PaymentCoverage from './PaymentCoverage.vue'
 import BaseSelect from './BaseSelect.vue'
 import PhoneInput from './PhoneInput.vue'
 import { isValidPhone, toE164, samePhone } from '@/lib/phone'
@@ -39,7 +40,6 @@ const paidOn = ref(today())
 const created = ref(null) // tenant already added (if only the payment failed, a retry does not add them twice)
 const payValue = computed(() => Math.round(Number(String(payAmount.value).replace(/[^\d]/g, '')) || 0))
 const placeRent = computed(() => rental.propertyById(propertyId.value)?.rent ?? 0)
-const aheadMonths = computed(() => (placeRent.value ? Math.floor(payValue.value / placeRent.value) : 0))
 
 const vacant = computed(() =>
   rental.properties
@@ -226,14 +226,8 @@ async function finish(tenant) {
             </div>
           </div>
         </div>
-        <p v-if="payValue && paidOn && placeRent" class="flex items-start gap-2.5 rounded-2xl bg-sky-50 p-3 text-xs leading-relaxed text-sky-900">
-          <Info class="mt-0.5 size-4 shrink-0" />
-          <span>
-            Their first month starts on <strong>{{ formatDate(paidOn) }}</strong>.
-            <template v-if="aheadMonths >= 1"> {{ formatUGX(payValue) }} covers <strong>{{ aheadMonths }} month{{ aheadMonths === 1 ? '' : 's' }}</strong><template v-if="payValue % placeRent"> plus {{ formatUGX(payValue % placeRent) }} part payment</template>.</template>
-            <template v-else> {{ formatUGX(payValue) }} is a part payment; they'll still owe {{ formatUGX(placeRent - payValue) }} for the first month.</template>
-          </span>
-        </p>
+        <!-- What the money pays for: months, days and their dates (their first month starts on the day it was paid) -->
+        <PaymentCoverage v-if="payValue && paidOn && placeRent" :tenant="{ leaseEnd: null }" :rent="placeRent" :amount="payValue" :pay-day="paidOn" :you="false" />
       </template>
 
       <p class="flex items-start gap-2.5 rounded-2xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">

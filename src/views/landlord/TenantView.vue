@@ -33,7 +33,6 @@ const late = computed(() => rentEnded(t.value))
 const owed = computed(() => (dues.value.length || late.value ? pay.value?.owed ?? 0 : 0)) // every month in debt
 const overdue = computed(() => late.value || dues.value.some((p) => p.status === 'overdue'))
 const paid = computed(() => (t.value ? rental.paymentsForTenant(t.value.id).filter((p) => p.amountPaid).reduce((s, p) => s + p.amountPaid, 0) : 0))
-const lastPaid = computed(() => (t.value ? rental.paymentsForTenant(t.value.id).find((p) => p.status === 'paid') : null))
 const left = computed(() => rentDaysLeft(t.value))
 const months = computed(() => {
   if (!t.value?.leaseStart || !t.value?.leaseEnd) return null
@@ -44,6 +43,21 @@ const months = computed(() => {
 // The current rent month (see utils/rentCycle.js)
 const cycle = computed(() => (t.value ? rental.cycleFor(t.value.id) : { started: false }))
 const lastPaidOn = computed(() => (t.value ? rental.lastPaidOn(t.value.id) : null))
+// Exact time of that payment, from the database. Confirmed cash / mobile money is saved at 12:00 on the day paid
+// (a placeholder), so the real moment is when it was reported or recorded (cash_payments.created_at) on that day.
+// Older payments with only a day stay without a time.
+const kampalaDay = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Kampala' })
+const lastPaidTime = computed(() => {
+  if (!t.value || !lastPaidOn.value) return null
+  const receipt = rental.payment_receipts
+    .filter((r) => r.tenantId === t.value.id && r.receivedAt)
+    .sort((a, b) => String(b.receivedAt).localeCompare(String(a.receivedAt)))[0]
+  const placeholder = (iso) => { const d = new Date(iso); return d.getUTCHours() === 12 && !d.getUTCMinutes() && !d.getUTCSeconds() }
+  const cash = rental.cashForTenant(t.value.id)
+    .filter((c) => c.status === 'confirmed' && c.paidOn === lastPaidOn.value && c.createdAt && kampalaDay(c.createdAt) === lastPaidOn.value)[0]
+  const at = cash?.createdAt ?? (receipt && !placeholder(receipt.receivedAt) ? receipt.receivedAt : null)
+  return at ? new Date(at).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Kampala' }) : null
+})
 const nextEnd = computed(() => (cycle.value.started ? addMonths(new Date(`${cycle.value.end}T00:00:00`), 1) : null))
 const used = computed(() => {
   const c = cycle.value
@@ -232,15 +246,15 @@ const endOpen = ref(false)
           <dd class="font-medium text-slate-900">{{ formatUGX(house?.rent) }} a month</dd>
         </div>
         <div class="flex items-center gap-3 py-3">
-          <ReceiptText class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Last month paid</dt>
-          <dd class="font-medium text-slate-900">{{ lastPaid ? formatPeriod(lastPaid.period) : 'Not yet' }}</dd>
+          <ReceiptText class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Last paid on</dt>
+          <dd class="font-medium text-slate-900">{{ lastPaidOn ? formatDate(lastPaidOn) : 'Not yet' }}<template v-if="lastPaidTime">, {{ lastPaidTime }}</template></dd>
         </div>
         <div class="flex items-center gap-3 py-3">
           <CalendarDays class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Tenant since</dt>
           <dd class="font-medium text-slate-900">{{ formatDate(t.leaseStart ?? t.createdAt) }}</dd>
         </div>
       </dl>
-    
+
       <p v-if="done && !t.usesApp" class="form-ok" role="status">{{ done }}</p>
       <p v-if="error && !accessOpen" class="form-error" role="alert">{{ error }}</p>
 

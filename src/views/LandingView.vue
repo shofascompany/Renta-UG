@@ -39,7 +39,8 @@ function onPointer(e) {
   glow.value = { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }
 }
 
-// ── "Install the app" (Android Chrome offers it; iPhones get the steps) ──
+// ── "Install the app": Android only. Every other phone and computer uses the website, nothing to install. ──
+const android = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 const installEvent = ref(null)
 const onBeforeInstall = (e) => {
   e.preventDefault()
@@ -144,7 +145,7 @@ const HOMES = [
   { file: 'home-18', label: 'Keys to a new home', kind: 'in', by: 'Jakub Żerdzicki' },
 ]
 // Footer contact details (WhatsApp uses the same number)
-const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'shofascompany@gmail.com' }
+const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'rentaugcompany@gmail.com' }
 const photo = (file) => ({ src: `/landing/${file}.webp`, srcset: `/landing/${file}-sm.webp 760w, /landing/${file}.webp 1600w` })
 
 // Hero background slideshow, built to load fast:
@@ -580,10 +581,11 @@ const tones = {
         </div>
         <div class="relative text-center">
           <div>
-            <p class="text-xs font-bold tracking-[0.16em] text-white/70 uppercase">Get the app</p>
-            <h2 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">Put Renta UG on your phone</h2>
-            <p class="mx-auto mt-3 max-w-lg text-white/85">It opens like any other app and sends you rent notices.</p>
-            <button class="install-btn mt-6" @click="install"><Download class="bounce size-5" /> Install the app</button>
+            <p class="text-xs font-bold tracking-[0.16em] text-white/70 uppercase">Android app</p>
+            <h2 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">Put Renta UG on your Android phone</h2>
+            <p class="mx-auto mt-3 max-w-lg text-white/85">It opens like any other app and sends you rent notices. Installing is optional: Renta UG also works in the browser on any phone or computer.</p>
+            <button v-if="android" class="install-btn mt-6" @click="install"><Download class="bounce size-5" /> Install on Android</button>
+            <p v-else class="mx-auto mt-6 inline-flex items-center gap-2 rounded-2xl bg-white/12 px-4 py-3 text-sm font-medium text-white/90 ring-1 ring-white/20"><Download class="size-4.5" /> Open this page on an Android phone to install the app</p>
           </div>
         </div>
       </div>

@@ -2,9 +2,12 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   CheckCircle2, Receipt, Wallet, X, Zap, ArrowDownLeft, Clock, AlertCircle, Smartphone, Banknote, Copy, Check, CalendarDays,
-  Download, Loader2, PiggyBank, MessageCircle,
+  Download, Loader2, PiggyBank, MessageCircle, Trash2,
 } from '@lucide/vue'
 import { useReceiptDownload } from '@/composables/useReceiptDownload'
+import { usePressMenu } from '@/composables/usePressMenu'
+import { askConfirm } from '@/composables/useConfirm'
+import PressMenu from '@/components/PressMenu.vue'
 import { useTenant } from '@/composables/useTenant'
 import { useFilter } from '@/composables/useFilter'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
@@ -23,10 +26,34 @@ const payFirst = () => (paying.value = { recharge: { total: firstRent.value }, l
 // ── Cash paid to the landlord (confirmed by the landlord or Renta UG before it counts) ──
 const todayISO = () => new Date().toLocaleDateString('en-CA')
 const myCash = computed(() => rental.cashForTenant(id.value))
+// Press and hold a payment → Download receipt, Share on WhatsApp, Delete. Delete takes it off this list on this
+// phone only: the landlord's records and the rent are not changed.
+const press = usePressMenu()
+const hiddenKey = computed(() => `renta:hidden-payments:${id.value}`)
+const readHidden = () => {
+  try { return JSON.parse(localStorage.getItem(hiddenKey.value) || '[]') } catch { return [] }
+}
+const hidden = ref(readHidden())
+watch(hiddenKey, () => (hidden.value = readHidden()))
+const shownCash = computed(() => myCash.value.filter((c) => !hidden.value.includes(c.id)))
+async function hidePayment(c) {
+  const yes = await askConfirm({
+    title: 'Delete this payment?',
+    text: `${formatUGX(c.confirmedAmount ?? c.amount)} from ${formatDate(c.paidOn)} will be taken off this list.`,
+    note: 'Only on this phone. Your rent, your rental time and your landlord\'s records do not change.',
+    confirm: 'Yes, delete',
+    cancel: 'Keep it',
+    tone: 'danger',
+  })
+  if (!yes) return
+  hidden.value = [...hidden.value, c.id]
+  try { localStorage.setItem(hiddenKey.value, JSON.stringify(hidden.value)) } catch { /* private mode: for this visit only */ }
+}
 const cashStyle = {
   pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
   confirmed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
   rejected: 'bg-red-50 text-red-700 ring-red-600/15',
+  reversed: 'bg-slate-100 text-slate-600 ring-slate-500/15',
 }
 const cashOpen = ref(false)
 const cashSent = ref(false)
@@ -144,13 +171,14 @@ onBeforeUnmount(() => clearInterval(tipTimer))
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl">
+  <div class="mx-auto max-w-3xl lg:max-w-6xl">
     <!-- Summary banner -->
     <header class="rise banner relative overflow-hidden rounded-3xl p-6 text-white sm:p-8" :class="overdue && 'banner-overdue'" style="--d: 0ms">
       <div class="grid-pattern" aria-hidden="true" />
       <div class="glow" aria-hidden="true" />
 
-      <div class="relative">
+      <!-- Computers: the rent on the left, the buttons on the right, the tips underneath -->
+      <div class="relative lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-x-10">
         <!-- 1. The house's rent per month -->
         <p class="text-xs font-semibold tracking-[0.14em] text-white/70 uppercase">Monthly rent</p>
         <p class="mt-1.5 flex items-baseline gap-2">
@@ -159,7 +187,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
         </p>
         <p v-if="property" class="mt-1 truncate text-sm text-white/70">{{ property.name }}</p>
 
-        <div class="mt-6 grid gap-2.5" :class="dues.length || firstRent ? 'grid-cols-2' : 'grid-cols-1'">
+        <div class="mt-6 grid gap-2.5 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:mt-0 lg:w-[22rem]" :class="dues.length || firstRent ? 'grid-cols-2' : 'grid-cols-1'">
           <button v-if="dues.length || firstRent" class="hero-btn hero-btn-solid" @click="dues.length ? (dues[0].amountPaid ? completePart(dues[0]) : (paying = dues[0])) : payFirst()">
             <Wallet class="size-4" /> Pay now
           </button>
@@ -169,40 +197,34 @@ onBeforeUnmount(() => clearInterval(tipTimer))
         </div>
 
         <!-- Rotating tips -->
-        <div class="mt-4 min-h-[2.5rem] overflow-hidden" aria-live="polite">
+        <div class="mt-4 min-h-[2.5rem] overflow-hidden lg:col-span-2 lg:mt-6" aria-live="polite">
           <Transition name="tip" mode="out-in">
-            <p :key="tipIndex" class="text-center text-[13px] leading-snug text-white/85">{{ tips[tipIndex].text }}</p>
+            <p :key="tipIndex" class="text-center text-[13px] leading-snug text-white/85 lg:text-left">{{ tips[tipIndex].text }}</p>
           </Transition>
         </div>
       </div>
     </header>
 
+    <!-- Computers: what to pay on the left, the payment history on the right (see .pay-grid; phones: one column) -->
+    <div class="pay-grid">
+    <div class="pay-side">
     <!-- Cash reported by the tenant -->
-    <section v-if="myCash.length" class="rise mt-6" style="--d: 60ms" data-tour="receipts">
+    <section v-if="shownCash.length" class="rise mt-6" style="--d: 60ms" data-tour="receipts">
       <h2 class="section-title">Payments to your landlord</h2>
       <div class="sheet">
         <ul class="divide-y divide-slate-100">
           <ListRow
-            v-for="c in myCash"
+            v-for="c in shownCash"
             :key="c.id"
+            v-bind="press.row(c)"
             :chevron="false"
+            data-my-pay
             :title="c.method === 'mobile_money' ? `Mobile money${c.network ? ` · ${{ mtn: 'MTN', airtel: 'Airtel' }[c.network]}` : ''}` : 'Cash'"
             :subtitle="`${formatDate(c.paidOn)}${c.status === 'rejected' && c.rejectReason ? ` · ${c.rejectReason}` : ''}`"
-            :value="formatUGX(c.status === 'confirmed' ? c.confirmedAmount : c.amount)"
-            :value-sub="c.status === 'pending' ? 'being reviewed' : c.status === 'confirmed' ? 'confirmed' : 'not confirmed'"
-            :value-class="c.status === 'confirmed' ? 'text-emerald-700' : c.status === 'rejected' ? 'text-red-600' : 'text-amber-700'"
-            :aria-label="c.status === 'confirmed' ? `Download the receipt for ${formatUGX(c.confirmedAmount ?? c.amount)}` : undefined"
-            @click="c.status === 'confirmed' && saveCashReceipt(c)"
+            :value="formatUGX(c.status === 'confirmed' || c.status === 'reversed' ? c.confirmedAmount ?? c.amount : c.amount)"
+            :value-sub="c.status === 'pending' ? 'being reviewed' : c.status === 'confirmed' ? 'confirmed' : c.status === 'reversed' ? 'reversed' : 'not confirmed'"
+            :value-class="c.status === 'confirmed' ? 'text-emerald-700' : c.status === 'rejected' ? 'text-red-600' : c.status === 'reversed' ? 'text-slate-400 line-through' : 'text-amber-700'"
           >
-            <template v-if="c.status === 'confirmed'" #below>
-              <span class="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
-                <Loader2 v-if="saving === c.id" class="size-3.5 animate-spin" /><Download v-else class="size-3.5" />
-                {{ saving === c.id ? 'Saving…' : 'Download receipt' }}
-              </span>
-              <span v-if="canShare" role="button" tabindex="0" class="mt-1.5 ml-3 inline-flex items-center gap-1 text-xs font-semibold text-[#128c4a]" @click.stop="shareCash(c)" @keydown.enter.stop.prevent="shareCash(c)">
-                <MessageCircle class="size-3.5" /> WhatsApp
-              </span>
-            </template>
             <template #icon>
               <span class="icon-disc" :class="c.method === 'mobile_money' ? 'disc-emerald' : 'disc-amber'">
                 <Smartphone v-if="c.method === 'mobile_money'" class="size-5" /><Banknote v-else class="size-5" />
@@ -211,6 +233,26 @@ onBeforeUnmount(() => clearInterval(tipTimer))
           </ListRow>
         </ul>
       </div>
+      <p class="mt-2 px-1 text-xs text-slate-400">Press and hold a payment for its receipt, WhatsApp or delete.</p>
+      <!-- Press and hold a payment -->
+      <PressMenu :menu="press" label="Payment options">
+        <template #default="{ item, close }">
+          <template v-if="item">
+            <button v-if="item.status === 'confirmed'" type="button" class="menu-item" data-menu-download @click="saveCashReceipt(item); close()">
+              <span class="menu-ico bg-brand-50 text-brand-700"><Loader2 v-if="saving === item.id" class="size-4 animate-spin" /><Download v-else class="size-4" /></span>
+              <span class="flex-1 text-left">Download receipt</span>
+            </button>
+            <button v-if="item.status === 'confirmed' && canShare" type="button" class="menu-item" data-menu-share @click="shareCash(item); close()">
+              <span class="menu-ico bg-emerald-50 text-[#128c4a]"><MessageCircle class="size-4" /></span>
+              <span class="flex-1 text-left">Share on WhatsApp</span>
+            </button>
+            <button type="button" class="menu-item menu-item-danger" data-menu-delete @click="close(); hidePayment(item)">
+              <span class="menu-ico"><Trash2 class="size-4" /></span>
+              <span class="flex-1 text-left">Delete<span class="menu-sub">From this list only</span></span>
+            </button>
+          </template>
+        </template>
+      </PressMenu>
     </section>
 
     <!-- Report cash -->
@@ -273,7 +315,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
             <p class="truncate font-medium text-slate-900">{{ thisMonthLabel }}</p>
             <p class="truncate text-xs text-slate-500">{{ firstSince ? `Unpaid since ${formatDate(firstSince)}` : 'Pay all or part: your time starts the day you pay' }}</p>
           </div>
-          <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3 lg:flex-col lg:items-end lg:gap-1.5">
             <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(firstRent) }}</p>
             <button class="pay-btn" @click="payFirst">Pay</button>
           </div>
@@ -325,16 +367,17 @@ onBeforeUnmount(() => clearInterval(tipTimer))
               <template v-if="d.amountPaid"> · {{ formatUGX(d.amountPaid) }} paid</template>
             </p>
           </div>
-          <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <div class="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3 lg:flex-col lg:items-end lg:gap-1.5">
             <p class="font-semibold text-slate-900 tabular-nums">{{ formatUGX(d.balance) }}</p>
             <button class="pay-btn" @click="d.amountPaid ? completePart(d) : (paying = d)">{{ d.amountPaid ? 'Complete' : 'Pay' }}</button>
           </div>
         </div>
       </div>
     </section>
+    </div>
 
     <!-- History -->
-    <section class="rise mt-6" style="--d: 140ms" data-tour="pay-history">
+    <section class="pay-main rise mt-6" style="--d: 140ms" data-tour="pay-history">
       <div class="mb-2.5 flex items-center justify-between gap-3 px-1">
         <h2 class="section-title !m-0">Payment history</h2>
         <div class="flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-xs" role="tablist">
@@ -380,6 +423,7 @@ onBeforeUnmount(() => clearInterval(tipTimer))
         </div>
       </div>
     </section>
+    </div>
 
     <!-- Payment details -->
     <Teleport to="body">
@@ -625,5 +669,22 @@ html.dark .part-card { background: var(--color-white); box-shadow: inset 0 0 0 1
 }
 @media (prefers-reduced-motion: reduce) {
   .rise, .glow { animation: none; }
+}
+
+/* Computers: what to pay (one third) on the left, the payment history (two thirds) on the right */
+@media (min-width: 1024px) {
+  .pay-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+  }
+  .pay-side > :first-child,
+  .pay-main { margin-top: 0; }
+  .pay-main { grid-column: span 2 / span 2; }
+  /* Nothing to pay or to confirm: the history takes the whole width */
+  .pay-side:empty { display: none; }
+  .pay-side:empty + .pay-main { grid-column: 1 / -1; }
 }
 </style>

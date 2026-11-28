@@ -383,7 +383,7 @@ const leftTone = (d) => (d === null ? 'disc-slate' : d <= 7 ? 'disc-red' : d <= 
             <ListRow
               v-for="r in recent"
               :key="r.id"
-              :to="{ path: '/landlord/revenue', query: { open: r.id } }"
+              :to="r.paymentId ? { path: `/landlord/payments/${r.paymentId}`, query: String(r.id).startsWith('charge-') ? {} : { receipt: r.id } } : '/landlord/revenue'"
               :title="tenantName(r.tenantId)"
               :subtitle="`${r.channel === 'Cash' ? 'Cash' : r.method || 'Mobile money'} · ${formatDate(r.at)}`"
               :value="formatUGX(r.amount)"

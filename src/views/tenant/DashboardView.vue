@@ -170,7 +170,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
 </script>
 
 <template>
-  <div class="mx-auto max-w-3xl">
+  <div class="mx-auto max-w-3xl lg:max-w-6xl">
     <!-- Greeting -->
     <header class="rise mb-7" style="--d: 0ms">
       <p class="text-xs font-semibold tracking-[0.14em] text-slate-400 uppercase">{{ today }}</p>
@@ -192,9 +192,12 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
 
     <PushPrompt class="mb-5" />
 
+    <!-- Computers: the rent account on the left, rental time and home on the right (phones: one column, same order) -->
+    <div class="lg:grid lg:grid-cols-5 lg:gap-6">
+    <div class="lg:col-span-3 lg:flex lg:flex-col">
     <!-- Balance -->
     <section
-      class="rise hero relative overflow-hidden rounded-3xl p-6 text-white shadow-lg sm:p-8"
+      class="rise hero relative overflow-hidden rounded-3xl p-6 text-white shadow-lg sm:p-8 lg:flex-1"
       :class="overdue ? 'hero-overdue' : 'hero-ok'"
       style="--d: 60ms"
       data-tour="t-account"
@@ -203,7 +206,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       <div class="blob" aria-hidden="true" />
       <div class="blob blob-2" aria-hidden="true" />
 
-      <div class="relative">
+      <div class="relative lg:flex lg:h-full lg:flex-col">
         <!-- Title row -->
         <div class="flex items-center justify-between gap-3">
           <p class="flex items-center gap-2.5 text-sm font-medium text-white/85">
@@ -246,7 +249,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         </div>
 
         <!-- Actions -->
-        <div class="mt-6 grid gap-2.5" :class="canPayNow ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'">
+        <div class="mt-6 grid gap-2.5 lg:mt-auto lg:pt-6" :class="canPayNow ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'">
           <button v-if="canPayNow" class="hero-btn hero-btn-solid col-span-2 sm:col-span-1" data-tour="pay-now" @click="payNow">
             Pay now
           </button>
@@ -266,9 +269,10 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         <p :key="sentenceIndex" class="text-center text-[0.8125rem] leading-snug text-slate-500">{{ sentences[sentenceIndex % sentences.length] }}</p>
       </Transition>
     </div>
+    </div>
 
     <!-- Rental time + home -->
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:col-span-2 lg:mt-0 lg:grid-cols-1 lg:gap-6">
       <RouterLink
         to="/tenant/home"
         class="rise tile group relative overflow-hidden rounded-2xl border p-5"
@@ -324,9 +328,13 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         </p>
       </RouterLink>
     </div>
+    </div>
 
+    <!-- Computers: rent coverage on the left with unpaid rent and latest payments beside it, then how I pay beside the
+         landlord. The wrappers below become invisible on computers (lg:contents) so every card takes its own place. -->
+    <div class="lg:mt-6 lg:grid lg:grid-cols-5 lg:grid-rows-[auto_1fr_auto] lg:items-start lg:gap-6">
     <!-- Rent coverage -->
-    <section class="rise coverage mt-4 overflow-hidden rounded-2xl border border-slate-200" style="--d: 240ms" data-tour="coverage">
+    <section class="rise coverage mt-4 overflow-hidden rounded-2xl border border-slate-200 lg:col-span-3 lg:row-span-2 lg:row-start-1 lg:mt-0" style="--d: 240ms" data-tour="coverage">
       <!-- This month -->
       <div class="coverage-head relative p-5 sm:p-6">
         <div class="flex items-start justify-between gap-3">
@@ -439,10 +447,11 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       </div>
     </section>
 
+    <div class="lg:contents">
     <!-- Rows, like the landlord's overview -->
-    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="mt-6 grid gap-6 lg:contents">
       <!-- Still to pay -->
-      <section class="rise" style="--d: 270ms">
+      <section class="rise lg:col-span-2 lg:col-start-4 lg:row-start-1" style="--d: 270ms">
         <div class="flex items-center justify-between">
           <h2 class="section-title">Unpaid rent</h2>
           <RouterLink to="/tenant/payments" class="mb-2.5 text-xs font-semibold text-brand-700">All payments</RouterLink>
@@ -478,7 +487,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       </section>
 
       <!-- Latest payments -->
-      <section class="rise" style="--d: 300ms">
+      <section class="rise lg:col-span-2 lg:col-start-4 lg:row-start-2" style="--d: 300ms">
         <div class="flex items-center justify-between">
           <h2 class="section-title">Latest payments</h2>
           <RouterLink to="/tenant/payments" class="mb-2.5 text-xs font-semibold text-brand-700">History</RouterLink>
@@ -507,7 +516,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
       </section>
 
       <!-- How I pay -->
-      <section v-if="recentPaid.length" class="rise lg:col-span-2" style="--d: 330ms">
+      <section v-if="recentPaid.length" class="rise lg:col-span-3 lg:col-start-1 lg:row-start-3" style="--d: 330ms">
         <h2 class="section-title">How I pay</h2>
         <div class="sheet">
           <ul class="divide-y divide-slate-100">
@@ -525,7 +534,7 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
     </div>
 
     <!-- Contact landlord -->
-    <section v-if="owner" class="rise card mt-4 rounded-2xl p-5 sm:p-6" style="--d: 300ms" data-tour="landlord-contact">
+    <section v-if="owner" class="rise card mt-4 rounded-2xl p-5 sm:p-6 lg:col-span-2 lg:col-start-4 lg:row-start-3 lg:mt-0" style="--d: 300ms" data-tour="landlord-contact">
       <div class="flex items-center gap-3.5">
         <div class="avatar flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white">
           {{ ownerInitials }}
@@ -547,6 +556,8 @@ const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'nu
         </a>
       </div>
     </section>
+    </div>
+    </div>
   </div>
 </template>
 

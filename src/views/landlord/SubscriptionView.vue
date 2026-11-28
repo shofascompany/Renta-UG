@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRentalStore } from '@/stores/rental'
 import { useBillingStore, daysBetween, paidWith } from '@/stores/billing'
 import { formatUGX, formatDate } from '@/utils/format'
-import { NETWORKS, NETWORK_IDS, prettyPhone, dialCodeOf, dialHref, sendSteps } from '@/lib/networks'
+import { NETWORKS, NETWORK_IDS, prettyPhone, sendCodeOf, dialHref, sendSteps } from '@/lib/networks'
 import { copyText } from '@/lib/clipboard'
 import AppLink from '@/components/AppLink.vue'
 import { askConfirm } from '@/composables/useConfirm'
@@ -156,7 +156,7 @@ const net = computed(() => (sim.value ? NETWORKS[sim.value] : null))
 
 // ── 3. Send ──
 const steps = computed(() => (account.value ? sendSteps(account.value, { amount: price.value, payee: "Renta UG's" }).slice(0, -1) : []))
-const dial = computed(() => dialCodeOf(account.value))
+const dial = computed(() => sendCodeOf(account.value))
 
 // ── 4. Confirm: the full names registered on the line used ──
 const name = ref('')

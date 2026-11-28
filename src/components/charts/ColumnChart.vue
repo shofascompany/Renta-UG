@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
-// Columns over time. Optional `ghost` per column (e.g. billed) is drawn as a lighter track behind the
-// main value (e.g. collected), so "how much of the target" reads at a glance. One y-axis only.
+// Values over time, as columns (type 'bar') or as a line (type 'line'): the same axes, tooltip and hover. Optional
+// `ghost` per point (e.g. billed) is drawn as a lighter track behind each column, or a dashed line, so "how much of
+// the target" reads at a glance. One y-axis only. Many points (every day of a month): only some labels are written.
 const props = defineProps({
   data: { type: Array, required: true }, // [{ label, value, ghost? }]
   valueLabel: { type: String, default: 'Value' },
@@ -10,6 +11,7 @@ const props = defineProps({
   format: { type: Function, default: (v) => String(v) }, // tooltip / cap values
   tick: { type: Function, default: (v) => String(v) }, // axis ticks (compact)
   height: { type: Number, default: 220 },
+  type: { type: String, default: 'bar' }, // 'bar' | 'line'
 })
 
 const el = ref(null)
@@ -62,17 +64,29 @@ const tip = computed(() => {
   return { d, left }
 })
 const lastIndex = computed(() => props.data.length - 1)
+// Labels that fit: about one every 36px, always the latest one, never one squeezed in just before it
+const labelStep = computed(() => Math.max(1, Math.ceil(props.data.length / Math.max(1, Math.floor(plotW.value / 36)))))
+const showLabel = (i) => i === lastIndex.value || (i % labelStep.value === 0 && lastIndex.value - i >= labelStep.value)
+
+// Line: through the middle of each band
+const line = computed(() => (props.type === 'line' ? props.data.map((d, i) => `${i ? 'L' : 'M'}${x(i)},${y(d.value)}`).join(' ') : ''))
+const ghostLine = computed(() => (props.type === 'line' && hasGhost.value ? props.data.map((d, i) => `${i ? 'L' : 'M'}${x(i)},${y(d.ghost ?? 0)}`).join(' ') : ''))
+const area = computed(() => {
+  if (props.type !== 'line' || !props.data.length) return ''
+  const base = pad.top + plotH.value
+  return `${line.value} L${x(lastIndex.value)},${base} L${x(0)},${base} Z`
+})
 </script>
 
 <template>
   <div ref="el" class="viz relative select-none">
     <!-- Legend (2 series) -->
     <div v-if="hasGhost" class="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-sm" style="background: var(--series-1)" /> {{ valueLabel }}</span>
-      <span class="flex items-center gap-1.5"><span class="size-2.5 rounded-sm" style="background: var(--series-track)" /> {{ ghostLabel }}</span>
+      <span class="flex items-center gap-1.5"><span v-if="type === 'line'" class="key-line" /><span v-else class="size-2.5 rounded-sm" style="background: var(--series-1)" /> {{ valueLabel }}</span>
+      <span class="flex items-center gap-1.5"><span v-if="type === 'line'" class="key-line key-ghost" /><span v-else class="size-2.5 rounded-sm" style="background: var(--series-track)" /> {{ ghostLabel }}</span>
     </div>
 
-    <svg class="block max-w-full" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${valueLabel} by month`" @mouseleave="hover = null">
+    <svg class="block max-w-full" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="`${valueLabel} over time, ${type === 'line' ? 'line' : 'bar'} graph`" :data-chart="type" @mouseleave="hover = null">
       <!-- grid + ticks -->
       <g>
         <line
@@ -88,13 +102,25 @@ const lastIndex = computed(() => props.data.length - 1)
         <text v-for="t in ticks" :key="`t${t}`" :x="pad.left - 8" :y="y(t) + 4" text-anchor="end" class="tick">{{ tick(t) }}</text>
       </g>
 
-      <!-- columns -->
-      <g v-for="(d, i) in data" :key="d.label">
-        <path v-if="d.ghost" :d="colPath(i, d.ghost)" fill="var(--series-track)" />
-        <path :d="colPath(i, d.value)" fill="var(--series-1)" :opacity="hover == null || hover === i ? 1 : 0.55" />
-        <text :x="x(i)" :y="height - 8" text-anchor="middle" class="tick" :class="i === lastIndex && 'tick-strong'">{{ d.label }}</text>
-        <!-- value on the cap of the latest column only -->
-        <text v-if="i === lastIndex && d.value" :x="x(i)" :y="y(Math.max(d.value, d.ghost ?? 0)) - 7" text-anchor="middle" class="cap">{{ tick(d.value) }}</text>
+      <!-- line: a soft area under it, the target dashed -->
+      <g v-if="type === 'line'">
+        <path :d="area" fill="var(--series-1)" fill-opacity="0.12" />
+        <path v-if="ghostLine" :d="ghostLine" fill="none" stroke="var(--viz-muted)" stroke-width="1.75" stroke-dasharray="4 4" />
+        <path :d="line" fill="none" stroke="var(--series-1)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+      </g>
+
+      <!-- columns (or the points of the line) -->
+      <g v-for="(d, i) in data" :key="`${i}-${d.label}`">
+        <template v-if="type === 'line'">
+          <circle :cx="x(i)" :cy="y(d.value)" :r="hover === i ? 5 : data.length > 16 ? 2.2 : 3.4" fill="var(--color-white)" stroke="var(--series-1)" stroke-width="2" />
+        </template>
+        <template v-else>
+          <path v-if="d.ghost" :d="colPath(i, d.ghost)" fill="var(--series-track)" />
+          <path :d="colPath(i, d.value)" fill="var(--series-1)" :opacity="hover == null || hover === i ? 1 : 0.55" />
+        </template>
+        <text v-if="showLabel(i)" :x="x(i)" :y="height - 8" text-anchor="middle" class="tick" :class="i === lastIndex && 'tick-strong'">{{ d.label }}</text>
+        <!-- value on the cap of the latest column (or above the latest point) only -->
+        <text v-if="i === lastIndex && d.value" :x="x(i)" :y="(type === 'line' ? y(d.value) - 4 : y(Math.max(d.value, d.ghost ?? 0))) - 7" text-anchor="middle" class="cap">{{ tick(d.value) }}</text>
         <!-- hit target: the whole band -->
         <rect
           :x="pad.left + band * i"
@@ -147,4 +173,6 @@ svg {
   display: block;
   max-width: 100%;
 }
+.key-line { display: inline-block; width: 0.95rem; border-top: 2.5px solid var(--series-1); border-radius: 2px; }
+.key-ghost { border-top: 2px dashed var(--viz-muted); }
 </style>

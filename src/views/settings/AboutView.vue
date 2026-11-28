@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import {
-  Info, Download, ShieldCheck, Building2, Users, Wallet, BellRing, Smartphone, Lock, Phone, Mail, MessageCircle,
+  Info, ShieldCheck, Building2, Users, Wallet, BellRing, Smartphone, Lock, Phone, Mail, MessageCircle,
   FileText, ChevronRight, LifeBuoy, HandCoins, CalendarClock, Crown,
 } from '@lucide/vue'
 import { version } from '../../../package.json'
@@ -17,7 +17,7 @@ import AppLink from '@/components/AppLink.vue'
 // and data are handled, installing, contacts and the legal pages.
 const auth = useAuthStore()
 const billing = useBillingStore()
-const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'shofascompany@gmail.com' }
+const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'rentaugcompany@gmail.com' }
 const year = new Date().getFullYear()
 
 const features = computed(() =>
@@ -113,7 +113,7 @@ const base = computed(() => `${auth.home}/settings`)
 
     <!-- Install -->
     <section>
-      <h2 class="section-title">Install Renta UG on your phone</h2>
+      <h2 class="section-title">Install the Android app</h2>
       <div class="card space-y-4 p-5 text-sm text-slate-600">
         <div class="flex gap-3">
           <Smartphone class="mt-0.5 size-4.5 shrink-0 text-brand-600" />
@@ -122,13 +122,7 @@ const base = computed(() => `${auth.home}/settings`)
             <p class="mt-0.5">Tap the <strong>⋮</strong> menu, then <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p>
           </div>
         </div>
-        <div class="flex gap-3">
-          <Download class="mt-0.5 size-4.5 shrink-0 text-brand-600" />
-          <div>
-            <p class="font-medium text-slate-900">iPhone (Safari)</p>
-            <p class="mt-0.5">Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>. Open Renta UG from the new icon to get notifications.</p>
-          </div>
-        </div>
+        <p class="text-xs text-slate-500">Optional. On any other phone or computer, Renta UG works in the browser.</p>
       </div>
     </section>
 

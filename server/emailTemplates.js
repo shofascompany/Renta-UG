@@ -4,7 +4,7 @@
 
 const SITE = 'https://rentaug.netlify.app'
 // Who sent this: a real contact in every email helps spam filters (and people) trust it
-export const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'shofascompany@gmail.com' }
+export const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'rentaugcompany@gmail.com' }
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
 // A landlord's one-time setup code for their first sign-in (registered or reset by the main admin)

@@ -115,6 +115,68 @@ export function coverage({ tenant, dues = [], rent = 0, amount = 0, before = 0, 
   }
 }
 
+// What a payment pays for, piece by piece and in order, each with its dates (the same rules as coverage() above and
+// the database): what is left of each unpaid month first, then whole 30-day months, then the days a part of a month
+// buys. Only this payment's own time: money already waiting (before) comes first, so its time is cut off.
+//   → [{ from, to, days, kind: 'due' | 'month' | 'part', period, whole, paid, of, cut, passed }]
+//     cut     the piece started with the money already waiting (its first days are that money's)
+//     passed  the whole piece is time that had already run out (unpaid time) by the pay day
+export function coverageParts({ tenant, dues = [], rent = 0, amount = 0, before = 0, payDay = isoDay(new Date()) }) {
+  const all = []
+  let cursor = at(tenant?.leaseEnd ? String(tenant.leaseEnd).slice(0, 10) : payDay)
+  const add = (days, piece) => {
+    if (days <= 0) return
+    const from = isoDay(cursor)
+    cursor = addDays(cursor, days)
+    all.push({ ...piece, from, to: isoDay(cursor), days })
+  }
+  let left = before + amount
+  for (const c of dues) {
+    if (left <= 0) break
+    const owed = Math.max(0, c.amount - c.amountPaid)
+    const take = Math.min(left, owed)
+    left -= take
+    if (c.monthCredited || c.amount <= 0 || !take) continue
+    const whole = c.amountPaid + take >= c.amount
+    const credited = c.creditedDays ?? 0
+    add(whole ? RENT_MONTH_DAYS - credited : daysFor(c.amountPaid + take, c.amount) - credited, { kind: 'due', period: c.period, whole, paid: take, of: owed })
+  }
+  while (left > 0 && rent > 0) {
+    const take = Math.min(left, rent)
+    left -= take
+    add(take >= rent ? RENT_MONTH_DAYS : daysFor(take, rent), { kind: take >= rent ? 'month' : 'part', paid: take, of: rent })
+  }
+  const { from } = coverage({ tenant, dues, rent, amount, before, payDay })
+  return all
+    .filter((p) => p.to > from)
+    .map((p) => (p.from < from ? { ...p, from, days: daysBetween(from, p.to), cut: true } : { ...p, cut: false }))
+    .map((p) => ({ ...p, passed: p.to <= payDay }))
+}
+
+// A tenant whose paid time has run out has debt days. Money they pay covers those days first; only the rest is added
+// (the same as the database: the new time runs on from the old end, database/52 + 63).
+//   cover   coverage() of the payment
+//   tenant  { leaseEnd }
+// → { debtPaid, added, behind, from, to }   debt days this payment pays (from → to), days added after them, and the
+//                                           debt days still unpaid after it
+export function debtSplit(cover, tenant) {
+  const days = cover?.days ?? 0
+  if (!cover || !tenant?.leaseEnd || !cover.debtDays) return { debtPaid: 0, added: days, behind: 0, from: null, to: null }
+  const debtTo = isoDay(addDays(at(String(tenant.leaseEnd).slice(0, 10)), cover.debtDays)) // where the debt days end
+  const to = cover.end < debtTo ? cover.end : debtTo
+  const debtPaid = Math.min(days, Math.max(0, daysBetween(cover.from, to)))
+  return { debtPaid, added: days - debtPaid, behind: Math.max(0, daysBetween(cover.end, debtTo)), from: debtPaid ? cover.from : null, to: debtPaid ? to : null }
+}
+
+// Days as rent months and days: 75 → "2 months and 15 days", 30 → "1 month", 15 → "15 days"
+export function durationText(days) {
+  const m = Math.floor(days / RENT_MONTH_DAYS)
+  const d = days % RENT_MONTH_DAYS
+  const months = m ? `${m} month${m === 1 ? '' : 's'}` : ''
+  const rest = d ? `${d} day${d === 1 ? '' : 's'}` : ''
+  return months && rest ? `${months} and ${rest}` : months || rest || '0 days'
+}
+
 // After paying one month now: when it ends and how many days it really gives
 export function nextCycle(tenant, payDay = isoDay(new Date())) {
   if (!tenant?.leaseEnd) {

@@ -1,11 +1,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { CheckCircle2, XCircle, Loader2 } from '@lucide/vue'
+import { CheckCircle2, XCircle, Loader2, House } from '@lucide/vue'
 import { useAuthStore } from '@/stores/auth'
 import { isConfigured } from '@/lib/supabase'
 import Logo from '@/components/Logo.vue'
 import AuthBackground from '@/components/AuthBackground.vue'
+import AuthCornerLink from '@/components/AuthCornerLink.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -132,6 +133,7 @@ async function signIn() {
 <template>
   <div class="relative flex min-h-screen items-center justify-center px-4 py-12">
     <AuthBackground />
+    <AuthCornerLink to="/"><House class="size-4" aria-hidden="true" /> Home</AuthCornerLink>
     <div class="relative z-10 w-full max-w-sm">
       <div class="mb-10 flex justify-center"><Logo /></div>
 

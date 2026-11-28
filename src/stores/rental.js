@@ -89,11 +89,16 @@ const map = {
     note: r.note,
     submittedBy: r.submitted_by,
     submittedRole: r.submitted_role, // tenant | landlord
-    status: r.status, // pending | confirmed | rejected
+    status: r.status, // pending | confirmed | rejected | reversed (database/63)
     confirmedAmount: r.confirmed_amount == null ? null : Number(r.confirmed_amount),
     reviewedRole: r.reviewed_role,
     reviewedAt: r.reviewed_at,
     rejectReason: r.reject_reason,
+    reversedAt: r.reversed_at ?? null,
+    reversedRole: r.reversed_role ?? null,
+    // Mobile money sent by a tenant: the number and the name registered to it, as TYPED BY THE TENANT (not checked)
+    payerPhone: r.payer_phone ?? null,
+    payerName: r.payer_name ?? null,
     createdAt: r.created_at,
   }),
   payments: (r) => ({
@@ -155,6 +160,7 @@ const map = {
     reference: r.reference,
     note: r.note,
     receivedAt: r.received_at,
+    createdAt: r.created_at ?? null, // the receipts of one payment are saved in the same moment (utils/paymentGroups.js)
   }),
   // Inbox for landlords and the main admin
   staff_notifications: (r) => ({
@@ -863,6 +869,23 @@ export const useRentalStore = defineStore('rental', {
       return data
     },
 
+    // Landlord (or the main admin): take back a whole payment, given any one of its receipts (database/63). Every rent
+    // month it paid, the rental time it gave and its record go back to how they were without it; the tenant is told.
+    // → { reversed, months, removed_months, days_back, paid_to }
+    // Landlord: take back a tenant's app access; they are a tenant without a smartphone again (database/64)
+    async removeAppAccess(tenantId) {
+      const { error } = await supabase.rpc('remove_app_access', { p_tenant_id: tenantId })
+      if (error) throw new Error(/remove_app_access|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await this.reload('tenants')
+    },
+
+    async reversePayment(receiptId) {
+      const { data, error } = await supabase.rpc('reverse_payment', { p_receipt_id: receiptId })
+      if (error) throw new Error(/reverse_payment|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await Promise.all(['payments', 'payment_receipts', 'cash_payments', 'tenants', 'notifications'].map((t) => this.reload(t).catch(() => {})))
+      return data
+    },
+
     // Landlord: change a tenant's own details (name, email, phone)
     async updateTenantDetails(id, { name, email, phone }) {
       const row = must(
@@ -941,6 +964,18 @@ export const useRentalStore = defineStore('rental', {
       await Promise.all(
         ['cash_payments', 'notifications', 'payments', 'payment_receipts', 'tenants'].map((t) => this.reload(t).catch(() => {})),
       )
+      return data
+    },
+    // Tenant: mobile money they sent from their phone (database/62). Waits for the landlord to approve it.
+    async submitMobilePayment({ amount, network, payerPhone, payerName }) {
+      const { data, error } = await supabase.rpc('submit_mobile_payment', {
+        p_amount: Math.round(Number(amount)),
+        p_network: network,
+        p_payer_phone: payerPhone,
+        p_payer_name: payerName,
+      })
+      if (error) throw new Error(/submit_mobile_payment|schema cache/.test(error.message) ? NEEDS_DB_UPDATE : error.message)
+      await Promise.all(['cash_payments', 'notifications'].map((t) => this.reload(t).catch(() => {})))
       return data
     },
     submitCash(args) {

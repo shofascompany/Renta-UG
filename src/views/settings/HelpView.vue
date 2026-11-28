@@ -13,7 +13,7 @@ import EmptyState from '@/components/EmptyState.vue'
 // box, plus the ways to reach Renta UG. Replaces the old welcome / guided tours.
 const auth = useAuthStore()
 const billing = useBillingStore()
-const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'shofascompany@gmail.com' }
+const CONTACT = { phone: '0726 128782', phoneIntl: '+256726128782', email: 'rentaugcompany@gmail.com' }
 
 const p = computed(() => billing.settings.prices)
 const max = computed(() => billing.settings.smallMaxUnits)

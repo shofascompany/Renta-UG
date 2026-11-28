@@ -1,24 +1,26 @@
 // What WhatsApp, Facebook, X and others show when a Renta link is shared. They don't run the app's code, they only
-// read the page's <head>, so after each build every public page gets its own copy of index.html with its own title,
-// words and picture (dist/join.html, dist/login.html…). The app inside is the same.
+// read the page's <head>, so after each build every public page gets its own copy of index.html with its own words
+// and picture (dist/join.html, dist/login.html…). The app inside is the same.
+// The title is the app's name and nothing else, on every page and in every preview: "Renta UG".
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const SITE_URL = 'https://rentaug.netlify.app'
+export const TITLE = 'Renta UG'
 const RENTA = { image: 'share-renta.jpg', alt: 'Renta UG: pay and manage rent with ease' }
 const INVITE = { image: 'share-invite-2.jpg', alt: 'Renta UG: your rent account is ready' }
 
 export const PAGES = {
-  '': { title: 'Renta UG | Rent made simple', description: 'Pay rent with MTN or Airtel, see your rental time and keep every receipt. For tenants and landlords in Uganda.', ...RENTA },
-  i: { title: 'Your Renta UG account is ready', description: 'Your landlord has opened a rent account for you. Open the link, then sign in with the number in the message.', private: true, ...INVITE },
-  join: { title: 'Get the Renta UG app', description: 'Install the app and sign in to your rent account.', private: true, ...RENTA },
-  login: { title: 'Sign in to Renta UG', description: 'Pay your rent, see your rental time and manage your properties.', ...RENTA },
-  signup: { title: 'Create your Renta UG account', description: 'Join your landlord on Renta UG and pay your rent in a few taps.', ...RENTA },
-  'forgot-password': { title: 'Reset your Renta UG password', description: 'Enter your email and we will send you a secure link.', private: true, ...RENTA },
-  'reset-password': { title: 'Choose a new Renta UG password', description: 'This secure link works once and expires after an hour.', private: true, ...RENTA },
-  privacy: { title: 'Privacy policy | Renta UG', description: 'How Renta UG collects, uses and protects your information.', ...RENTA },
-  terms: { title: 'Terms of use | Renta UG', description: 'The terms for using Renta UG.', ...RENTA },
-  'delete-account': { title: 'Delete your account | Renta UG', description: 'How to delete your Renta UG account and data.', ...RENTA },
+  '': { description: 'Pay rent with MTN or Airtel, see your rental time and keep every receipt. For tenants and landlords in Uganda.', ...RENTA },
+  i: { description: 'Your landlord has opened a rent account for you. Open the link, then sign in with the number in the message.', private: true, ...INVITE },
+  join: { description: 'Install the app and sign in to your rent account.', private: true, ...RENTA },
+  login: { description: 'Pay your rent, see your rental time and manage your properties.', ...RENTA },
+  signup: { description: 'Join your landlord on Renta UG and pay your rent in a few taps.', ...RENTA },
+  'forgot-password': { description: 'Enter your email and we will send you a secure link.', private: true, ...RENTA },
+  'reset-password': { description: 'This secure link works once and expires after an hour.', private: true, ...RENTA },
+  privacy: { description: 'How Renta UG collects, uses and protects your information.', ...RENTA },
+  terms: { description: 'The terms for using Renta UG.', ...RENTA },
+  'delete-account': { description: 'How to delete your Renta UG account and data.', ...RENTA },
 }
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
@@ -28,14 +30,14 @@ export function withPreview(html, path, page) {
   const url = `${SITE_URL}/${path}`
   const image = `${SITE_URL}/${page.image}`
   const tags = [
-    `<title>${esc(page.title)}</title>`,
+    `<title>${TITLE}</title>`,
     `<meta name="description" content="${esc(page.description)}" />`,
     page.private && '<meta name="robots" content="noindex" />',
     '<meta property="og:type" content="website" />',
     '<meta property="og:site_name" content="Renta UG" />',
     '<meta property="og:locale" content="en_GB" />',
     `<meta property="og:url" content="${url}" />`,
-    `<meta property="og:title" content="${esc(page.title)}" />`,
+    `<meta property="og:title" content="${TITLE}" />`,
     `<meta property="og:description" content="${esc(page.description)}" />`,
     `<meta property="og:image" content="${image}" />`,
     `<meta property="og:image:secure_url" content="${image}" />`,
@@ -44,7 +46,7 @@ export function withPreview(html, path, page) {
     '<meta property="og:image:height" content="630" />',
     `<meta property="og:image:alt" content="${esc(page.alt)}" />`,
     '<meta name="twitter:card" content="summary_large_image" />',
-    `<meta name="twitter:title" content="${esc(page.title)}" />`,
+    `<meta name="twitter:title" content="${TITLE}" />`,
     `<meta name="twitter:description" content="${esc(page.description)}" />`,
     `<meta name="twitter:image" content="${image}" />`,
   ].filter(Boolean)

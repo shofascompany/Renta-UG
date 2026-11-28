@@ -4,7 +4,7 @@
 // Pages are always fetched fresh when online, so the app is never out of date.
 // Money, sign-in and database calls are never cached.
 
-const VERSION = 'renta-v4'
+const VERSION = 'renta-v5' // a new number makes phones fetch the shell (offline page) again
 const SHELL = ['/offline.html', '/icon-192.png', '/favicon.svg']
 
 self.addEventListener('install', (event) => {

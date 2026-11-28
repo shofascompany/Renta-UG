@@ -37,9 +37,17 @@ const events = computed(() => {
     if (c.status === 'pending') continue
     out.push({
       id: `c${c.id}`, kind: 'money', at: c.reviewedAt ?? c.createdAt, icon: Banknote, tone: c.status === 'confirmed' ? 'disc-emerald' : 'disc-red',
-      title: `Cash ${c.status === 'confirmed' ? 'confirmed' : 'not confirmed'}: ${formatUGX(c.confirmedAmount ?? c.amount)} from ${tenantName(c.tenantId)}`,
+      title: `Cash ${c.status === 'confirmed' ? 'confirmed' : c.status === 'reversed' ? 'confirmed, then reversed' : 'not confirmed'}: ${formatUGX(c.confirmedAmount ?? c.amount)} from ${tenantName(c.tenantId)}`,
       sub: `Reviewed by ${c.reviewedRole === 'superadmin' ? 'you' : 'the landlord'}`, to: '/admin2026/cash',
     })
+    // A reversal is its own moment in the log
+    if (c.status === 'reversed' && c.reversedAt) {
+      out.push({
+        id: `r${c.id}`, kind: 'money', at: c.reversedAt, icon: Banknote, tone: 'disc-slate',
+        title: `Payment reversed: ${formatUGX(c.confirmedAmount ?? c.amount)} from ${tenantName(c.tenantId)}`,
+        sub: `Reversed by ${c.reversedRole === 'superadmin' ? 'you' : 'the landlord'}`, to: '/admin2026/cash',
+      })
+    }
   }
   for (const m of rental.move_out_requests) {
     out.push({

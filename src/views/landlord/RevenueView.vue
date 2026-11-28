@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, Hash, CalendarDays, Home, User, StickyNote, Smartphone, ImageDown, Loader2, MessageCircle } from '@lucide/vue'
+import { ArrowLeft, ArrowDownLeft, Banknote, Search, Download, ImageDown, Loader2, MessageCircle } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
 import { useFilter } from '@/composables/useFilter'
 import { searcher } from '@/lib/search'
@@ -9,10 +9,10 @@ import { useReceiptDownload } from '@/composables/useReceiptDownload'
 import { useRentAnalytics, downloadCSV, longMonth, periodOf } from '@/composables/useRentAnalytics'
 import { formatUGX, formatDate, formatPeriod } from '@/utils/format'
 import ListRow from '@/components/admin/ListRow.vue'
-import BaseModal from '@/components/BaseModal.vue'
 import EmptyState from '@/components/EmptyState.vue'
 
-// Every amount received, grouped by month. Tap a row for its details.
+// Every amount received, grouped by month. Tap a row → the payment's own page (the whole payment, its receipt,
+// WhatsApp and Reverse payment: PaymentDetailView).
 const rental = useRentalStore()
 const a = useRentAnalytics()
 const { saving, saveRevenue, shareRevenue, canShare } = useReceiptDownload() // receipts as images, like the tenant's
@@ -52,14 +52,14 @@ const counts = computed(() => ({
   Cash: found.value.filter((r) => r.channel === 'Cash').length,
 }))
 
-// Details sheet (also opened from the overview with ?open=<id>)
-const openId = ref(route.query.open ?? null)
-const open = computed(() => a.revenue.value.find((r) => r.id === openId.value) ?? null)
-watch(openId, (id) => {
-  if (!id && route.query.open) router.replace({ query: {} })
+// A payment's page: its rent month, with this payment shown first. (Money with no receipt behind it: just the month.)
+const pageOf = (r) => ({ path: `/landlord/payments/${r.paymentId}`, query: String(r.id).startsWith('charge-') ? {} : { receipt: r.id } })
+const openPayment = (r) => r.paymentId && router.push(pageOf(r))
+// Older links (?open=<id>) go straight to that payment's page
+onMounted(() => {
+  const r = route.query.open && a.revenue.value.find((x) => x.id === route.query.open)
+  if (r?.paymentId) router.replace(pageOf(r))
 })
-
-const time = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
 
 function exportCSV() {
   downloadCSV(`renta-revenue-${new Date().toLocaleDateString('en-CA')}.csv`, [
@@ -131,7 +131,7 @@ function exportCSV() {
             :value="formatUGX(r.amount)"
             :value-sub="r.channel === 'Cash' ? 'Cash' : r.method || 'Mobile money'"
             value-class="text-emerald-700"
-            @click="openId = r.id"
+            @click="openPayment(r)"
           >
             <template #below>
               <!-- (a span: the row itself is already a button) -->
@@ -155,37 +155,6 @@ function exportCSV() {
     </section>
 
     <div v-if="!groups.length" class="sheet mt-6"><EmptyState kind="money" :title="a.revenue.value.length ? 'No payments match' : 'No revenue yet'" :text="a.revenue.value.length ? 'Try another search or filter.' : 'Payments from tenants appear here as they come in.'" /></div>
-
-    <!-- Details -->
-    <BaseModal :model-value="Boolean(open)" title="Payment details" width="max-w-md" @update:model-value="!$event && (openId = null)">
-      <div v-if="open" class="space-y-5">
-        <div class="rounded-2xl px-5 py-5 text-center text-white" style="background: linear-gradient(135deg, #14918a, #0a3b38)">
-          <p class="text-xs font-semibold tracking-wider text-white/70 uppercase">Received</p>
-          <p class="mt-1 text-3xl font-bold tabular-nums">{{ formatUGX(open.amount) }}</p>
-          <p class="mt-1 inline-flex items-center gap-1.5 text-sm text-white/80">
-            <Banknote v-if="open.channel === 'Cash'" class="size-4" /><Smartphone v-else class="size-4" />
-            {{ open.channel === 'Cash' ? 'Cash' : open.method || 'Mobile money' }}
-          </p>
-        </div>
-        <dl class="divide-y divide-slate-100 text-sm">
-          <div class="flex items-center gap-3 py-3"><User class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Tenant</dt><dd class="font-medium text-slate-900">{{ tenantName(open.tenantId) }}</dd></div>
-          <div class="flex items-center gap-3 py-3"><Home class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">House / room</dt><dd class="text-right font-medium text-slate-900">{{ place(open.propertyId) }}</dd></div>
-          <div v-if="open.period" class="flex items-center gap-3 py-3"><CalendarDays class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Rent for</dt><dd class="font-medium text-slate-900">{{ formatPeriod(open.period) }}</dd></div>
-          <div class="flex items-center gap-3 py-3"><CalendarDays class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Date</dt><dd class="text-right font-medium text-slate-900">{{ time(open.at) }}</dd></div>
-          <div v-if="open.reference" class="flex items-center gap-3 py-3"><Hash class="size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Reference</dt><dd class="font-mono text-xs font-medium text-slate-900">{{ open.reference }}</dd></div>
-          <div v-if="open.note" class="flex items-start gap-3 py-3"><StickyNote class="mt-0.5 size-4 text-slate-400" /><dt class="flex-1 text-slate-500">Note</dt><dd class="max-w-[60%] text-right text-slate-900">{{ open.note }}</dd></div>
-        </dl>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <button type="button" class="btn-primary h-11" :data-busy="saving === open.id" :disabled="Boolean(saving)" @click="saveRevenue(open)">
-            <ImageDown class="size-4" /> {{ saving === open.id ? 'Saving…' : 'Download receipt' }}
-          </button>
-          <button v-if="canShare" type="button" class="btn-secondary wa-btn h-11" @click="shareRevenue(open)">
-            <MessageCircle class="size-4" /> Share on WhatsApp
-          </button>
-          <RouterLink v-if="open.propertyId && rental.propertyById(open.propertyId)" :to="`/landlord/properties/${open.propertyId}`" class="btn-secondary h-11">Open the house</RouterLink>
-        </div>
-      </div>
-    </BaseModal>
   </div>
 </template>
 
@@ -193,5 +162,4 @@ function exportCSV() {
 .rc-link { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 9999px; padding: 0.15rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: var(--color-brand-700); background: var(--color-brand-50); }
 .rc-link:active { transform: scale(0.96); }
 .rc-wa { color: #128c4a; background: #e8f8ef; }
-.wa-btn { color: #128c4a; border-color: #b6e6c9; }
 </style>

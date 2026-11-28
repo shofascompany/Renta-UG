@@ -3,7 +3,8 @@
 //   https://rentaug.netlify.app/i/<random>
 //
 // A normal link that carries NOTHING about the tenant: no number, no name, no code, and it signs nobody in. It only
-// opens the website and (on Android) makes the app required. The number is written in the message.
+// opens the website. The number is written in the message. (The landlord's message now carries the plain site
+// address; these links are still made so the server can say whether the tenant has registered, and old ones work.)
 //   • One time: it belongs to the first device that opens it; any other device is refused.
 //   • It stops after 48 hours, once the account is set up, or when the tenancy ends.
 // Only a hash of each link is kept, on the tenant's own login (app_metadata, which only the server can write).

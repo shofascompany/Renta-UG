@@ -37,6 +37,8 @@ test('every shared link has its own title and picture, exactly once', () => {
   for (const [path, page] of Object.entries(PAGES)) {
     const out = withPreview(html, path, page)
     for (const re of [/<title>/g, /og:title"/g, /og:image"/g, /name="description"/g, /twitter:card/g]) assert.equal(out.match(re).length, 1, `${path} ${re}`)
+    // The title is the app's name and nothing else
+    assert.ok(out.includes('<title>Renta UG</title>') && out.includes('og:title" content="Renta UG"') && out.includes('twitter:title" content="Renta UG"'), path)
     assert.ok(out.includes(page.image))
     assert.ok(existsSync(at(`public/${page.image}`)), page.image)
     assert.ok(out.includes('<div id="app">'))

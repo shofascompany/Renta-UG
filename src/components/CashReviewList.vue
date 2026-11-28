@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog, MessageSquareQuote, HandCoins, ImageDown, Loader2, Equal, MessageCircle } from '@lucide/vue'
+import { Banknote, CheckCircle2, XCircle, Clock, Smartphone, UserCog, MessageSquareQuote, HandCoins, ImageDown, Loader2, Equal, MessageCircle, RotateCcw } from '@lucide/vue'
 import { useRentalStore } from '@/stores/rental'
+import { prettyPhone } from '@/lib/networks'
 import { useAuthStore } from '@/stores/auth'
 import { formatUGX, formatDate } from '@/utils/format'
 import { useReceiptDownload } from '@/composables/useReceiptDownload'
@@ -53,13 +54,21 @@ const differs = computed(() => confirming.value && value.value && value.value !=
 // Receipts as images, like the tenant's
 const { saving, saveCash, shareCash, canShare } = useReceiptDownload()
 
+// Debt days are paid first, then the rest is added (database/63 tells what it did)
+const days = (n) => `${n} day${n === 1 ? '' : 's'}`
+function debtLine(r) {
+  if (!(r?.debt_days > 0) || !(r.days_given > 0)) return ''
+  if (r.days_given < r.debt_days) return ` It paid ${r.days_given} of their ${r.debt_days} debt days.`
+  return ` Their ${days(r.debt_days)} of debt ${r.debt_days === 1 ? 'was' : 'were'} paid first, then ${days(r.days_added)} added.`
+}
+
 async function confirm() {
   error.value = ''
   if (!value.value) return (error.value = 'Enter the amount received.')
   busy.value = true
   try {
     const r = await rental.confirmCash(confirming.value.id, value.value)
-    done.value = `${formatUGX(r.applied)} credited to ${tenantOf(confirming.value)?.name ?? 'the tenant'}${r.months_ahead ? ` (${r.months_ahead} month${r.months_ahead === 1 ? '' : 's'} ahead)` : ''}. They have been notified.`
+    done.value = `${formatUGX(r.applied)} credited to ${tenantOf(confirming.value)?.name ?? 'the tenant'}${r.months_ahead ? ` (${r.months_ahead} month${r.months_ahead === 1 ? '' : 's'} ahead)` : ''}.${debtLine(r)} They have been notified.`
     confirming.value = null
     setTimeout(() => (done.value = ''), 5000)
   } catch (e) {
@@ -97,13 +106,16 @@ const statusStyle = {
   pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
   confirmed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15',
   rejected: 'bg-red-50 text-red-700 ring-red-600/15',
+  reversed: 'bg-slate-100 text-slate-600 ring-slate-500/20',
 }
 const statusText = (c) =>
   c.status === 'pending'
     ? auth.isLandlord ? 'Waiting for you' : 'Waiting for the landlord'
     : c.status === 'confirmed'
       ? `Confirmed by ${c.reviewedRole === 'superadmin' ? 'Renta UG' : 'landlord'}`
-      : 'Rejected'
+      : c.status === 'reversed'
+        ? `Reversed by ${c.reversedRole === 'superadmin' ? 'Renta UG' : 'landlord'}`
+        : 'Rejected'
 </script>
 
 <template>
@@ -129,7 +141,7 @@ const statusText = (c) =>
                 ><UserCog class="size-3" /> No smartphone</span>
               </p>
               <p class="text-right font-semibold text-slate-900 tabular-nums">
-                {{ formatUGX(c.status === 'confirmed' ? c.confirmedAmount : c.amount) }}
+                <span :class="c.status === 'reversed' && 'text-slate-400 line-through'">{{ formatUGX(c.status === 'confirmed' || c.status === 'reversed' ? c.confirmedAmount ?? c.amount : c.amount) }}</span>
                 <span v-if="c.status === 'pending' && c.submittedRole === 'tenant'" class="block text-[11px] font-medium text-amber-700">tenant says they paid</span>
               </p>
             </div>
@@ -145,13 +157,18 @@ const statusText = (c) =>
               </span>
               <span v-if="c.status === 'confirmed' && c.confirmedAmount !== c.amount">Reported {{ formatUGX(c.amount) }}</span>
             </p>
-            <p v-if="c.note" class="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">“{{ c.note }}”</p>
+            <p v-if="c.payerPhone" class="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+              Sent from <strong class="text-slate-800">{{ prettyPhone(c.payerPhone) }}</strong>, registered to <strong class="text-slate-800">{{ c.payerName }}</strong>
+              <span class="block text-[11px] text-amber-700">Given by the tenant, not checked. Check your {{ NET[c.network] ?? 'mobile money' }} messages before you confirm.</span>
+            </p>
+            <p v-else-if="c.note" class="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">“{{ c.note }}”</p>
             <p v-if="c.status === 'rejected' && c.rejectReason" class="field-error mt-1.5">Reason: {{ c.rejectReason }}</p>
 
             <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
               <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset" :class="statusStyle[c.status]">
                 <Clock v-if="c.status === 'pending'" class="size-3.5" />
                 <CheckCircle2 v-else-if="c.status === 'confirmed'" class="size-3.5" />
+                <RotateCcw v-else-if="c.status === 'reversed'" class="size-3.5" />
                 <XCircle v-else class="size-3.5" />
                 {{ statusText(c) }}
               </span>
@@ -186,6 +203,10 @@ const statusText = (c) =>
             <div><dt class="text-xs text-slate-500">Tenant</dt><dd class="font-medium text-slate-900">{{ tenantOf(confirming)?.name }}</dd></div>
             <div><dt class="text-xs text-slate-500">How</dt><dd class="font-medium text-slate-900">{{ methodText(confirming) }}</dd></div>
             <div><dt class="text-xs text-slate-500">Date</dt><dd class="font-medium text-slate-900">{{ formatDate(confirming.paidOn) }}</dd></div>
+            <template v-if="confirming.payerPhone">
+              <div><dt class="text-xs text-slate-500">Paid from</dt><dd class="font-medium text-slate-900">{{ prettyPhone(confirming.payerPhone) }}</dd></div>
+              <div><dt class="text-xs text-slate-500">Registered name <span class="text-amber-700">(given by the tenant, not checked)</span></dt><dd class="font-medium text-slate-900">{{ confirming.payerName }}</dd></div>
+            </template>
             <div><dt class="text-xs text-slate-500">Unpaid rent now</dt><dd class="font-medium text-slate-900 tabular-nums">{{ formatUGX(owedBy(confirming)) }}</dd></div>
           </dl>
           <p v-if="confirming.note" class="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs text-slate-700">“{{ confirming.note }}”</p>
@@ -205,7 +226,7 @@ const statusText = (c) =>
           </p>
         </div>
 
-        <PaymentCoverage v-if="cTenant && value" :tenant="cTenant" :dues="cDues" :rent="cRent" :amount="value" :pay-day="confirming.paidOn" :you="false" />
+        <PaymentCoverage v-if="cTenant && value" :tenant="cTenant" :dues="cDues" :rent="cRent" :amount="value" :pay-day="cTenant.leaseEnd || confirming.submittedRole !== 'tenant' ? confirming.paidOn : undefined" :you="false" />
 
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="grid grid-cols-2 gap-2">

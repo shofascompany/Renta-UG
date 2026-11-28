@@ -133,7 +133,7 @@ async function saveDetails() {
 }
 
 // ── Invite to the app (WhatsApp) ──
-// The link opens the website → install the app → sign in with the number already filled in → add their details.
+// The link opens the website → sign in with the number from the message → add their details. Nothing to install.
 const hasAccess = computed(() => Boolean(t.value?.userId))
 const accessBusy = ref(false)
 const accessError = ref('')
@@ -315,7 +315,7 @@ async function giveAccess() {
             <p class="font-semibold text-slate-900">{{ t.usesApp ? 'On the app' : hasAccess ? 'App invite' : 'Got a smartphone?' }}</p>
             <p v-if="t.usesApp" class="mt-0.5 text-sm text-slate-500">They have registered and manage their own account.</p>
             <p v-else class="mt-0.5 text-sm text-slate-500">
-              Send them a one-time WhatsApp link with their number in the message. It opens the website; to sign in on Android they install the app, on any other phone they use the browser. They become a smartphone tenant once they have registered.
+              Send them the Renta UG link on WhatsApp, with the number they sign in with. It opens on any phone, with nothing to install. They become a smartphone tenant once they have registered.
             </p>
           </div>
         </div>

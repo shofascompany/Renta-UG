@@ -145,8 +145,8 @@ html.dark {
   --page-bg: #000000;
 
   /* surfaces + neutral text/borders (scale inverted, pure greys) */
-  --color-white: #060606;     /* cards, sheets, menus: black, separated from the page by their edge */
-  --color-slate-50: #111111;  /* raised / hover surfaces, inputs */
+  --color-white: #000000;     /* cards, sheets, menus: black like the page, separated from it by their edge */
+  --color-slate-50: #000000;  /* raised surfaces and inputs: black too (their edges show them) */
   --color-slate-100: #1a1a1a;
   --color-slate-200: #2e2e2e; /* borders: visible but quiet */
   --color-slate-300: #424242;
@@ -227,8 +227,8 @@ html.dark .card {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11), inset 0 1px 0 rgb(255 255 255 / 0.06), 0 12px 32px -18px rgb(0 0 0 / 0.9);
 }
 /* Any other white panel (bg-white) is black too, with the same edge */
-html.dark .bg-white { background-color: #060606; } /* a fixed black: coloured headers re-define --color-white as real white */
-html.dark button.bg-white { background-color: #0d0d0d; }
+html.dark .bg-white { background-color: #000000; } /* a fixed black: coloured headers re-define --color-white as real white */
+html.dark button.bg-white { background-color: #000000; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14); }
 html.dark .bg-slate-100 > button.bg-white { background-color: #333333; } /* the chosen tab */
 html.dark .rounded-2xl.bg-white,
 html.dark .rounded-3xl.bg-white,
@@ -241,7 +241,7 @@ html.dark .border-slate-200 { border-color: rgb(255 255 255 / 0.1); }
 html.dark .hover\:bg-slate-50:hover { background-color: #121212; }
 /* Modals and menus: black too, with a brighter edge so they sit above the page */
 html.dark [role='dialog'] .bg-white,
-html.dark .sheet-body { background-color: #0a0a0a; box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.14); }
+html.dark .sheet-body { background-color: #000000; box-shadow: inset 0 0 0 1px rgb(var(--glass) / 0.14); }
 
 /* Fields: a touch lighter than the card, bright text, clear focus ring */
 html.dark .input {
@@ -260,7 +260,7 @@ html.dark .super-hero,
 html.dark .side-admin,
 html.dark .status-card,
 html.dark .order-chip {
-  background: #050505 !important;
+  background: #000000 !important;
   box-shadow: inset 0 0 0 1px #2a2a2a !important;
 }
 html.dark .page-hero::after,
@@ -280,7 +280,7 @@ html.dark .hero-overdue,
 html.dark .banner,
 html.dark .detail-head,
 html.dark .hero {
-  background: #050505 !important;
+  background: #000000 !important;
   box-shadow: inset 0 0 0 1px #2a2a2a !important;
   border-top: 3px solid #14b8a6;
 }
@@ -288,7 +288,7 @@ html.dark .hero-overdue,
 html.dark .banner-overdue,
 html.dark .detail-head-overdue { border-top-color: #ef4444 !important; }
 html.dark .banner-overdue,
-html.dark .detail-head-overdue { background: #050505 !important; }
+html.dark .detail-head-overdue { background: #000000 !important; }
 html.dark .hero .blob,
 html.dark .hero .grid-pattern,
 html.dark .banner .grid-pattern { opacity: 0.25; }
@@ -300,13 +300,13 @@ html.dark .coverage,
 html.dark .tile { box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.11); }
 
 /* Glass figures inside headers: readable on black */
-html.dark .hero-stat { background: #0c0c0c; box-shadow: inset 0 0 0 1px #2a2a2a; }
+html.dark .hero-stat { background: #000000; box-shadow: inset 0 0 0 1px #2a2a2a; }
 html.dark .hero-stat-label { color: #b3b3b3; }
-html.dark .hero-btn-glass { background: #111111; box-shadow: inset 0 0 0 1px #333333; }
+html.dark .hero-btn-glass { background: #000000; box-shadow: inset 0 0 0 1px #333333; }
 
 /* Top bar and phone tab bar: black glass */
 html.dark .topbar { background: rgb(0 0 0 / 0.85) !important; border-color: #1f1f1f !important; }
-html.dark .tabbar { background: rgb(18 18 18 / 0.92) !important; border-color: #2e2e2e !important; }
+html.dark .tabbar { background: rgb(0 0 0 / 0.92) !important; border-color: #2e2e2e !important; }
 
 /* Things that must stay solid/white even in dark mode */
 html.dark .text-white { color: #fff; }

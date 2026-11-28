@@ -82,9 +82,6 @@ const plan = computed(() => {
   })
 })
 const extra = computed(() => Math.max(0, value.value - charged.value))
-const extraMonths = computed(() => (rent.value ? Math.floor(extra.value / rent.value) : 0))
-const debtMonths = computed(() => (total.value > charged.value ? Math.min(extraMonths.value, Math.round((total.value - charged.value) / rent.value)) : 0))
-const aheadMonths = computed(() => extraMonths.value - debtMonths.value)
 const balanceAfter = computed(() => Math.max(0, total.value - value.value))
 const tooMuch = computed(() => rent.value > 0 && extra.value > rent.value * 24)
 const noRent = computed(() => extra.value > 0 && !rent.value)
@@ -201,19 +198,11 @@ async function save() {
         <PaymentCoverage v-if="value && paidOn" :tenant="tenant" :dues="dues" :rent="rent" :amount="value" :pay-day="paidOn" :you="false" />
 
         <!-- Where the money goes -->
-        <div v-if="value && (plan.length || extraMonths)" class="overflow-hidden rounded-2xl ring-1 ring-slate-200">
+        <div v-if="value && (plan.some((x) => x.take) || balanceAfter)" class="overflow-hidden rounded-2xl ring-1 ring-slate-200">
           <ul class="divide-y divide-slate-100 text-sm">
             <li v-for="p in plan.filter((x) => x.take)" :key="p.id" class="flex items-center justify-between gap-3 px-3 py-2">
               <span class="text-slate-700">{{ formatPeriod(p.period) }}</span>
               <span class="text-xs font-medium" :class="p.after ? 'text-amber-700' : 'text-emerald-700'">+{{ formatUGX(p.take) }} · {{ p.after ? `${formatUGX(p.after)} left` : 'paid' }}</span>
-            </li>
-            <li v-if="debtMonths" class="flex items-center justify-between gap-3 px-3 py-2">
-              <span class="text-slate-700">Unpaid months paid</span>
-              <span class="text-xs font-medium text-emerald-700">{{ debtMonths }} month{{ debtMonths === 1 ? '' : 's' }}</span>
-            </li>
-            <li v-if="aheadMonths" class="flex items-center justify-between gap-3 bg-sky-50/60 px-3 py-2">
-              <span class="text-slate-700">Extra months paid</span>
-              <span class="text-xs font-medium text-sky-700">{{ aheadMonths }} month{{ aheadMonths === 1 ? '' : 's' }}</span>
             </li>
           </ul>
           <p v-if="balanceAfter" class="bg-slate-50 px-3 py-2 text-xs text-slate-600">They'll still owe <strong class="text-slate-900">{{ formatUGX(balanceAfter) }}</strong>.</p>

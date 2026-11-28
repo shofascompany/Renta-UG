@@ -2,7 +2,8 @@
 //   rent month = 30 days · part payments buy days · paid / part paid / not paid · receipt numbers
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { coverage, daysFor, addMonths, isoDay, nextCycle, rentCycle } from '../src/utils/rentCycle.js'
+import { coverage, coverageParts, debtSplit, durationText, daysFor, addMonths, isoDay, nextCycle, rentCycle } from '../src/utils/rentCycle.js'
+import { paymentOf, cashRecordOf } from '../src/utils/paymentGroups.js'
 import { payState } from '../src/utils/payState.js'
 import { timeLeft } from '../src/utils/format.js'
 import { daysLeftAt, rentEnds, subscriptionEnds, ugandaDay, moveDay, DAY_MS } from '../src/utils/exactTime.js'
@@ -47,6 +48,110 @@ test('coverage: first payment, months ahead, debt days, money already waiting', 
   const waiting = coverage({ tenant: { leaseEnd: '2026-12-01' }, dues: [], rent: 300000, amount: 150000, before: 300000, payDay: '2026-11-24' })
   assert.equal(waiting.from, '2026-12-31') // the waiting month is counted first
   assert.equal(waiting.days, 15)
+})
+
+test('debt days are paid first, only the rest is added (database/63)', () => {
+  const t = { leaseEnd: '2026-11-15' }
+  // 9 debt days on 24 Nov, one month paid: 9 days pay the debt, 21 are added
+  const one = coverage({ tenant: t, dues: [], rent: 300000, amount: 300000, payDay: '2026-11-24' })
+  assert.equal(one.debtDays, 9)
+  assert.deepEqual(debtSplit(one, t), { debtPaid: 9, added: 21, behind: 0, from: '2026-11-15', to: '2026-11-24' })
+  // less than the debt: all of it pays debt days, still 4 behind
+  const some = coverage({ tenant: t, dues: [], rent: 300000, amount: 50000, payDay: '2026-11-24' })
+  assert.deepEqual(debtSplit(some, t), { debtPaid: 5, added: 0, behind: 4, from: '2026-11-15', to: '2026-11-20' })
+  // money already waiting pays the debt: all this payment buys is added
+  const after = coverage({ tenant: t, dues: [], rent: 300000, amount: 300000, before: 300000, payDay: '2026-11-24' })
+  assert.deepEqual(debtSplit(after, t), { debtPaid: 0, added: 30, behind: 0, from: null, to: null })
+  // no debt, and a first payment: everything is added
+  const fine = coverage({ tenant: { leaseEnd: '2026-12-15' }, dues: [], rent: 300000, amount: 300000, payDay: '2026-11-24' })
+  assert.deepEqual(debtSplit(fine, { leaseEnd: '2026-12-15' }), { debtPaid: 0, added: 30, behind: 0, from: null, to: null })
+  assert.equal(debtSplit(coverage({ tenant: { leaseEnd: null }, rent: 300000, amount: 300000, payDay: '2026-11-24' }), { leaseEnd: null }).added, 30)
+  // whatever is paid, the days always add up
+  for (let amount = 10000; amount <= 900000; amount += 10000) {
+    const c = coverage({ tenant: t, dues: [], rent: 300000, amount, payDay: '2026-11-24' })
+    const s = debtSplit(c, t)
+    assert.equal(s.debtPaid + s.added, c.days, `${amount}`)
+    assert.equal(s.debtPaid + s.behind, c.debtDays, `${amount}`)
+  }
+})
+
+test('one payment = every receipt saved together (the rule reversing uses)', () => {
+  const at = '2026-11-20T12:00:00+00:00'
+  const made = '2026-11-20T15:31:02.123456+00:00'
+  const r = (id, paymentId, amount, o = {}) => ({ id, paymentId, tenantId: 't', landlordId: 'l', amount, method: 'Cash', receivedAt: at, createdAt: made, ...o })
+  const receipts = [
+    r('r1', 'dec', 300000),
+    r('r2', 'nov', 300000),
+    r('r3', 'jan', 150000, { reference: 'X1' }),
+    r('r4', 'jan', 150000, { createdAt: '2026-11-21T08:00:00+00:00' }), // another payment on the same day
+    r('r5', 'nov', 300000, { tenantId: 'u' }), // another tenant
+  ]
+  const period = { nov: '2026-11', dec: '2026-12', jan: '2027-01' }
+  const p = paymentOf(receipts, 'r1', (id) => period[id])
+  assert.deepEqual(p.receipts.map((x) => x.id), ['r2', 'r1', 'r3']) // earliest month first
+  assert.equal(p.total, 750000)
+  assert.equal(p.id, 'r2')
+  assert.equal(p.reference, 'X1')
+  assert.equal(paymentOf(receipts, 'r4').total, 150000)
+  assert.equal(paymentOf(receipts, 'nope'), null)
+  // Its cash record: confirmed in that same moment (the same instant, however it is written)
+  const cash = [{ id: 'c0', tenantId: 't', reviewedAt: '2026-11-19T10:00:00+00:00' }, { id: 'c1', tenantId: 't', reviewedAt: '2026-11-20T18:31:02.123+03:00' }]
+  assert.equal(cashRecordOf(p, cash)?.id, 'c1')
+  assert.equal(cashRecordOf(paymentOf(receipts, 'r4'), cash), null)
+})
+
+test('a payment, piece by piece, with its dates', () => {
+  const row = (p) => [p.from, p.to, p.days, p.kind]
+  // more than a month: whole months, then the days the rest buys
+  assert.deepEqual(coverageParts({ tenant: { leaseEnd: '2026-11-25' }, rent: 300000, amount: 750000, payDay: '2026-11-20' }).map(row), [
+    ['2026-11-25', '2026-12-25', 30, 'month'],
+    ['2026-12-25', '2027-01-24', 30, 'month'],
+    ['2027-01-24', '2027-02-08', 15, 'part'],
+  ])
+  assert.equal(durationText(75), '2 months and 15 days')
+  assert.equal(durationText(30), '1 month')
+  assert.equal(durationText(61), '2 months and 1 day')
+  assert.equal(durationText(1), '1 day')
+  assert.equal(durationText(0), '0 days')
+  // an unpaid month first: only what is left of it (it had given 10 days), then a whole month
+  const half = [{ ...charge({ amountPaid: 100000, creditedDays: 10 }), period: '2026-11' }]
+  assert.deepEqual(coverageParts({ tenant: { leaseEnd: '2026-11-10' }, dues: half, rent: 300000, amount: 500000, payDay: '2026-11-20' }).map((p) => [...row(p), p.whole ?? null]), [
+    ['2026-11-10', '2026-11-30', 20, 'due', true],
+    ['2026-11-30', '2026-12-30', 30, 'month', null],
+  ])
+  // money already waiting comes first: this payment completes that month, then buys 15 days
+  assert.deepEqual(coverageParts({ tenant: { leaseEnd: '2026-11-25' }, rent: 300000, amount: 300000, before: 150000, payDay: '2026-11-20' }).map((p) => [...row(p), p.cut]), [
+    ['2026-12-10', '2026-12-25', 15, 'month', true],
+    ['2026-12-25', '2027-01-09', 15, 'part', false],
+  ])
+  // time that had already run out is marked
+  assert.deepEqual(coverageParts({ tenant: { leaseEnd: '2026-09-16' }, rent: 300000, amount: 900000, payDay: '2026-11-25' }).map((p) => p.passed), [true, true, false])
+  // a first payment starts on the pay day
+  assert.deepEqual(coverageParts({ tenant: { leaseEnd: null }, rent: 300000, amount: 450000, payDay: '2026-11-27' }).map(row), [
+    ['2026-11-27', '2026-12-27', 30, 'month'],
+    ['2026-12-27', '2027-01-11', 15, 'part'],
+  ])
+})
+
+test('the pieces always add up to exactly what coverage() says', () => {
+  let n = 0
+  const dueSets = [[], [charge()], [charge({ amountPaid: 150000, creditedDays: 15 })], [charge({ amountPaid: 200000, monthCredited: true })], [charge({ amountPaid: 50000, creditedDays: 5 }), charge({ dueDate: '2027-01-01' })]]
+  for (const leaseEnd of [null, '2026-11-25', '2026-09-01'])
+    for (const dues of dueSets)
+      for (const amount of [0, 5000, 100000, 299999, 300000, 450000, 750000, 1000000])
+        for (const before of [0, 150000, 300000]) {
+          const a = { tenant: { leaseEnd }, dues, rent: 300000, amount, before, payDay: '2026-11-25' }
+          const c = coverage(a)
+          const parts = coverageParts(a)
+          assert.equal(parts.reduce((s, p) => s + p.days, 0), c.days, JSON.stringify(a))
+          if (parts.length) {
+            assert.equal(parts[0].from, c.from, JSON.stringify(a))
+            assert.equal(parts.at(-1).to, c.end, JSON.stringify(a))
+            parts.forEach((p, i) => i && assert.equal(p.from, parts[i - 1].to))
+          } else assert.equal(c.days, 0)
+          n++
+        }
+  assert.ok(n > 300)
 })
 
 test('coverage: a month already credited (old 60% rule) gives no extra days', () => {

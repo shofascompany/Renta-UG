@@ -217,9 +217,14 @@ const isActive = (item) =>
   item.exact ? route.path === item.to : [item.to, ...(item.also ?? [])].some((p) => route.path.startsWith(p))
 
 // Everyone: top bar + floating bottom tab bar on phones. Landlords and the main admin also get the side
-// menu (always open on computers; on phones the logo opens it).
+// menu (always open on computers; on phones the logo opens it). Tenants on a computer: the logo opens their
+// side menu, which slides in from the left over the page.
 const topNav = computed(() => auth.isTenant || auth.isLandlord || auth.isSuperadmin)
 const hasSide = computed(() => auth.isLandlord || auth.isSuperadmin)
+const tenantSide = computed(() => auth.isTenant && !unlinked.value)
+const closeOnEscape = (e) => e.key === 'Escape' && mobileOpen.value && (mobileOpen.value = false)
+onMounted(() => window.addEventListener('keydown', closeOnEscape))
+onBeforeUnmount(() => window.removeEventListener('keydown', closeOnEscape))
 const settingsTab = computed(() => ({ to: settingsPath.value, label: 'Settings', icon: Settings, active: onSettings.value }))
 const withActive = (items) => items.map((item) => ({ ...item, active: isActive(item) }))
 
@@ -294,9 +299,23 @@ const logout = useSignOut()
         >
           <Logo :link="false" />
         </button>
-        <RouterLink v-else :to="auth.home" aria-label="Home" class="flex items-center gap-2.5">
-          <Logo :link="false" />
-        </RouterLink>
+        <template v-else>
+          <!-- Tenants on a computer: the logo opens the side menu (phones: it goes home, the tabs are below) -->
+          <button
+            v-if="tenantSide"
+            type="button"
+            class="hidden items-center rounded-xl lg:flex"
+            aria-label="Open menu"
+            data-tenant-menu
+            :aria-expanded="mobileOpen"
+            @click="mobileOpen = true"
+          >
+            <Logo :link="false" />
+          </button>
+          <RouterLink :to="auth.home" aria-label="Home" class="flex items-center gap-2.5" :class="tenantSide && 'lg:hidden'">
+            <Logo :link="false" />
+          </RouterLink>
+        </template>
 
         <nav v-if="topLinks.length" class="hidden items-center gap-0.5 lg:flex" aria-label="Main">
           <RouterLink
@@ -349,23 +368,31 @@ const logout = useSignOut()
 
     <!-- Mobile overlay -->
     <Transition name="fade">
-      <div v-if="mobileOpen && !auth.isTenant" class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]" :class="!setupMode && 'lg:hidden'" @click="mobileOpen = false" />
+      <div
+        v-if="mobileOpen && (!auth.isTenant || tenantSide)"
+        class="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
+        :class="[!setupMode && !auth.isTenant && 'lg:hidden', auth.isTenant && 'max-lg:hidden']"
+        @click="mobileOpen = false"
+      />
     </Transition>
 
-    <!-- Sidebar: always on computers; on phones it slides in when the logo is tapped -->
+    <!-- Sidebar: landlords and the main admin: always on computers, on phones it slides in when the logo is tapped.
+         Tenants: computers only, it slides in when the logo is clicked. -->
     <aside
-      v-if="!auth.isTenant"
+      v-if="!auth.isTenant || tenantSide"
       class="side fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[85vw] flex-col border-r lg:w-64"
       :class="[
         mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
-        setupMode ? 'side-slide' : 'lg:translate-x-0',
+        setupMode || auth.isTenant ? 'side-slide' : 'lg:translate-x-0',
         auth.isSuperadmin ? 'side-admin border-transparent' : 'border-slate-200 bg-white',
+        auth.isTenant && 'max-lg:hidden',
       ]"
-      :inert="setupMode && !mobileOpen"
+      :inert="(setupMode || auth.isTenant) && !mobileOpen"
+      :data-tenant-side="auth.isTenant || undefined"
     >
       <div class="side-head flex h-16 shrink-0 items-center justify-between px-5">
         <RouterLink :to="auth.home" aria-label="Overview" class="rounded-lg"><Logo :link="false" /></RouterLink>
-        <button class="btn-ghost -mr-2 px-2" :class="!setupMode && 'lg:hidden'" aria-label="Close menu" @click="mobileOpen = false">
+        <button class="btn-ghost -mr-2 px-2" :class="!setupMode && !auth.isTenant && 'lg:hidden'" aria-label="Close menu" @click="mobileOpen = false">
           <X class="size-5" />
         </button>
       </div>
@@ -373,6 +400,10 @@ const logout = useSignOut()
       <p class="px-5 pt-2 pb-2 text-xs font-medium tracking-wide text-slate-400 uppercase">
         {{ roleLabel }}
       </p>
+      <!-- Tenants: paying is the one thing they come for -->
+      <div v-if="auth.isTenant" class="px-3 pb-2">
+        <RouterLink to="/tenant/pay" class="side-pay flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold"><CreditCard class="size-4" /> Pay rent</RouterLink>
+      </div>
 
       <nav class="flex-1 space-y-0.5 overflow-y-auto px-3 pb-2">
         <template v-for="(item, i) in nav" :key="item.to">
@@ -550,6 +581,8 @@ const logout = useSignOut()
 .side-admin .btn-ghost:hover { background: rgb(var(--glass) / 0.08); color: #fff; }
 .side-admin .bg-brand-50 { background: rgb(var(--glass) / 0.12); }
 .side-admin .text-brand-700 { color: #5eead4; }
+.side-pay { --color-white: #fff; color: #fff; background: linear-gradient(135deg, #14918a, #0f766e 60%, #0a3b38); box-shadow: 0 8px 18px -10px rgb(15 118 110 / 0.8); }
+.side-pay:active { transform: scale(0.98); }
 /* soft brand tint behind the logo */
 .side-head {
   background: linear-gradient(120deg, var(--color-brand-50), transparent 75%);
@@ -613,7 +646,7 @@ html.dark .setup-bar { background: rgb(0 0 0 / 0.85); box-shadow: inset 0 -1px 0
 html.dark .console-bg,
 html.dark .app-root { background: transparent; }
 /* Side menu (landlords): a dark panel with a hairline edge */
-html.dark .side:not(.side-admin) { background: #0b0b0b; border-color: rgb(var(--glass) / 0.08); }
+html.dark .side:not(.side-admin) { background: #000000; border-color: rgb(var(--glass) / 0.08); }
 
 /* Subscription banner */
 .sub-banner { transition: transform 0.15s ease, box-shadow 0.15s ease; }
